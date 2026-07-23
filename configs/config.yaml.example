@@ -1,0 +1,53 @@
+# 应用配置
+app:
+  name: "qavor-api"
+  version: "1.0.0"
+  mode: "debug"  # debug, release, test
+  port: 8080
+
+# 数据库配置
+database:
+  mysql:
+    host: "localhost"
+    port: 3306
+    username: "root"
+    password: ""
+    database: "qavor"
+    max_idle_conns: 10
+    max_open_conns: 100
+  redis:
+    host: "192.168.10.4"
+    port: 6379
+    password: "123456"
+    db: 5
+    pool_size: 10
+
+# JWT 配置
+jwt:
+  secret: "your-jwt-secret-key-change-in-production"
+  expire_hours: 24
+
+# 日志配置
+log:
+  level: "debug"  # debug, info, warn, error
+  filename: "logs/app.log"
+  max_size: 100    # MB
+  max_backups: 3   # 保留旧文件的最大个数
+  max_age: 28      # 保留旧文件的最大天数
+  compress: true   # 是否压缩
+
+# CORS 配置
+cors:
+  enabled: true
+  allow_origins:
+    - "*"
+  allow_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allow_headers:
+    - "Origin"
+    - "Content-Type"
+    - "Authorization"
