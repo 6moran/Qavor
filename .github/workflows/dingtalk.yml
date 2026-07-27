@@ -3,27 +3,25 @@ name: DingTalk Notify
 on:
   push:
     branches:
+      - develop
       - main
       - master
-      - develop
+      - test
 
 jobs:
   notify:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Send DingTalk Notification
+      - name: Test DingTalk
         env:
           WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
         run: |
           curl -X POST "$WEBHOOK" \
             -H "Content-Type: application/json" \
-            -d @- <<EOF
-          {
-            "msgtype": "markdown",
-            "markdown": {
-              "title": "GitHub 提交通知",
-              "text": "## 🚀 GitHub 提交通知\n\n> **提交人：** ${{ github.actor }}\n\n> **仓库：** ${{ github.repository }}\n\n> **分支：** ${{ github.ref_name }}\n\n> **提交信息：** ${{ github.event.head_commit.message }}\n\n> **Commit：** ${{ github.sha }}\n\n> **查看提交：** ${{ github.event.head_commit.url }}"
-            }
-          }
-          EOF
+            -d '{
+              "msgtype":"text",
+              "text":{
+                "content":"GitHub 测试"
+              }
+            }'
