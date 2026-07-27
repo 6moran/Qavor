@@ -17,7 +17,7 @@
 
 - **Web 框架**: Gin v1.9.1
 - **ORM**: GORM v1.25.5
-- **数据库**: MySQL 8.0+
+- **数据库**: PostgreSQL 15.0+
 - **缓存**: Redis
 - **配置管理**: Viper
 - **日志**: Zap + Lumberjack
@@ -74,7 +74,7 @@ Qavor/
 ### 前置要求
 
 - Go 1.21+
-- MySQL 8.0+
+- PostgreSQL 15.0+
 - Redis 6.0+
 
 ### 安装步骤
@@ -95,12 +95,12 @@ go mod tidy
 # config.yaml.example重命名 config.yaml
 # 编辑 configs/config.yaml，修改数据库连接信息
 # 或使用环境变量覆盖
-export MYSQL_PASSWORD=your_password
+export POSTGRES_PASSWORD=your_password
 ```
 
 4. 创建数据库
 ```bash
-mysql -u root -p < scripts/migrate.sql
+psql -U postgres -d qavor -f scripts/migrate.sql
 ```
 
 5. 运行项目
@@ -118,13 +118,14 @@ make run
 配置文件位于 `configs/config.yaml`，主要配置项：
 
 - `app`: 应用配置（名称、版本、端口）
-- `database`: 数据库配置（MySQL、Redis）
+- `database`: 数据库配置（PostgreSQL、Redis）
 - `jwt`: JWT 认证配置
 - `log`: 日志配置
 - `cors`: 跨域配置
 
 支持通过环境变量覆盖敏感配置：
-- `MYSQL_PASSWORD`
+
+- `POSTGRES_PASSWORD`
 - `REDIS_PASSWORD`
 - `JWT_SECRET`
 

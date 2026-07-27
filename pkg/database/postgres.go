@@ -7,30 +7,29 @@ import (
 	"Qavor/pkg/config"
 	"Qavor/pkg/logger"
 	"go.uber.org/zap"
-	"gorm.io/driver/mysql"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
 
-var mysqlDB *gorm.DB
+var postgresDB *gorm.DB
 
-// InitMySQL 初始化 MySQL 连接
-func InitMySQL(cfg *config.MySQLConfig) (*gorm.DB, error) {
+// InitPostgres 初始化 PostgreSQL 连接
+func InitPostgres(cfg *config.PostgresConfig) (*gorm.DB, error) {
 	// 构建 DSN
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%d sslmode=%s TimeZone=Asia/Shanghai",
+		cfg.Host,
 		cfg.Username,
 		cfg.Password,
-		cfg.Host,
-		cfg.Port,
 		cfg.Database,
+		cfg.Port,
+		cfg.SSLMode,
 	)
 
 	// GORM 配置
 	gormConfig := &gorm.Config{
-		// 禁用外键约束
 		DisableForeignKeyConstraintWhenMigrating: true,
-		// 跳过默认事务
-		SkipDefaultTransaction: true,
+		SkipDefaultTransaction:                   true,
 	}
 
 	// 根据应用模式设置日志级别
@@ -41,10 +40,10 @@ func InitMySQL(cfg *config.MySQLConfig) (*gorm.DB, error) {
 	}
 
 	// 连接数据库
-	db, err := gorm.Open(mysql.Open(dsn), gormConfig)
+	db, err := gorm.Open(postgres.Open(dsn), gormConfig)
 	if err != nil {
-		logger.Error("MySQL 连接失败", zap.Error(err))
-		return nil, fmt.Errorf("MySQL 连接失败: %w", err)
+		logger.Error("PostgreSQL 连接失败", zap.Error(err))
+		return nil, fmt.Errorf("PostgreSQL 连接失败: %w", err)
 	}
 
 	// 获取底层 sql.DB
@@ -61,12 +60,12 @@ func InitMySQL(cfg *config.MySQLConfig) (*gorm.DB, error) {
 
 	// 测试连接
 	if err := sqlDB.Ping(); err != nil {
-		logger.Error("MySQL Ping 失败", zap.Error(err))
-		return nil, fmt.Errorf("MySQL Ping 失败: %w", err)
+		logger.Error("PostgreSQL Ping 失败", zap.Error(err))
+		return nil, fmt.Errorf("PostgreSQL Ping 失败: %w", err)
 	}
 
-	mysqlDB = db
-	logger.Info("MySQL 连接成功",
+	postgresDB = db
+	logger.Info("PostgreSQL 连接成功",
 		zap.String("host", cfg.Host),
 		zap.Int("port", cfg.Port),
 		zap.String("database", cfg.Database),
@@ -75,18 +74,18 @@ func InitMySQL(cfg *config.MySQLConfig) (*gorm.DB, error) {
 	return db, nil
 }
 
-// GetMySQL 获取 MySQL 实例
-func GetMySQL() *gorm.DB {
-	if mysqlDB == nil {
-		panic("MySQL 未初始化")
+// GetPostgres 获取 PostgreSQL 实例
+func GetPostgres() *gorm.DB {
+	if postgresDB == nil {
+		panic("PostgreSQL 未初始化")
 	}
-	return mysqlDB
+	return postgresDB
 }
 
-// CloseMySQL 关闭 MySQL 连接
-func CloseMySQL() error {
-	if mysqlDB != nil {
-		sqlDB, err := mysqlDB.DB()
+// ClosePostgres 关闭 PostgreSQL 连接
+func ClosePostgres() error {
+	if postgresDB != nil {
+		sqlDB, err := postgresDB.DB()
 		if err != nil {
 			return err
 		}
