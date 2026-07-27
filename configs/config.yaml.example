@@ -29,6 +29,12 @@ database:
     bucket: "qavor"
     use_ssl: false
     region: ""
+    public_endpoint: "http://localhost:9000"  # 对外访问地址，拼接返回给前端的文件 URL
+    max_file_size: 52428800                   # 最大文件大小（字节），默认 50MB
+    allowed_types:                            # 允许的 MIME 类型，空列表=不限制
+      # - "image/*"
+      # - "application/pdf"
+      # - "text/*"
 
 # JWT 配置
 jwt:

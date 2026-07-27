@@ -16,6 +16,7 @@ import (
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
 	"Qavor/pkg/logger"
+	"Qavor/pkg/minio"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -54,13 +55,18 @@ func (a *App) Initialize() error {
 		return err
 	}
 
-	// 4. 初始化依赖
+	// 4. 初始化 MinIO（可选）
+	if err := a.initMinIO(); err != nil {
+		logger.Warn("MinIO 初始化失败，文件上传功能将不可用", zap.Error(err))
+	}
+
+	// 5. 初始化依赖
 	a.initDependencies()
 
-	// 5. 初始化路由
+	// 6. 初始化路由
 	a.initRouter()
 
-	// 6. 初始化服务器
+	// 7. 初始化服务器
 	a.initServer()
 
 	return nil
@@ -140,6 +146,14 @@ func (a *App) initDatabase() error {
 	return nil
 }
 
+// initMinIO 初始化 MinIO 存储
+func (a *App) initMinIO() error {
+	if err := minio.Init(&a.cfg.Database.MinIO); err != nil {
+		return fmt.Errorf("MinIO 初始化失败: %w", err)
+	}
+	return nil
+}
+
 // initDependencies 初始化依赖注入
 func (a *App) initDependencies() {
 	// 创建 Repository
@@ -212,6 +226,9 @@ func (a *App) gracefulShutdown() {
 	// 关闭数据库连接
 	_ = database.ClosePostgres()
 	_ = database.CloseRedis()
+
+	// 关闭 MinIO
+	_ = minio.Close()
 
 	// 同步日志
 	_ = logger.Sync()

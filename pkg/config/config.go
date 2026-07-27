@@ -40,12 +40,15 @@ type PostgresConfig struct {
 
 // MinIOConfig MinIO 配置
 type MinIOConfig struct {
-	Endpoint  string `mapstructure:"endpoint"`
-	AccessKey string `mapstructure:"access_key"`
-	SecretKey string `mapstructure:"secret_key"`
-	Bucket    string `mapstructure:"bucket"`
-	UseSSL    bool   `mapstructure:"use_ssl"`
-	Region    string `mapstructure:"region"`
+	Endpoint       string   `mapstructure:"endpoint"`
+	AccessKey      string   `mapstructure:"access_key"`
+	SecretKey      string   `mapstructure:"secret_key"`
+	Bucket         string   `mapstructure:"bucket"`
+	UseSSL         bool     `mapstructure:"use_ssl"`
+	Region         string   `mapstructure:"region"`
+	PublicEndpoint string   `mapstructure:"public_endpoint"` // 对外访问地址，如 https://cdn.example.com
+	MaxFileSize    int64    `mapstructure:"max_file_size"`   // 最大文件大小(bytes)，默认 50MB
+	AllowedTypes   []string `mapstructure:"allowed_types"`   // 允许的 MIME 类型，空=不限制
 }
 
 // RedisConfig Redis 配置

@@ -18,6 +18,14 @@ func atoiOrDefault(s string, defaultVal int) int {
 	return defaultVal
 }
 
+// atoi64OrDefault 将字符串转换为 int64，失败时返回默认值
+func atoi64OrDefault(s string, defaultVal int64) int64 {
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v
+	}
+	return defaultVal
+}
+
 var globalConfig *Config
 
 // Load 加载配置文件
@@ -105,6 +113,12 @@ func Load(configPath string) (*Config, error) {
 	}
 	if val := os.Getenv("MINIO_REGION"); val != "" {
 		config.Database.MinIO.Region = val
+	}
+	if val := os.Getenv("MINIO_PUBLIC_ENDPOINT"); val != "" {
+		config.Database.MinIO.PublicEndpoint = val
+	}
+	if val := os.Getenv("MINIO_MAX_FILE_SIZE"); val != "" {
+		config.Database.MinIO.MaxFileSize = atoi64OrDefault(val, config.Database.MinIO.MaxFileSize)
 	}
 	if val := os.Getenv("JWT_SECRET"); val != "" {
 		config.JWT.Secret = val
