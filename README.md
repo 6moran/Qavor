@@ -1,4 +1,4 @@
-# Qavor API
+# Qavor
 
 基于 Go 语言和 Gin 框架构建的标准三层 MVC 架构后端项目基础框架。
 
