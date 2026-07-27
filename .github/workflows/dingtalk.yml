@@ -13,6 +13,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Send message
+      - name: Send DingTalk
+        env:
+          WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
         run: |
-          echo "Hello GitHub Actions"
+          curl -X POST "$WEBHOOK" \
+            -H "Content-Type: application/json" \
+            --data '{"msgtype":"text","text":{"content":"GitHub测试"}}'
