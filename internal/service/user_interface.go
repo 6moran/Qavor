@@ -12,12 +12,12 @@ import (
 type UserService interface {
 	// Register 用户注册
 	Register(req *request.RegisterRequest) error
-	// GetUserByID 根据 ID 获取用户
-	GetUserByID(id uint) (*entity.User, error)
+	// GetUserByUID 根据 UID 获取用户
+	GetUserByUID(uid string) (*entity.User, error)
 	// UpdateUser 更新用户信息
-	UpdateUser(id uint, req *request.UpdateUserRequest) error
+	UpdateUser(uid string, req *request.UpdateUserRequest) error
 	// ChangePassword 修改密码
-	ChangePassword(id uint, req *request.ChangePasswordRequest) error
+	ChangePassword(uid string, req *request.ChangePasswordRequest) error
 	// GetUserResponse 获取用户响应
 	GetUserResponse(user *entity.User) *dto.UserResponse
 	// ListUsers 分页获取用户列表

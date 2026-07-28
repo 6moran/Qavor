@@ -5,8 +5,10 @@ import (
 	dto "Qavor/internal/model/dto/response"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
-	"Qavor/pkg/response"
+	"Qavor/pkg/errors"
 	bizerrors "Qavor/pkg/errors"
+	"Qavor/pkg/response"
+	"Qavor/pkg/utils"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,24 +25,23 @@ func NewUserService(userRepo repository.UserRepository) UserService {
 }
 
 // Register 用户注册
+// 自动生成 UID，格式为: usr_<UUID>
 func (s *userService) Register(req *request.RegisterRequest) error {
-	// 检查用户名是否存在
-	exists, err := s.userRepo.ExistsByUsername(req.Username)
+	// 检查邮箱是否存在
+	exists, err := s.userRepo.ExistsByEmail(req.Email)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return bizerrors.ErrUserAlreadyExists
+		return bizerrors.New(errors.CodeUserAlreadyExists, "邮箱已被注册")
 	}
 
-	// 检查邮箱是否存在
-	exists, err = s.userRepo.ExistsByEmail(req.Email)
+	// 生成 UUID 并构建 UID
+	uuid, err := utils.GenerateUUID()
 	if err != nil {
-		return err
+		return bizerrors.New(errors.CodeInternalError, "生成用户标识失败")
 	}
-	if exists {
-		return bizerrors.New(bizerrors.CodeUserAlreadyExists, "邮箱已被注册")
-	}
+	uid := "usr_" + uuid
 
 	// 加密密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -50,11 +51,12 @@ func (s *userService) Register(req *request.RegisterRequest) error {
 
 	// 创建用户
 	user := &entity.User{
-		Username: req.Username,
+		Nickname: req.Nickname,
+		UID:      uid,
 		Password: string(hashedPassword),
 		Email:    req.Email,
-		Nickname: req.Nickname,
-		Status:   1, // 默认正常
+		Status:   1,      // 默认正常
+		Role:     "user", // 默认角色
 	}
 
 	if err := s.userRepo.Create(user); err != nil {
@@ -64,9 +66,9 @@ func (s *userService) Register(req *request.RegisterRequest) error {
 	return nil
 }
 
-// GetUserByID 根据 ID 获取用户
-func (s *userService) GetUserByID(id uint) (*entity.User, error) {
-	user, err := s.userRepo.FindByID(id)
+// GetUserByUID 根据 UID 获取用户
+func (s *userService) GetUserByUID(uid string) (*entity.User, error) {
+	user, err := s.userRepo.FindByUID(uid)
 	if err != nil {
 		return nil, err
 	}
@@ -77,16 +79,13 @@ func (s *userService) GetUserByID(id uint) (*entity.User, error) {
 }
 
 // UpdateUser 更新用户信息
-func (s *userService) UpdateUser(id uint, req *request.UpdateUserRequest) error {
-	user, err := s.GetUserByID(id)
+func (s *userService) UpdateUser(uid string, req *request.UpdateUserRequest) error {
+	user, err := s.GetUserByUID(uid)
 	if err != nil {
 		return err
 	}
 
 	// 更新字段
-	if req.Nickname != "" {
-		user.Nickname = req.Nickname
-	}
 	if req.Avatar != "" {
 		user.Avatar = req.Avatar
 	}
@@ -95,8 +94,8 @@ func (s *userService) UpdateUser(id uint, req *request.UpdateUserRequest) error 
 }
 
 // ChangePassword 修改密码
-func (s *userService) ChangePassword(id uint, req *request.ChangePasswordRequest) error {
-	user, err := s.GetUserByID(id)
+func (s *userService) ChangePassword(uid string, req *request.ChangePasswordRequest) error {
+	user, err := s.GetUserByUID(uid)
 	if err != nil {
 		return err
 	}
@@ -119,10 +118,9 @@ func (s *userService) ChangePassword(id uint, req *request.ChangePasswordRequest
 // GetUserResponse 获取用户响应
 func (s *userService) GetUserResponse(user *entity.User) *dto.UserResponse {
 	return &dto.UserResponse{
-		ID:        user.ID,
-		Username:  user.Username,
-		Email:     user.Email,
 		Nickname:  user.Nickname,
+		UID:       user.UID,
+		Email:     user.Email,
 		Avatar:    user.Avatar,
 		Status:    user.Status,
 		CreatedAt: user.CreatedAt,

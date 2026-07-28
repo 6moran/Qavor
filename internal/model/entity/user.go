@@ -7,10 +7,9 @@ import (
 // User 用户实体
 type User struct {
 	BaseEntity
-	Username         string     `gorm:"type:varchar(100);uniqueIndex;not null;comment:用户显示名称" json:"username"`
-	UID              string     `gorm:"type:varchar(100);uniqueIndex;not null;comment:用户登录标识" json:"uid"`
-	Email            string     `gorm:"type:varchar(100);uniqueIndex;comment:邮箱" json:"email,omitempty"`
-	Nickname         string     `gorm:"type:varchar(50);comment:昵称" json:"nickname,omitempty"`
+	Nickname         string     `gorm:"type:varchar(100);not null;comment:昵称（用于显示）" json:"nickname"`
+	UID              string     `gorm:"type:varchar(100);uniqueIndex;not null;comment:用户唯一标识（系统生成）" json:"uid"`
+	Email            string     `gorm:"type:varchar(100);uniqueIndex;not null;comment:邮箱（用于登录）" json:"email"`
 	PhoneNumber      string     `gorm:"type:varchar(20);uniqueIndex;comment:手机号" json:"phone_number,omitempty"`
 	Avatar           string     `gorm:"type:varchar(255);comment:头像URL" json:"avatar,omitempty"`
 	Password         string     `gorm:"type:varchar(255);not null;comment:密码哈希" json:"-"`

@@ -5,6 +5,7 @@ import (
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
+	"Qavor/pkg/validator"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,13 +32,13 @@ func NewController(userService service.UserService) *Controller {
 // @Success 200 {object} response.Response
 // @Router /api/v1/user/profile [get]
 func (ctrl *Controller) GetProfile(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	if userID == 0 {
+	uid := middleware.GetUID(c)
+	if uid == "" {
 		response.Unauthorized(c, "用户未登录")
 		return
 	}
 
-	user, err := ctrl.userService.GetUserByID(userID)
+	user, err := ctrl.userService.GetUserByUID(uid)
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -58,19 +59,20 @@ func (ctrl *Controller) GetProfile(c *gin.Context) {
 // @Success 200 {object} response.Response
 // @Router /api/v1/user/profile [put]
 func (ctrl *Controller) UpdateProfile(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	if userID == 0 {
+	uid := middleware.GetUID(c)
+	if uid == "" {
 		response.Unauthorized(c, "用户未登录")
 		return
 	}
 
 	var req request.UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		code, message := validator.ErrorHandler(err)
+		response.Error(c, code, message)
 		return
 	}
 
-	if err := ctrl.userService.UpdateUser(userID, &req); err != nil {
+	if err := ctrl.userService.UpdateUser(uid, &req); err != nil {
 		response.BizError(c, err)
 		return
 	}
@@ -89,19 +91,20 @@ func (ctrl *Controller) UpdateProfile(c *gin.Context) {
 // @Success 200 {object} response.Response
 // @Router /api/v1/user/password [post]
 func (ctrl *Controller) ChangePassword(c *gin.Context) {
-	userID := middleware.GetUserID(c)
-	if userID == 0 {
+	uid := middleware.GetUID(c)
+	if uid == "" {
 		response.Unauthorized(c, "用户未登录")
 		return
 	}
 
 	var req request.ChangePasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		code, message := validator.ErrorHandler(err)
+		response.Error(c, code, message)
 		return
 	}
 
-	if err := ctrl.userService.ChangePassword(userID, &req); err != nil {
+	if err := ctrl.userService.ChangePassword(uid, &req); err != nil {
 		response.BizError(c, err)
 		return
 	}
@@ -123,7 +126,8 @@ func (ctrl *Controller) ChangePassword(c *gin.Context) {
 func (ctrl *Controller) ListUsers(c *gin.Context) {
 	var req request.UserListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		code, message := validator.ErrorHandler(err)
+		response.Error(c, code, message)
 		return
 	}
 
