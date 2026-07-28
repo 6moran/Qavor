@@ -9,6 +9,7 @@ type Config struct {
 	JWT      JWTConfig      `mapstructure:"jwt"`
 	Log      LogConfig      `mapstructure:"log"`
 	CORS     CORSConfig     `mapstructure:"cors"`
+	Email    EmailConfig    `mapstructure:"email"`
 }
 
 // AppConfig 应用配置
@@ -21,9 +22,10 @@ type AppConfig struct {
 
 // DatabaseConfig 数据库配置
 type DatabaseConfig struct {
-	Redis    RedisConfig    `mapstructure:"redis"`
-	Postgres PostgresConfig `mapstructure:"postgres"`
-	MinIO    MinIOConfig    `mapstructure:"minio"`
+	Redis       RedisConfig    `mapstructure:"redis"`
+	Postgres    PostgresConfig `mapstructure:"postgres"`
+	MinIO       MinIOConfig    `mapstructure:"minio"`
+	AutoMigrate bool           `mapstructure:"auto_migrate"` // 是否自动迁移数据库
 }
 
 // PostgresConfig PostgreSQL 配置
@@ -59,8 +61,9 @@ type RedisConfig struct {
 
 // JWTConfig JWT 配置
 type JWTConfig struct {
-	Secret      string        `mapstructure:"secret"`
-	ExpireHours time.Duration `mapstructure:"expire_hours"`
+	Secret        string        `mapstructure:"secret"`         // JWT 密钥
+	AccessExpire  time.Duration `mapstructure:"access_expire"`  // 访问令牌过期时间（小时）
+	RefreshExpire time.Duration `mapstructure:"refresh_expire"` // 刷新令牌过期时间（小时）
 }
 
 // LogConfig 日志配置
@@ -82,4 +85,19 @@ type CORSConfig struct {
 	ExposeHeaders    []string `mapstructure:"expose_headers"`
 	AllowCredentials bool     `mapstructure:"allow_credentials"`
 	MaxAge           int      `mapstructure:"max_age"`
+}
+
+// EmailConfig 邮件配置
+type EmailConfig struct {
+	SMTP     SMTPConfig `mapstructure:"smtp"`
+	From     string     `mapstructure:"from"`      // 发件人邮箱
+	FromName string     `mapstructure:"from_name"` // 发件人名称
+}
+
+// SMTPConfig SMTP 配置
+type SMTPConfig struct {
+	Host     string `mapstructure:"host"`      // SMTP 服务器地址
+	Port     int    `mapstructure:"port"`      // SMTP 端口
+	Account  string `mapstructure:"account"`   // 邮箱账号
+	AuthCode string `mapstructure:"auth_code"` // 邮箱授权码（非登录密码）
 }

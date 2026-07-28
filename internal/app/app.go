@@ -15,6 +15,7 @@ import (
 	"Qavor/internal/service"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
+	"Qavor/pkg/email"
 	"Qavor/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -102,32 +103,36 @@ func (a *App) initDatabase() error {
 	}
 	a.postgresDB = postgresDB
 
-	// 自动迁移数据库表
-	logger.Info("开始数据库迁移...")
-	if err := a.postgresDB.AutoMigrate(
-		&entity.User{},
-		&entity.Agent{},
-		&entity.AgentEnv{},
-		&entity.Conversation{},
-		&entity.ConversationStats{},
-		&entity.Message{},
-		&entity.MessageFeedback{},
-		&entity.ToolCall{},
-		&entity.APIKey{},
-		&entity.OperationLog{},
-		&entity.AgentRun{},
-		&entity.SubagentThread{},
-		&entity.TaskRecord{},
-		&entity.ModelProvider{},
-		&entity.MCPServer{},
-		&entity.Skill{},
-		&entity.KnowledgeBase{},
-		&entity.KnowledgeFile{},
-		&entity.KnowledgeChunk{},
-	); err != nil {
-		logger.Warn("数据库迁移警告", zap.Error(err))
+	// 根据配置决定是否自动迁移数据库表
+	if a.cfg.Database.AutoMigrate {
+		logger.Info("开始数据库迁移...")
+		if err := a.postgresDB.AutoMigrate(
+			&entity.User{},
+			&entity.Agent{},
+			&entity.AgentEnv{},
+			&entity.Conversation{},
+			&entity.ConversationStats{},
+			&entity.Message{},
+			&entity.MessageFeedback{},
+			&entity.ToolCall{},
+			&entity.APIKey{},
+			&entity.OperationLog{},
+			&entity.AgentRun{},
+			&entity.SubagentThread{},
+			&entity.TaskRecord{},
+			&entity.ModelProvider{},
+			&entity.MCPServer{},
+			&entity.Skill{},
+			&entity.KnowledgeBase{},
+			&entity.KnowledgeFile{},
+			&entity.KnowledgeChunk{},
+		); err != nil {
+			logger.Warn("数据库迁移警告", zap.Error(err))
+		} else {
+			logger.Info("数据库迁移完成")
+		}
 	} else {
-		logger.Info("数据库迁移完成")
+		logger.Info("数据库自动迁移已禁用，跳过迁移步骤")
 	}
 
 	// 初始化 Redis（可选）
@@ -145,9 +150,12 @@ func (a *App) initDependencies() {
 	// 创建 Repository
 	userRepo := repository.NewUserRepository(a.postgresDB)
 
+	// 创建邮件客户端
+	emailClient := email.NewSMTPClient(&a.cfg.Email)
+
 	// 创建 Service
 	userSvc := service.NewUserService(userRepo)
-	authSvc := service.NewAuthService(userRepo, userSvc)
+	authSvc := service.NewAuthService(userRepo, userSvc, emailClient)
 
 	// 创建 Router
 	a.router = api.NewRouter(userSvc, authSvc)

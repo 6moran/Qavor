@@ -31,10 +31,10 @@ func (r *userRepository) FindByID(id uint) (*entity.User, error) {
 	return &user, nil
 }
 
-// FindByUsername 根据用户名查找用户
-func (r *userRepository) FindByUsername(username string) (*entity.User, error) {
+// FindByUID 根据 UID 查找用户
+func (r *userRepository) FindByUID(uid string) (*entity.User, error) {
 	var user entity.User
-	err := r.db.Where("username = ?", username).First(&user).Error
+	err := r.db.Where("uid = ?", uid).First(&user).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -89,13 +89,6 @@ func (r *userRepository) List(offset, limit int) ([]*entity.User, int64, error) 
 	}
 
 	return users, total, nil
-}
-
-// ExistsByUsername 检查用户名是否存在
-func (r *userRepository) ExistsByUsername(username string) (bool, error) {
-	var count int64
-	err := r.db.Model(&entity.User{}).Where("username = ?", username).Count(&count).Error
-	return count > 0, err
 }
 
 // ExistsByEmail 检查邮箱是否存在
