@@ -29,13 +29,13 @@ const (
 // 返回:
 //   - string: 验证码字符串
 func GenerateResetCode() string {
-	min := 1
-	max := 9
+	Min := 1
+	Max := 9
 	for i := 1; i < ResetCodeLength; i++ {
-		min *= 10
-		max = max*10 + 9
+		Min *= 10
+		Max = Max*10 + 9
 	}
-	code := rand.Intn(max-min+1) + min
+	code := rand.Intn(Max-Min+1) + Min
 	return strconv.Itoa(code)
 }
 
