@@ -15,6 +15,7 @@ import (
 	"Qavor/internal/service"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
+	"Qavor/pkg/email"
 	"Qavor/pkg/logger"
 
 	"github.com/gin-gonic/gin"
@@ -25,11 +26,11 @@ import (
 
 // App 应用结构体
 type App struct {
-	cfg     *config.Config
-	mysqlDB *gorm.DB
-	redis   *redis.Client
-	router  *api.Router
-	server  *http.Server
+	cfg        *config.Config
+	postgresDB *gorm.DB
+	redis      *redis.Client
+	router     *api.Router
+	server     *http.Server
 }
 
 // NewApp 创建应用实例
@@ -95,21 +96,43 @@ func (a *App) initLogger() error {
 
 // initDatabase 初始化数据库
 func (a *App) initDatabase() error {
-	// 初始化 MySQL
-	mysqlDB, err := database.InitMySQL(&a.cfg.Database.MySQL)
+	// 初始化 PostgreSQL
+	postgresDB, err := database.InitPostgres(&a.cfg.Database.Postgres)
 	if err != nil {
-		return fmt.Errorf("MySQL 初始化失败: %w", err)
+		return fmt.Errorf("PostgreSQL 初始化失败: %w", err)
 	}
-	a.mysqlDB = mysqlDB
+	a.postgresDB = postgresDB
 
-	// 自动迁移数据库表
-	logger.Info("开始数据库迁移...")
-	if err := a.mysqlDB.AutoMigrate(
-		&entity.User{},
-	); err != nil {
-		logger.Warn("数据库迁移警告", zap.Error(err))
+	// 根据配置决定是否自动迁移数据库表
+	if a.cfg.Database.AutoMigrate {
+		logger.Info("开始数据库迁移...")
+		if err := a.postgresDB.AutoMigrate(
+			&entity.User{},
+			&entity.Agent{},
+			&entity.AgentEnv{},
+			&entity.Conversation{},
+			&entity.ConversationStats{},
+			&entity.Message{},
+			&entity.MessageFeedback{},
+			&entity.ToolCall{},
+			&entity.APIKey{},
+			&entity.OperationLog{},
+			&entity.AgentRun{},
+			&entity.SubagentThread{},
+			&entity.TaskRecord{},
+			&entity.ModelProvider{},
+			&entity.MCPServer{},
+			&entity.Skill{},
+			&entity.KnowledgeBase{},
+			&entity.KnowledgeFile{},
+			&entity.KnowledgeChunk{},
+		); err != nil {
+			logger.Warn("数据库迁移警告", zap.Error(err))
+		} else {
+			logger.Info("数据库迁移完成")
+		}
 	} else {
-		logger.Info("数据库迁移完成")
+		logger.Info("数据库自动迁移已禁用，跳过迁移步骤")
 	}
 
 	// 初始化 Redis（可选）
@@ -125,11 +148,14 @@ func (a *App) initDatabase() error {
 // initDependencies 初始化依赖注入
 func (a *App) initDependencies() {
 	// 创建 Repository
-	userRepo := repository.NewUserRepository(a.mysqlDB)
+	userRepo := repository.NewUserRepository(a.postgresDB)
+
+	// 创建邮件客户端
+	emailClient := email.NewSMTPClient(&a.cfg.Email)
 
 	// 创建 Service
 	userSvc := service.NewUserService(userRepo)
-	authSvc := service.NewAuthService(userRepo, userSvc)
+	authSvc := service.NewAuthService(userRepo, userSvc, emailClient)
 
 	// 创建 Router
 	a.router = api.NewRouter(userSvc, authSvc)
@@ -192,7 +218,7 @@ func (a *App) gracefulShutdown() {
 	}
 
 	// 关闭数据库连接
-	_ = database.CloseMySQL()
+	_ = database.ClosePostgres()
 	_ = database.CloseRedis()
 
 	// 同步日志

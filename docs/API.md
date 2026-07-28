@@ -34,7 +34,7 @@
 | 500 | 服务器内部错误 |
 | 1001 | 用户不存在 |
 | 1002 | 用户已存在 |
-| 1003 | 用户名或密码错误 |
+| 1003 | 邮箱或密码错误 |
 | 1004 | 用户已被禁用 |
 | 1005 | 无效的令牌 |
 | 1006 | 令牌已过期 |
@@ -78,19 +78,21 @@ POST /api/v1/auth/register
 **请求参数**:
 ```json
 {
-  "username": "testuser",
+  "nickname": "测试用户",
   "password": "123456",
-  "email": "test@example.com",
-  "nickname": "测试用户"
+  "confirm_password": "123456",
+  "email": "test@example.com"
 }
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| username | string | 是 | 用户名（3-50字符） |
+| nickname | string | 是 | 昵称（2-50字符，用于显示） |
 | password | string | 是 | 密码（6-50字符） |
-| email | string | 是 | 邮箱地址 |
-| nickname | string | 否 | 昵称（最多50字符） |
+| confirm_password | string | 是 | 确认密码，必须与密码一致 |
+| email | string | 是 | 邮箱地址（用于登录） |
+
+**说明**: 系统自动生成 UID（格式：`usr_<UUID>`）
 
 **响应示例**:
 ```json
@@ -110,14 +112,14 @@ POST /api/v1/auth/login
 **请求参数**:
 ```json
 {
-  "username": "testuser",
+  "email": "test@example.com",
   "password": "123456"
 }
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| username | string | 是 | 用户名 |
+| email | string | 是 | 邮箱地址 |
 | password | string | 是 | 密码 |
 
 **响应示例**:
@@ -126,18 +128,44 @@ POST /api/v1/auth/login
   "code": 0,
   "message": "成功",
   "data": {
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "access_expires_in": 7200,
+    "refresh_expires_in": 604800,
     "user": {
       "id": 1,
-      "username": "testuser",
-      "email": "test@example.com",
       "nickname": "测试用户",
+      "uid": "usr_550e8400-e29b-41d4-a716-446655440000",
+      "email": "test@example.com",
       "avatar": "",
       "status": 1,
       "created_at": "2024-01-01T00:00:00Z",
       "updated_at": "2024-01-01T00:00:00Z"
     }
   }
+}
+```
+
+#### 用户登出
+
+```http
+POST /api/v1/auth/logout
+Authorization: Bearer {access_token}
+```
+
+**请求参数**:
+```json
+{
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": null
 }
 ```
 
@@ -150,7 +178,7 @@ POST /api/v1/auth/refresh
 **请求参数**:
 ```json
 {
-  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
 
@@ -160,8 +188,71 @@ POST /api/v1/auth/refresh
   "code": 0,
   "message": "成功",
   "data": {
-    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "access_expires_in": 7200,
+    "refresh_expires_in": 604800
   }
+}
+```
+
+---
+
+### 密码重置
+
+#### 发送重置验证码
+
+```http
+POST /api/v1/auth/reset-code/send
+```
+
+**请求参数**:
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "expires_in": 600
+  }
+}
+```
+
+#### 重置密码
+
+```http
+POST /api/v1/auth/password/reset
+```
+
+**请求参数**:
+```json
+{
+  "email": "user@example.com",
+  "code": "123456",
+  "new_password": "newpassword123",
+  "confirm_password": "newpassword123"
+}
+```
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| email | string | 是 | 邮箱地址 |
+| code | string | 是 | 6 位数字验证码 |
+| new_password | string | 是 | 新密码（6-50字符） |
+| confirm_password | string | 是 | 确认密码，必须与新密码一致 |
+
+**响应示例**:
+```json
+{
+  "code": 0,
+  "message": "成功",
+  "data": null
 }
 ```
 
@@ -175,7 +266,7 @@ POST /api/v1/auth/refresh
 
 ```http
 GET /api/v1/user/profile
-Authorization: Bearer {token}
+Authorization: Bearer {access_token}
 ```
 
 **响应示例**:
@@ -185,9 +276,9 @@ Authorization: Bearer {token}
   "message": "成功",
   "data": {
     "id": 1,
-    "username": "testuser",
-    "email": "test@example.com",
     "nickname": "测试用户",
+    "uid": "usr_550e8400-e29b-41d4-a716-446655440000",
+    "email": "test@example.com",
     "avatar": "",
     "status": 1,
     "created_at": "2024-01-01T00:00:00Z",
@@ -206,14 +297,12 @@ Authorization: Bearer {token}
 **请求参数**:
 ```json
 {
-  "nickname": "新昵称",
   "avatar": "https://example.com/avatar.jpg"
 }
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| nickname | string | 否 | 昵称 |
 | avatar | string | 否 | 头像 URL |
 
 **响应示例**:
@@ -277,9 +366,9 @@ Authorization: Bearer {token}
     "list": [
       {
         "id": 1,
-        "username": "testuser",
-        "email": "test@example.com",
         "nickname": "测试用户",
+        "uid": "usr_550e8400-e29b-41d4-a716-446655440000",
+        "email": "test@example.com",
         "avatar": "",
         "status": 1,
         "created_at": "2024-01-01T00:00:00Z",
@@ -314,12 +403,12 @@ Authorization: Bearer {token}
 # 用户注册
 curl -X POST http://localhost:8080/api/v1/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"username":"test","password":"123456","email":"test@example.com"}'
+  -d '{"nickname":"测试用户","password":"123456","email":"test@example.com"}'
 
 # 用户登录
 curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"test","password":"123456"}'
+  -d '{"email":"test@example.com","password":"123456"}'
 
 # 获取用户信息
 curl http://localhost:8080/api/v1/user/profile \
@@ -340,18 +429,19 @@ const response = await fetch('http://localhost:8080/api/v1/auth/login', {
     'Content-Type': 'application/json',
   },
   body: JSON.stringify({
-    username: 'test',
+    email: 'test@example.com',
     password: '123456',
   }),
 });
 
 const data = await response.json();
-const token = data.data.token;
+const accessToken = data.data.access_token;
+const refreshToken = data.data.refresh_token;
 
 // 获取用户信息
 const profile = await fetch('http://localhost:8080/api/v1/user/profile', {
   headers: {
-    'Authorization': `Bearer ${token}`,
+    'Authorization': `Bearer ${accessToken}`,
   },
 });
 
@@ -360,7 +450,7 @@ const profileData = await profile.json();
 // 获取用户列表（分页）
 const users = await fetch('http://localhost:8080/api/v1/user/list?page=1&size=10', {
   headers: {
-    'Authorization': `Bearer ${token}`,
+    'Authorization': `Bearer ${accessToken}`,
   },
 });
 
@@ -377,16 +467,17 @@ import requests
 
 # 用户登录
 response = requests.post('http://localhost:8080/api/v1/auth/login', json={
-    'username': 'test',
+    'email': 'test@example.com',
     'password': '123456',
 })
 
 data = response.json()
-token = data['data']['token']
+access_token = data['data']['access_token']
+refresh_token = data['data']['refresh_token']
 
 # 获取用户信息
 profile = requests.get('http://localhost:8080/api/v1/user/profile', headers={
-    'Authorization': f'Bearer {token}',
+    'Authorization': f'Bearer {access_token}',
 })
 
 profile_data = profile.json()
@@ -396,7 +487,7 @@ users = requests.get('http://localhost:8080/api/v1/user/list', params={
     'page': 1,
     'size': 10
 }, headers={
-    'Authorization': f'Bearer {token}',
+    'Authorization': f'Bearer {access_token}',
 })
 
 users_data = users.json()
@@ -409,8 +500,11 @@ print(users_data['data']['total_page'])  # 总页数
 
 ## 注意事项
 
-1. **Token 有效期**: Token 默认有效期为 24 小时
-2. **密码安全**: 密码使用 bcrypt 加密存储，服务端无法查看明文密码
-3. **请求频率**: 建议客户端实现请求频率限制
-4. **错误处理**: 请根据错误码进行相应的错误处理
-5. **时区**: 所有时间使用 UTC 时区，格式为 ISO 8601
+1. **双 Token 机制**: 
+   - `access_token`: 访问令牌，有效期 2 小时
+   - `refresh_token`: 刷新令牌，有效期 7 天
+2. **用户标识**: 系统自动生成 UID（格式：`usr_<UUID>`），用于内部标识
+3. **密码安全**: 密码使用 bcrypt 加密存储，服务端无法查看明文密码
+4. **请求频率**: 建议客户端实现请求频率限制
+5. **错误处理**: 请根据错误码进行相应的错误处理
+6. **时区**: 所有时间使用 UTC 时区，格式为 ISO 8601
