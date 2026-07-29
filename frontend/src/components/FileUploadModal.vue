@@ -38,13 +38,13 @@
       <!-- 2. 配置面板 -->
       <div
         class="settings-panel"
-        v-if="folderTreeData.length > 0 || uploadMode !== 'url' || autoIndex"
+        v-if="folderTreeData.length > 0 || shouldShowOcrSelector || autoIndex"
       >
         <!-- 第一行：存储位置 + OCR 引擎 -->
         <div
           class="setting-row"
-          v-if="folderTreeData.length > 0 || uploadMode !== 'url'"
-          :class="{ 'two-cols': uploadMode !== 'url' && folderTreeData.length > 0 }"
+          v-if="folderTreeData.length > 0 || shouldShowOcrSelector"
+          :class="{ 'two-cols': shouldShowOcrSelector && folderTreeData.length > 0 }"
         >
           <div class="col-item" v-if="folderTreeData.length > 0">
             <div class="setting-label">存储位置</div>
@@ -64,7 +64,7 @@
             </div>
             <p class="param-description">选择文件保存的目标文件夹</p>
           </div>
-          <div class="col-item" v-if="uploadMode !== 'url'">
+          <div class="col-item" v-if="shouldShowOcrSelector">
             <div class="setting-label">OCR 引擎（仅应用于 PDF/图片文件）</div>
             <div class="setting-content">
               <OCRSelector
@@ -98,9 +98,13 @@
       </div>
 
       <!-- PDF/图片OCR提醒 (Alert样式优化) -->
-      <div v-if="hasPdfOrImageFiles && !isOcrEnabled" class="inline-alert warning">
+      <div v-if="hasImageFiles && !isOcrEnabled" class="inline-alert warning">
         <Info :size="16" />
-        <span>检测到PDF或图片文件，建议启用 OCR 以提取文本内容</span>
+        <span>检测到图片文件，必须启用 OCR 才能提取文本内容</span>
+      </div>
+      <div v-else-if="hasPdfFiles && !isOcrEnabled" class="inline-alert warning">
+        <Info :size="16" />
+        <span>检测到 PDF 文件；文本型 PDF 可直接解析，扫描版 PDF 建议启用 OCR</span>
       </div>
 
       <!-- 文件上传区域 -->
@@ -339,7 +343,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, h } from 'vue'
+import { ref, computed, watch, h } from 'vue'
 import { message, Upload, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
@@ -490,19 +494,6 @@ const isSupportedExtension = (fileName) => {
   const ext = fileName.slice(lastDotIndex).toLowerCase()
   return supportedFileTypes.value.includes(ext) || ext === '.zip'
 }
-
-const loadSupportedFileTypes = async () => {
-  try {
-    const data = await fileApi.getSupportedFileTypes()
-    applySupportedFileTypes(data?.file_types)
-  } catch (error) {
-    console.error('获取支持的文件类型失败:', error)
-    message.warning('获取支持的文件类型失败，已使用默认配置')
-    applySupportedFileTypes(DEFAULT_SUPPORTED_TYPES)
-  }
-}
-
-onMounted(loadSupportedFileTypes)
 
 const visible = computed({
   get: () => props.visible,
@@ -839,30 +830,54 @@ const isOcrEnabled = computed(() => {
 
 // 上传模式切换相关逻辑已移除
 
-// 计算属性：是否有PDF或图片文件
-const hasPdfOrImageFiles = computed(() => {
-  if (fileList.value.length === 0) {
-    return false
+const PDF_EXTENSIONS = new Set(['.pdf'])
+const IMAGE_EXTENSIONS = new Set([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.bmp',
+  '.tiff',
+  '.tif',
+  '.gif',
+  '.webp'
+])
+
+const getFileExtension = (filePath) => {
+  const normalizedPath = String(filePath || '').split(/[?#]/, 1)[0]
+  const lastDotIndex = normalizedPath.lastIndexOf('.')
+  return lastDotIndex === -1 ? '' : normalizedPath.slice(lastDotIndex).toLowerCase()
+}
+
+const selectedFilePaths = computed(() => {
+  if (uploadMode.value === 'workspace') {
+    return selectedWorkspacePaths.value
   }
-
-  const pdfExtensions = ['.pdf']
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp']
-  const ocrExtensions = [...pdfExtensions, ...imageExtensions]
-
-  return fileList.value.some((file) => {
-    if (file.status !== 'done') {
-      return false
-    }
-
-    const filePath = file.response?.file_path || file.name
-    if (!filePath) {
-      return false
-    }
-
-    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase()
-    return ocrExtensions.includes(ext)
-  })
+  if (uploadMode.value === 'file' || uploadMode.value === 'folder') {
+    return fileList.value
+      .map((file) => file.response?.file_path || file.name)
+      .filter(Boolean)
+  }
+  return []
 })
+
+const hasPdfFiles = computed(() =>
+  selectedFilePaths.value.some((filePath) => PDF_EXTENSIONS.has(getFileExtension(filePath)))
+)
+const hasImageFiles = computed(() =>
+  selectedFilePaths.value.some((filePath) => IMAGE_EXTENSIONS.has(getFileExtension(filePath)))
+)
+const hasPdfOrImageFiles = computed(() => hasPdfFiles.value || hasImageFiles.value)
+const shouldShowOcrSelector = computed(
+  () => uploadMode.value !== 'url' && hasPdfOrImageFiles.value
+)
+
+const buildCurrentProcessingParams = () => {
+  const params = { ...processingParams.value }
+  if (!shouldShowOcrSelector.value) {
+    delete params.ocr_engine
+  }
+  return params
+}
 
 // 计算属性：是否有ZIP文件
 const hasZipFiles = computed(() => {
@@ -919,6 +934,15 @@ watch(
 
 // 验证OCR服务可用性
 const validateOcrService = () => {
+  if (!shouldShowOcrSelector.value) {
+    return true
+  }
+
+  if (hasImageFiles.value && !isOcrEnabled.value) {
+    message.error('检测到图片文件，必须启用 OCR 才能提取文本内容')
+    return false
+  }
+
   if (!isOcrEnabled.value) {
     return true
   }
@@ -1227,6 +1251,38 @@ const openDocLink = () => {
   )
 }
 
+const finalizePersistedUploads = async () => {
+  const completedUploads = fileList.value.filter((file) => file.status === 'done')
+  if (completedUploads.length === 0) {
+    return false
+  }
+
+  const isPersistedByCurrentApi = completedUploads.every(
+    (file) => file.response?.file_id && file.response?.kb_id === kbId.value
+  )
+  if (!isPersistedByCurrentApi) {
+    return false
+  }
+
+  store.state.chunkLoading = true
+  try {
+    await store.getDatabaseInfo(undefined, true)
+    await store.loadDocumentFiles({ isBackground: true })
+    message.success('文件已添加到知识库')
+    emit('success')
+    fileList.value = []
+    sameNameFiles.value = []
+    handleCancel()
+  } catch (error) {
+    console.error('刷新知识库文件列表失败:', error)
+    message.error('文件已上传，但刷新文件列表失败，请稍后重试')
+  } finally {
+    store.state.chunkLoading = false
+  }
+
+  return true
+}
+
 const chunkData = async () => {
   if (!kbId.value) {
     message.error('请先选择知识库')
@@ -1253,7 +1309,6 @@ const chunkData = async () => {
         return
       }
 
-      const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
       const items = []
       const content_hashes = {}
       const file_sizes = {}
@@ -1264,18 +1319,9 @@ const chunkData = async () => {
         if (item.content_hash) content_hashes[filePath] = item.content_hash
         if (Number.isFinite(item.size)) file_sizes[filePath] = item.size
         mergeSameNameFiles(item.same_name_files)
-
-        const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase()
-        if (imageExtensions.includes(ext) && !isOcrEnabled.value) {
-          message.error({
-            content: '检测到图片文件，必须启用 OCR 才能提取文本内容。',
-            duration: 5
-          })
-          return
-        }
       }
 
-      const params = { ...processingParams.value, content_hashes, file_sizes }
+      const params = { ...buildCurrentProcessingParams(), content_hashes, file_sizes }
       if (autoIndex.value) {
         params.auto_index = true
         Object.assign(params, buildAutoIndexParams())
@@ -1334,7 +1380,7 @@ const chunkData = async () => {
 
     try {
       store.state.chunkLoading = true
-      const params = { ...processingParams.value }
+      const params = buildCurrentProcessingParams()
       if (autoIndex.value) {
         params.auto_index = true
         Object.assign(params, buildAutoIndexParams())
@@ -1380,7 +1426,9 @@ const chunkData = async () => {
   }
 
   // 文件模式处理
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
+  if (await finalizePersistedUploads()) {
+    return
+  }
 
   // 提取已上传的文件信息
   const items = []
@@ -1395,16 +1443,6 @@ const chunkData = async () => {
     items.push(file_path)
     if (content_hash) content_hashes[file_path] = content_hash
     if (Number.isFinite(file.response?.size)) file_sizes[file_path] = file.response.size
-
-    // 检查是否需要OCR
-    const ext = file_path.substring(file_path.lastIndexOf('.')).toLowerCase()
-    if (imageExtensions.includes(ext) && !isOcrEnabled.value) {
-      message.error({
-        content: '检测到图片文件，必须启用 OCR 才能提取文本内容。',
-        duration: 5
-      })
-      return
-    }
   }
 
   if (items.length === 0) {
@@ -1414,7 +1452,7 @@ const chunkData = async () => {
 
   try {
     store.state.chunkLoading = true
-    const params = { ...processingParams.value, content_hashes, file_sizes }
+    const params = { ...buildCurrentProcessingParams(), content_hashes, file_sizes }
     if (autoIndex.value) {
       params.auto_index = true
       Object.assign(params, buildAutoIndexParams())

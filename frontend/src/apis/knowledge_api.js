@@ -525,14 +525,6 @@ export const fileApi = {
   },
 
   /**
-   * 获取支持的文件类型
-   * @returns {Promise} - 文件类型列表
-   */
-  getSupportedFileTypes: async () => {
-    return apiAdminGet('/api/knowledge/files/supported-types')
-  },
-
-  /**
    * 上传文件夹（zip格式）
    * @param {File} file - zip文件
    * @param {string} kbId - 知识库ID
