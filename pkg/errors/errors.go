@@ -62,4 +62,12 @@ var (
 	ErrResetTokenInvalid  = NewDefault(CodeResetTokenInvalid)
 	ErrInvalidParam       = NewDefault(CodeInvalidParam)
 	ErrMissingParam       = NewDefault(CodeMissingParam)
+
+	// LLM 错误
+	ErrLLMInternalError   = NewDefault(CodeLLMInternalError)
+	ErrLLMConfigError     = NewDefault(CodeLLMConfigError)
+	ErrLLMRequestFailed   = NewDefault(CodeLLMRequestFailed)
+	ErrLLMResponseInvalid = NewDefault(CodeLLMResponseInvalid)
+	ErrLLMTimeout         = NewDefault(CodeLLMTimeout)
+	ErrLLMTokenLimit      = NewDefault(CodeLLMTokenLimit)
 )

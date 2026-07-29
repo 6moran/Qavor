@@ -165,14 +165,16 @@ func (a *App) initDependencies() {
 	// 创建 Repository
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
+	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
 
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
+	providerSvc := service.NewModelProviderService(providerRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, providerSvc)
 }
 
 // initRouter 初始化路由
