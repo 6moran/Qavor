@@ -120,7 +120,16 @@ func Load(configPath string) (*Config, error) {
 	if val := os.Getenv("MINIO_MAX_FILE_SIZE"); val != "" {
 		config.Database.MinIO.MaxFileSize = atoi64OrDefault(val, config.Database.MinIO.MaxFileSize)
 	}
+	if val := os.Getenv("QAVOR_AUTH_ADMIN_USERNAME"); val != "" {
+		config.Auth.AdminUsername = val
+	}
+	if val := os.Getenv("QAVOR_AUTH_ADMIN_PASSWORD"); val != "" {
+		config.Auth.AdminPassword = val
+	}
 	if val := os.Getenv("JWT_SECRET"); val != "" {
+		config.JWT.Secret = val
+	}
+	if val := os.Getenv("QAVOR_JWT_SECRET"); val != "" {
 		config.JWT.Secret = val
 	}
 	if val := os.Getenv("JWT_EXPIRE_HOURS"); val != "" {

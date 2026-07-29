@@ -2,7 +2,6 @@
 package knowledge_base
 
 import (
-	"Qavor/internal/middleware"
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
@@ -25,7 +24,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
-	result, err := ctrl.service.Create(&req, middleware.GetUsername(c))
+	result, err := ctrl.service.Create(&req)
 	if err != nil {
 		response.BizError(c, err)
 		return

@@ -11,30 +11,13 @@ import (
 // Controller 认证控制器
 type Controller struct {
 	authService service.AuthService
-	userService service.UserService
 }
 
 // NewController 创建认证控制器
-func NewController(authService service.AuthService, userService service.UserService) *Controller {
+func NewController(authService service.AuthService) *Controller {
 	return &Controller{
 		authService: authService,
-		userService: userService,
 	}
-}
-
-func (ctrl *Controller) Register(c *gin.Context) {
-	var req request.RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	if err := ctrl.userService.Register(&req); err != nil {
-		response.BizError(c, err)
-		return
-	}
-
-	response.Success(c, nil)
 }
 
 // Login 用户登录

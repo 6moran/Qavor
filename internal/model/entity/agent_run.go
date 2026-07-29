@@ -7,7 +7,6 @@ type AgentRun struct {
 	ID                       string     `gorm:"type:varchar(64);primarykey;comment:Run ID（UUID）" json:"id"`
 	ConversationThreadID     string     `gorm:"type:varchar(64);not null;index;comment:对话线程ID" json:"conversation_thread_id"`
 	AgentSlug                string     `gorm:"type:varchar(64);not null;index;comment:Agent slug" json:"agent_slug"`
-	UID                      string     `gorm:"type:varchar(64);not null;index;comment:用户UID" json:"uid"`
 	Status                   string     `gorm:"type:varchar(32);not null;index;default:pending;comment:状态：pending/running/completed/failed/cancelled等" json:"status"`
 	RequestID                string     `gorm:"type:varchar(64);uniqueIndex;not null;index;comment:幂等性请求ID" json:"request_id"`
 	ConversationID           *uint      `gorm:"index;comment:对话ID" json:"conversation_id,omitempty"`

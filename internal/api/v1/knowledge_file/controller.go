@@ -2,7 +2,6 @@
 package knowledge_file
 
 import (
-	"Qavor/internal/middleware"
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
@@ -25,7 +24,7 @@ func (ctrl *Controller) Upload(c *gin.Context) {
 		response.BadRequest(c, "缺少上传文件")
 		return
 	}
-	result, err := ctrl.service.Upload(c.Query("kb_id"), middleware.GetUsername(c), file)
+	result, err := ctrl.service.Upload(c.Query("kb_id"), file)
 	if err != nil {
 		response.BizError(c, err)
 		return

@@ -154,15 +154,6 @@
           />
         </div>
 
-        <!-- 共享配置 -->
-        <div class="form-section compact-section">
-          <h3 class="section-title">共享设置</h3>
-          <ShareConfigForm
-            ref="shareConfigFormRef"
-            v-model="shareConfig"
-            :auto-select-user-dept="true"
-          />
-        </div>
       </div>
       <template #footer>
         <a-button key="back" @click="cancelCreateDatabase">取消</a-button>
@@ -262,7 +253,6 @@ import PageHeader from '@/components/shared/PageHeader.vue'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
 import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import ExtensionCardGrid from '@/components/extensions/ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import dayjs, { parseToShanghai } from '@/utils/time'
@@ -317,15 +307,6 @@ const filteredDatabases = computed(() => {
 const state = reactive({
   openNewDatabaseModel: false
 })
-
-const createDefaultShareConfig = () => ({
-  access_level: 'global',
-  department_ids: [],
-  user_uids: []
-})
-
-const shareConfig = ref(createDefaultShareConfig())
-const shareConfigFormRef = ref(null)
 
 const createEmptyDatabaseForm = () => ({
   name: '',
@@ -399,7 +380,6 @@ const resetNewDatabase = () => {
   Object.assign(newDatabase, createEmptyDatabaseForm())
   newDatabase.kb_type = kbTypes.value[0] || ''
   resetCreateParamValues()
-  shareConfig.value = createDefaultShareConfig()
 }
 
 const cancelCreateDatabase = () => {
@@ -462,13 +442,6 @@ const buildRequestData = () => {
       newDatabase.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
   }
 
-  requestData.share_config = {
-    access_level: shareConfig.value.access_level,
-    department_ids:
-      shareConfig.value.access_level === 'department' ? shareConfig.value.department_ids || [] : [],
-    user_uids: shareConfig.value.access_level === 'user' ? shareConfig.value.user_uids || [] : []
-  }
-
   // 根据类型添加特定配置
   if (['milvus'].includes(newDatabase.kb_type)) {
     if (newDatabase.storage) {
@@ -496,14 +469,6 @@ const handleCreateDatabase = async () => {
     const value = newDatabase.additional_params[field.key]
     if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
       message.error(`请填写${field.label || field.key}`)
-      return
-    }
-  }
-
-  if (shareConfigFormRef.value) {
-    const validation = shareConfigFormRef.value.validate()
-    if (!validation.valid) {
-      message.warning(validation.message)
       return
     }
   }

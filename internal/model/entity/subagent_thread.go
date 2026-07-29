@@ -3,7 +3,6 @@ package entity
 // SubagentThread 子智能体线程关系实体
 type SubagentThread struct {
 	BaseEntity
-	UID                  string `gorm:"type:varchar(64);not null;index;comment:用户UID" json:"uid"`
 	ParentConversationID uint   `gorm:"not null;index;comment:父对话ID" json:"parent_conversation_id"`
 	ChildConversationID  uint   `gorm:"uniqueIndex;not null;index;comment:子对话ID" json:"child_conversation_id"`
 	ChildThreadID        string `gorm:"type:varchar(64);uniqueIndex;not null;index;comment:子线程ID" json:"child_thread_id"`

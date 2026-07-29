@@ -8,7 +8,7 @@ import (
 // KnowledgeBaseService 知识库服务接口，定义知识库的业务操作
 type KnowledgeBaseService interface {
 	// Create 创建知识库
-	Create(req *request.CreateKnowledgeBaseRequest, createdBy string) (*response.KnowledgeBaseResponse, error)
+	Create(req *request.CreateKnowledgeBaseRequest) (*response.KnowledgeBaseResponse, error)
 	// Get 根据ID获取知识库详情
 	Get(kbID string) (*response.KnowledgeBaseResponse, error)
 	// List 分页获取知识库列表

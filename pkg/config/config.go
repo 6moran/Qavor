@@ -1,14 +1,39 @@
 package config
 
-import "time"
+import (
+	"errors"
+	"strings"
+	"time"
+)
 
 // Config 应用配置结构体
 type Config struct {
 	App      AppConfig      `mapstructure:"app"`
+	Auth     AuthConfig     `mapstructure:"auth"`
 	Database DatabaseConfig `mapstructure:"database"`
 	JWT      JWTConfig      `mapstructure:"jwt"`
 	Log      LogConfig      `mapstructure:"log"`
 	CORS     CORSConfig     `mapstructure:"cors"`
+}
+
+// AuthConfig 单实例管理员认证配置。
+type AuthConfig struct {
+	AdminUsername string `mapstructure:"admin_username"`
+	AdminPassword string `mapstructure:"admin_password"`
+}
+
+// ValidateAuth 校验单实例认证启动所需配置。
+func (c *Config) ValidateAuth() error {
+	if strings.TrimSpace(c.Auth.AdminUsername) == "" {
+		return errors.New("缺少 auth.admin_username")
+	}
+	if c.Auth.AdminPassword == "" {
+		return errors.New("缺少 auth.admin_password")
+	}
+	if strings.TrimSpace(c.JWT.Secret) == "" {
+		return errors.New("缺少 jwt.secret")
+	}
+	return nil
 }
 
 // AppConfig 应用配置

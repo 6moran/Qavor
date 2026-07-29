@@ -10,7 +10,6 @@ type AgentRunResponse struct {
 	ID                       string      `json:"id"`
 	ConversationThreadID     string      `json:"conversation_thread_id"`
 	AgentSlug                string      `json:"agent_slug"`
-	UID                      string      `json:"uid"`
 	Status                   string      `json:"status"`
 	RequestID                string      `json:"request_id"`
 	ConversationID           *uint       `json:"conversation_id,omitempty"`

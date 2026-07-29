@@ -13,7 +13,6 @@ type CreateSkillRequest struct {
 	SkillDependencies entity.JSONArray `json:"skill_dependencies" binding:"omitempty"`
 	DirPath           string           `json:"dir_path" binding:"required,max=512"`
 	Version           string           `json:"version" binding:"omitempty,max=64"`
-	ShareConfig       entity.JSON      `json:"share_config" binding:"omitempty"`
 }
 
 // UpdateSkillRequest 更新技能请求
@@ -24,7 +23,6 @@ type UpdateSkillRequest struct {
 	MCPDependencies   entity.JSONArray `json:"mcp_dependencies" binding:"omitempty"`
 	SkillDependencies entity.JSONArray `json:"skill_dependencies" binding:"omitempty"`
 	Version           string           `json:"version" binding:"omitempty,max=64"`
-	ShareConfig       entity.JSON      `json:"share_config" binding:"omitempty"`
 	Enabled           *bool            `json:"enabled" binding:"omitempty"`
 }
 

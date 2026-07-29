@@ -13,10 +13,7 @@ type Skill struct {
 	DirPath           string    `gorm:"type:varchar(512);not null;comment:技能目录路径（相对save_dir）" json:"dir_path"`
 	Version           string    `gorm:"type:varchar(64);comment:版本号（语义化版本）" json:"version,omitempty"`
 	ContentHash       string    `gorm:"type:varchar(128);comment:技能目录内容哈希" json:"content_hash,omitempty"`
-	ShareConfig       JSON      `gorm:"type:json;not null;default:{};comment:共享权限配置" json:"share_config"`
 	Enabled           bool      `gorm:"not null;default:true;comment:是否启用" json:"enabled"`
-	CreatedBy         string    `gorm:"type:varchar(64);comment:创建人" json:"created_by,omitempty"`
-	UpdatedBy         string    `gorm:"type:varchar(64);comment:更新人" json:"updated_by,omitempty"`
 }
 
 // TableName 指定表名

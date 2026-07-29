@@ -14,12 +14,10 @@ var (
 )
 
 // GenerateToken 生成 JWT Token
-func GenerateToken(userID uint, username string) (string, error) {
+func GenerateToken() (string, error) {
 	cfg := config.Get().JWT
 
 	claims := CustomClaims{
-		UserID:   userID,
-		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(cfg.ExpireHours * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -56,10 +54,10 @@ func ParseToken(tokenString string) (*CustomClaims, error) {
 
 // RefreshToken 刷新 Token
 func RefreshToken(tokenString string) (string, error) {
-	claims, err := ParseToken(tokenString)
+	_, err := ParseToken(tokenString)
 	if err != nil {
 		return "", err
 	}
 
-	return GenerateToken(claims.UserID, claims.Username)
+	return GenerateToken()
 }

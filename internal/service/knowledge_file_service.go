@@ -28,7 +28,7 @@ func NewKnowledgeFileService(baseRepo repository.KnowledgeBaseRepository, fileRe
 }
 
 // Upload 上传文件到知识库
-func (s *knowledgeFileService) Upload(kbID, createdBy string, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error) {
+func (s *knowledgeFileService) Upload(kbID string, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error) {
 	// 参数校验
 	if file == nil {
 		return nil, bizerrors.New(bizerrors.CodeMissingParam, "缺少上传文件")
@@ -67,8 +67,6 @@ func (s *knowledgeFileService) Upload(kbID, createdBy string, file *multipart.Fi
 		Status:           "uploaded", // 初始状态为已上传
 		FileSize:         &fileSize,
 		ContentType:      object.ContentType,
-		CreatedBy:        createdBy,
-		UpdatedBy:        createdBy,
 	}
 	// 保存文件记录到数据库
 	if err := s.fileRepo.Create(knowledgeFile); err != nil {
@@ -163,8 +161,6 @@ func knowledgeFileResponse(file *entity.KnowledgeFile) *response.KnowledgeFileRe
 		ContentType:      file.ContentType,
 		IsFolder:         file.IsFolder,
 		ErrorMessage:     file.ErrorMessage,
-		CreatedBy:        file.CreatedBy,
-		UpdatedBy:        file.UpdatedBy,
 		CreatedAt:        file.CreatedAt,
 		UpdatedAt:        file.UpdatedAt,
 	}

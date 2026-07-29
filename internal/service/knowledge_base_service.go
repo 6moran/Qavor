@@ -84,9 +84,6 @@ func (s *knowledgeBaseService) Update(kbID string, req *request.UpdateKnowledgeB
 	if req.AdditionalParams != nil {
 		base.AdditionalParams = req.AdditionalParams
 	}
-	if req.ShareConfig != nil {
-		base.ShareConfig = req.ShareConfig
-	}
 	// 保存更新
 	if err := s.repo.Update(base); err != nil {
 		return nil, err
@@ -119,7 +116,7 @@ func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository) KnowledgeB
 }
 
 // Create 创建知识库
-func (s *knowledgeBaseService) Create(req *request.CreateKnowledgeBaseRequest, createdBy string) (*response.KnowledgeBaseResponse, error) {
+func (s *knowledgeBaseService) Create(req *request.CreateKnowledgeBaseRequest) (*response.KnowledgeBaseResponse, error) {
 	kbType := req.KBType
 	if kbType == "" {
 		kbType = defaultKnowledgeBaseType
@@ -134,9 +131,7 @@ func (s *knowledgeBaseService) Create(req *request.CreateKnowledgeBaseRequest, c
 		LLMModelSpec:       req.LLMModelSpec,
 		QueryParams:        req.QueryParams,
 		AdditionalParams:   req.AdditionalParams,
-		ShareConfig:        req.ShareConfig,
 		SampleQuestions:    req.SampleQuestions,
-		CreatedBy:          createdBy,
 	}
 	// 保存到数据库
 	if err := s.repo.Create(base); err != nil {
@@ -157,9 +152,7 @@ func knowledgeBaseResponse(base *entity.KnowledgeBase) *response.KnowledgeBaseRe
 		LLMModelSpec:       base.LLMModelSpec,
 		QueryParams:        base.QueryParams,
 		AdditionalParams:   base.AdditionalParams,
-		ShareConfig:        base.ShareConfig,
 		SampleQuestions:    base.SampleQuestions,
-		CreatedBy:          base.CreatedBy,
 		CreatedAt:          base.CreatedAt,
 		UpdatedAt:          base.UpdatedAt,
 	}

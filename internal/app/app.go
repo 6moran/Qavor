@@ -78,6 +78,9 @@ func (a *App) initConfig() error {
 	if err != nil {
 		return fmt.Errorf("加载配置失败: %w", err)
 	}
+	if err := cfg.ValidateAuth(); err != nil {
+		return fmt.Errorf("认证配置无效: %w", err)
+	}
 	a.cfg = cfg
 	return nil
 }
@@ -111,7 +114,6 @@ func (a *App) initDatabase() error {
 	// 自动迁移数据库表
 	logger.Info("开始数据库迁移...")
 	if err := a.postgresDB.AutoMigrate(
-		&entity.User{},
 		&entity.Agent{},
 		&entity.AgentEnv{},
 		&entity.Conversation{},
@@ -157,18 +159,16 @@ func (a *App) initMinIO() error {
 // initDependencies 初始化依赖注入
 func (a *App) initDependencies() {
 	// 创建 Repository
-	userRepo := repository.NewUserRepository(a.postgresDB)
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
 
 	// 创建 Service
-	userSvc := service.NewUserService(userRepo)
-	authSvc := service.NewAuthService(userRepo, userSvc)
+	authSvc := service.NewAuthService(a.cfg.Auth)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
 
 	// 创建 Router
-	a.router = api.NewRouter(userSvc, authSvc, knowledgeBaseSvc, knowledgeFileSvc)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc)
 }
 
 // initRouter 初始化路由

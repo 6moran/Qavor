@@ -16,9 +16,7 @@ type KnowledgeBaseResponse struct {
 	LLMModelSpec       string           `json:"llm_model_spec,omitempty"`       // 大模型表示
 	QueryParams        entity.JSON      `json:"query_params,omitempty"`         // 检索参数
 	AdditionalParams   entity.JSON      `json:"additional_params,omitempty"`    // 扩展参数
-	ShareConfig        entity.JSON      `json:"share_config,omitempty"`         // 共享配置
 	SampleQuestions    entity.JSONArray `json:"sample_questions,omitempty"`     // 示例问题列表
-	CreatedBy          string           `json:"created_by,omitempty"`           // 创建人用户名
 	CreatedAt          time.Time        `json:"created_at"`                     // 创建时间
 	UpdatedAt          time.Time        `json:"updated_at"`                     // 最后更新时间
 }
@@ -49,8 +47,6 @@ type KnowledgeFileResponse struct {
 	ContentType      string    `json:"content_type,omitempty"`      // 服务端检测到的 MIME 类型
 	IsFolder         bool      `json:"is_folder"`                   // 是否为文件夹记录
 	ErrorMessage     string    `json:"error_message,omitempty"`     // 处理失败时的错误信息
-	CreatedBy        string    `json:"created_by,omitempty"`        // 创建人用户名
-	UpdatedBy        string    `json:"updated_by,omitempty"`        // 最后更新人用户名
 	CreatedAt        time.Time `json:"created_at"`                  // 创建时间
 	UpdatedAt        time.Time `json:"updated_at"`                  // 最后更新时间
 }

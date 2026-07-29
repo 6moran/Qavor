@@ -6,7 +6,6 @@ import "time"
 type ConversationResponse struct {
 	ID        uint      `json:"id"`
 	ThreadID  string    `json:"thread_id"`
-	UID       string    `json:"uid"`
 	AgentID   string    `json:"agent_id"`
 	Title     string    `json:"title,omitempty"`
 	Status    string    `json:"status"`

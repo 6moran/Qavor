@@ -11,7 +11,6 @@ type CreateKnowledgeBaseRequest struct {
 	LLMModelSpec       string           `json:"llm_model_spec" binding:"omitempty,max=512"`       // 知识库关联的大模型
 	QueryParams        entity.JSON      `json:"query_params" binding:"omitempty"`                 // 检索参数配置
 	AdditionalParams   entity.JSON      `json:"additional_params" binding:"omitempty"`            // 知识库类型相关的扩展参数
-	ShareConfig        entity.JSON      `json:"share_config" binding:"omitempty"`                 // 知识库共享配置
 	SampleQuestions    entity.JSONArray `json:"sample_questions" binding:"omitempty"`             // 示例问题列表
 }
 
@@ -21,7 +20,6 @@ type UpdateKnowledgeBaseRequest struct {
 	Description      string      `json:"description" binding:"required"`             // 更新后的知识库描述
 	LLMModelSpec     string      `json:"llm_model_spec" binding:"omitempty,max=512"` // 更新后的大模型规格
 	AdditionalParams entity.JSON `json:"additional_params" binding:"omitempty"`      // 更新扩展参数
-	ShareConfig      entity.JSON `json:"share_config" binding:"omitempty"`           // 更新共享配置
 }
 
 // KnowledgeBaseListRequest 知识库列表请求

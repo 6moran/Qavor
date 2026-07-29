@@ -31,7 +31,7 @@ type ObjectStorage interface {
 // KnowledgeFileService 知识文件服务接口，定义文件的业务操作
 type KnowledgeFileService interface {
 	// Upload 上传文件到知识库
-	Upload(kbID, createdBy string, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error)
+	Upload(kbID string, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error)
 	// Get 获取文件详情
 	Get(kbID, fileID string) (*response.KnowledgeFileResponse, error)
 	// List 分页获取知识库中的文件列表

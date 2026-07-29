@@ -5,6 +5,11 @@ app:
   mode: "debug"                    # debug | release | test
   port: 8080
 
+# 单实例管理员配置（真实值请写入不提交的 config.yaml 或环境变量）
+auth:
+  admin_username: "change-me"
+  admin_password: "change-me"
+
 # 数据库配置
 database:
   redis:

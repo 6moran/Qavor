@@ -352,27 +352,6 @@
           </a-form-item>
         </template>
 
-        <a-form-item v-if="canEditShareConfig" label="共享设置" name="share_config">
-          <a-form-item-rest>
-            <ShareConfigForm
-              ref="shareConfigFormRef"
-              :model-value="database.share_config"
-              :auto-select-user-dept="true"
-            />
-          </a-form-item-rest>
-        </a-form-item>
-        <a-form-item
-          v-else-if="database.share_config"
-          label="共享设置"
-          name="share_config_readonly"
-        >
-          <div class="share-config-readonly">
-            <a-tag :color="shareConfigDisplay.color">
-              {{ shareConfigDisplay.label }}
-            </a-tag>
-            <span class="access-names">{{ shareConfigDisplay.detail }}</span>
-          </div>
-        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -383,7 +362,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDatabaseStore } from '@/stores/database'
 import { useTaskerStore } from '@/stores/tasker'
-import { useUserStore } from '@/stores/user'
 import {
   ArrowLeft,
   BarChart3,
@@ -415,10 +393,7 @@ import RAGEvaluationTab from '@/components/RAGEvaluationTab.vue'
 import EvaluationBenchmarks from '@/components/EvaluationBenchmarks.vue'
 import SearchConfigPanel from '@/components/SearchConfigPanel.vue'
 import AiTextarea from '@/components/AiTextarea.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import { databaseApi } from '@/apis/knowledge_api'
-import { departmentApi } from '@/apis/department_api'
-import { authApi } from '@/apis/auth_api'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
 import { formatFileSize } from '@/utils/file_utils'
@@ -428,7 +403,6 @@ const route = useRoute()
 const router = useRouter()
 const store = useDatabaseStore()
 const taskerStore = useTaskerStore()
-const userStore = useUserStore()
 const {
   chunkPresetSelectOptions: chunkPresetOptions,
   chunkPresetLoading,
@@ -747,11 +721,8 @@ const copyDatabaseId = async () => {
   }
 }
 
-const departments = ref([])
-const users = ref([])
 const editModalVisible = ref(false)
 const editFormRef = ref(null)
-const shareConfigFormRef = ref(null)
 const editForm = reactive({
   name: '',
   description: '',
@@ -773,64 +744,6 @@ const editPresetDescription = computed(() => getChunkPresetDescription(editForm.
 const fileList = computed(() => {
   return (store.documentFiles || []).map((f) => f.filename).filter(Boolean)
 })
-
-const canEditShareConfig = computed(() => userStore.isSuperAdmin || userStore.isAdmin)
-
-const shareConfigDisplay = computed(() => {
-  const shareConfig = database.value?.share_config || { access_level: 'global' }
-  if (shareConfig.access_level === 'department') {
-    const departmentIds = shareConfig.department_ids || []
-    const names = departmentIds.map((id) => getDepartmentName(id)).join('、') || '无'
-    return {
-      color: 'blue',
-      label: '部门共享',
-      detail: `${departmentIds.length} 个部门可访问：${names}`
-    }
-  }
-
-  if (shareConfig.access_level === 'user') {
-    const userUids = shareConfig.user_uids || []
-    const names = userUids.map((uid) => getUserName(uid)).join('、') || '无'
-    return {
-      color: 'purple',
-      label: '指定人',
-      detail: `${userUids.length} 个用户可访问：${names}`
-    }
-  }
-
-  return {
-    color: 'green',
-    label: '全局共享',
-    detail: '所有用户可访问'
-  }
-})
-
-const getDepartmentName = (id) => {
-  const dept = departments.value.find((item) => Number(item.id) === Number(id))
-  return dept?.name || `部门${id}`
-}
-
-const getUserName = (uid) => {
-  const user = users.value.find((item) => item.uid === uid)
-  return user?.username || uid
-}
-
-const loadDepartments = async () => {
-  try {
-    const res = await departmentApi.getDepartments()
-    departments.value = res.departments || res || []
-  } catch {
-    departments.value = []
-  }
-}
-
-const loadUsers = async () => {
-  try {
-    users.value = await authApi.getUserAccessOptions()
-  } catch {
-    users.value = []
-  }
-}
 
 const showEditModal = () => {
   editForm.name = database.value.name || ''
@@ -862,25 +775,10 @@ const handleEditSubmit = () => {
   editFormRef.value
     .validate()
     .then(async () => {
-      if (shareConfigFormRef.value) {
-        const validation = shareConfigFormRef.value.validate()
-        if (!validation.valid) {
-          message.warning(validation.message)
-          return
-        }
-      }
-
-      const formConfig = shareConfigFormRef.value?.config || { access_level: 'global' }
       const updateData = {
         name: editForm.name,
         description: editForm.description,
-        additional_params: {},
-        share_config: {
-          access_level: formConfig.access_level,
-          department_ids:
-            formConfig.access_level === 'department' ? formConfig.department_ids || [] : [],
-          user_uids: formConfig.access_level === 'user' ? formConfig.user_uids || [] : []
-        }
+        additional_params: {}
       }
 
       if (isDifyKb.value) {
@@ -934,8 +832,6 @@ const deleteDatabase = () => {
 
 onMounted(() => {
   loadChunkPresetOptions()
-  loadDepartments()
-  loadUsers()
 })
 </script>
 
@@ -1312,17 +1208,6 @@ onMounted(() => {
   min-height: 0;
   overflow-y: auto;
   padding: 16px;
-}
-
-.share-config-readonly {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .access-names {
-    font-size: 13px;
-    color: var(--gray-600);
-  }
 }
 
 .chunk-preset-label {
