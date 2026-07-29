@@ -5,6 +5,11 @@ app:
   mode: "debug"                    # debug | release | test
   port: 8080
 
+# 单实例管理员配置（真实值请写入不提交的 config.yaml 或环境变量）
+auth:
+  admin_username: "change-me"
+  admin_password: "change-me"
+
 # 数据库配置
 database:
   auto_migrate: false  # 是否自动迁移数据库，设为 false 可跳过每次启动时的迁移
@@ -30,6 +35,12 @@ database:
     bucket: "qavor"
     use_ssl: false
     region: ""
+    public_endpoint: "http://localhost:9000"  # 对外访问地址，拼接返回给前端的文件 URL
+    max_file_size: 52428800                   # 最大文件大小（字节），默认 50MB
+    allowed_types:                            # 允许的 MIME 类型，空列表=不限制
+      # - "image/*"
+      # - "application/pdf"
+      # - "text/*"
 
 # JWT 配置
 jwt:

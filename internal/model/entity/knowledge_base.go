@@ -11,12 +11,10 @@ type KnowledgeBase struct {
 	LLMModelSpec       string    `gorm:"type:varchar(512);comment:LLM模型规格" json:"llm_model_spec,omitempty"`
 	QueryParams        JSON      `gorm:"type:json;comment:查询参数" json:"query_params,omitempty"`
 	AdditionalParams   JSON      `gorm:"type:json;comment:附加参数" json:"additional_params,omitempty"`
-	ShareConfig        JSON      `gorm:"type:json;comment:共享配置" json:"share_config,omitempty"`
 	Mindmap            JSON      `gorm:"type:json;comment:思维导图数据" json:"mindmap,omitempty"`
 	MindmapFileIDs     JSONArray `gorm:"type:json;comment:思维导图关联文件ID列表" json:"mindmap_file_ids,omitempty"`
 	MindmapMetadata    JSON      `gorm:"type:json;comment:思维导图元数据" json:"mindmap_metadata,omitempty"`
 	SampleQuestions    JSONArray `gorm:"type:json;comment:示例问题列表" json:"sample_questions,omitempty"`
-	CreatedBy          string    `gorm:"type:varchar(64);comment:创建人" json:"created_by,omitempty"`
 
 	// 关联关系
 	Files []KnowledgeFile `gorm:"foreignKey:KBID;references:KBID" json:"files,omitempty"`

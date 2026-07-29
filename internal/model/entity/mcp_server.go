@@ -18,8 +18,6 @@ type MCPServer struct {
 	Icon           string    `gorm:"type:varchar(50);comment:图标（emoji）" json:"icon,omitempty"`
 	Enabled        int       `gorm:"not null;default:1;comment:是否启用：1=是，0=否" json:"enabled"`
 	DisabledTools  JSONArray `gorm:"type:json;comment:禁用的工具名称列表" json:"disabled_tools,omitempty"`
-	CreatedBy      string    `gorm:"type:varchar(100);not null;comment:创建人用户名" json:"created_by"`
-	UpdatedBy      string    `gorm:"type:varchar(100);not null;comment:修改人用户名" json:"updated_by"`
 }
 
 // TableName 指定表名

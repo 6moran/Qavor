@@ -4,7 +4,6 @@ package entity
 type Conversation struct {
 	BaseEntity
 	ThreadID      string `gorm:"type:varchar(64);uniqueIndex;not null;comment:对话线程ID（UUID）" json:"thread_id"`
-	UID           string `gorm:"type:varchar(64);not null;index;comment:用户UID" json:"uid"`
 	AgentID       string `gorm:"type:varchar(64);not null;index;comment:Agent slug" json:"agent_id"`
 	Title         string `gorm:"type:varchar(255);comment:对话标题" json:"title,omitempty"`
 	Status        string `gorm:"type:varchar(20);default:active;comment:状态：active/archived/deleted" json:"status"`

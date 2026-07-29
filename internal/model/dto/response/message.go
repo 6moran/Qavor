@@ -50,7 +50,6 @@ type ToolCallResponse struct {
 type MessageFeedbackResponse struct {
 	ID        uint      `json:"id"`
 	MessageID uint      `json:"message_id"`
-	UID       string    `json:"uid"`
 	Rating    string    `json:"rating"`
 	Reason    string    `json:"reason,omitempty"`
 	CreatedAt time.Time `json:"created_at"`

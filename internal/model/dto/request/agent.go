@@ -11,7 +11,6 @@ type CreateAgentRequest struct {
 	Icon        string           `json:"icon" binding:"omitempty,max=255"`
 	Pics        entity.JSONArray `json:"pics" binding:"omitempty"`
 	ConfigJSON  entity.JSON      `json:"config_json" binding:"omitempty"`
-	ShareConfig entity.JSON      `json:"share_config" binding:"omitempty"`
 	IsSubagent  *bool            `json:"is_subagent" binding:"omitempty"`
 }
 
@@ -22,7 +21,6 @@ type UpdateAgentRequest struct {
 	Icon        string           `json:"icon" binding:"omitempty,max=255"`
 	Pics        entity.JSONArray `json:"pics" binding:"omitempty"`
 	ConfigJSON  entity.JSON      `json:"config_json" binding:"omitempty"`
-	ShareConfig entity.JSON      `json:"share_config" binding:"omitempty"`
 }
 
 // AgentListRequest 智能体列表请求

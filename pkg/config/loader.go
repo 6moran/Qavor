@@ -18,6 +18,14 @@ func atoiOrDefault(s string, defaultVal int) int {
 	return defaultVal
 }
 
+// atoi64OrDefault 将字符串转换为 int64，失败时返回默认值
+func atoi64OrDefault(s string, defaultVal int64) int64 {
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v
+	}
+	return defaultVal
+}
+
 var globalConfig *Config
 
 // Load 加载配置文件
@@ -106,39 +114,32 @@ func Load(configPath string) (*Config, error) {
 	if val := os.Getenv("MINIO_REGION"); val != "" {
 		config.Database.MinIO.Region = val
 	}
+	if val := os.Getenv("MINIO_PUBLIC_ENDPOINT"); val != "" {
+		config.Database.MinIO.PublicEndpoint = val
+	}
+	if val := os.Getenv("MINIO_MAX_FILE_SIZE"); val != "" {
+		config.Database.MinIO.MaxFileSize = atoi64OrDefault(val, config.Database.MinIO.MaxFileSize)
+	}
+	if val := os.Getenv("QAVOR_AUTH_ADMIN_USERNAME"); val != "" {
+		config.Auth.AdminUsername = val
+	}
+	if val := os.Getenv("QAVOR_AUTH_ADMIN_PASSWORD"); val != "" {
+		config.Auth.AdminPassword = val
+	}
 	if val := os.Getenv("JWT_SECRET"); val != "" {
 		config.JWT.Secret = val
 	}
-	if val := os.Getenv("JWT_ACCESS_EXPIRE"); val != "" {
-		config.JWT.AccessExpire = time.Duration(atoiOrDefault(val, int(config.JWT.AccessExpire))) * time.Hour
+	if val := os.Getenv("QAVOR_JWT_SECRET"); val != "" {
+		config.JWT.Secret = val
 	}
-	if val := os.Getenv("JWT_REFRESH_EXPIRE"); val != "" {
-		config.JWT.RefreshExpire = time.Duration(atoiOrDefault(val, int(config.JWT.RefreshExpire))) * time.Hour
+	if val := os.Getenv("JWT_EXPIRE_HOURS"); val != "" {
+		config.JWT.ExpireHours = time.Duration(atoiOrDefault(val, int(config.JWT.ExpireHours))) * time.Hour
 	}
 	if val := os.Getenv("APP_MODE"); val != "" {
 		config.App.Mode = val
 	}
 	if val := os.Getenv("APP_PORT"); val != "" {
 		config.App.Port = atoiOrDefault(val, config.App.Port)
-	}
-	// Email 环境变量覆盖
-	if val := os.Getenv("EMAIL_SMTP_HOST"); val != "" {
-		config.Email.SMTP.Host = val
-	}
-	if val := os.Getenv("EMAIL_SMTP_PORT"); val != "" {
-		config.Email.SMTP.Port = atoiOrDefault(val, config.Email.SMTP.Port)
-	}
-	if val := os.Getenv("EMAIL_SMTP_ACCOUNT"); val != "" {
-		config.Email.SMTP.Account = val
-	}
-	if val := os.Getenv("EMAIL_SMTP_AUTH_CODE"); val != "" {
-		config.Email.SMTP.AuthCode = val
-	}
-	if val := os.Getenv("EMAIL_FROM"); val != "" {
-		config.Email.From = val
-	}
-	if val := os.Getenv("EMAIL_FROM_NAME"); val != "" {
-		config.Email.FromName = val
 	}
 
 	globalConfig = config

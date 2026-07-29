@@ -15,11 +15,8 @@ type AgentResponse struct {
 	Icon        string           `json:"icon,omitempty"`
 	Pics        entity.JSONArray `json:"pics"`
 	ConfigJSON  entity.JSON      `json:"config_json"`
-	ShareConfig entity.JSON      `json:"share_config"`
 	IsDefault   bool             `json:"is_default"`
 	IsSubagent  bool             `json:"is_subagent"`
-	CreatedBy   string           `json:"created_by,omitempty"`
-	UpdatedBy   string           `json:"updated_by,omitempty"`
 	CreatedAt   time.Time        `json:"created_at"`
 	UpdatedAt   time.Time        `json:"updated_at"`
 }

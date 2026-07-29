@@ -2,6 +2,8 @@ package cache
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -12,6 +14,12 @@ import (
 
 	"Qavor/pkg/logger"
 )
+
+// TokenBlacklistKey 返回不包含原始 JWT 的 Redis 黑名单键。
+func TokenBlacklistKey(token string) string {
+	digest := sha256.Sum256([]byte(token))
+	return TokenBlacklistPrefix + hex.EncodeToString(digest[:])
+}
 
 const (
 	// ResetCodePrefix 重置码前缀
@@ -132,8 +140,11 @@ func VerifyResetCode(email, code string) (bool, error) {
 // 返回:
 //   - error: 操作失败时返回错误
 func AddTokenToBlacklist(token string, expireTime time.Duration) error {
+	if !database.RedisAvailable() {
+		return fmt.Errorf("Redis 未初始化")
+	}
 	ctx := context.Background()
-	key := TokenBlacklistPrefix + token
+	key := TokenBlacklistKey(token)
 
 	// 保存 Token 到黑名单，设置过期时间
 	err := database.GetRedis().Set(ctx, key, "1", expireTime).Err()
@@ -154,8 +165,11 @@ func AddTokenToBlacklist(token string, expireTime time.Duration) error {
 //   - bool: Token 是否在黑名单中
 //   - error: 检查失败时返回错误
 func IsTokenInBlacklist(token string) (bool, error) {
+	if !database.RedisAvailable() {
+		return false, fmt.Errorf("Redis 未初始化")
+	}
 	ctx := context.Background()
-	key := TokenBlacklistPrefix + token
+	key := TokenBlacklistKey(token)
 
 	exists, err := database.GetRedis().Exists(ctx, key).Result()
 	if err != nil {

@@ -21,8 +21,6 @@ type ModelProvider struct {
 	ExtraJSON               JSON      `gorm:"type:json;default:{};comment:扩展配置" json:"extra_json,omitempty"`
 	IsEnabled               bool      `gorm:"not null;default:true;index;comment:是否启用" json:"is_enabled"`
 	IsBuiltin               bool      `gorm:"not null;default:false;comment:是否内置" json:"is_builtin"`
-	CreatedBy               string    `gorm:"type:varchar(100);comment:创建人" json:"created_by,omitempty"`
-	UpdatedBy               string    `gorm:"type:varchar(100);comment:更新人" json:"updated_by,omitempty"`
 }
 
 // TableName 指定表名
