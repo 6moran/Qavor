@@ -324,10 +324,13 @@ func (s *modelProviderService) GetLLMClient(ctx context.Context, providerID stri
 		return nil, err
 	}
 
-	// 5. 包装为带重试的客户端
-	retryableClient := llm.NewRetryableClient(client, nil)
+	// 5. 包装为带超时控制的客户端
+	timeoutClient := llm.NewTimeoutClient(client, nil)
 
-	// 6. 使用 LoadOrStore 原子操作写入缓存
+	// 6. 包装为带重试的客户端（支持超时控制）
+	retryableClient := llm.NewRetryableClient(timeoutClient, nil)
+
+	// 7. 使用 LoadOrStore 原子操作写入缓存
 	// 如果多个 goroutine 同时创建，只有第一个会成功存储，其他的会使用已存储的
 	actual, _ := s.clientCache.LoadOrStore(cacheKey, retryableClient)
 	return actual.(*llm.RetryableClient), nil

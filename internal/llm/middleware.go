@@ -29,12 +29,13 @@ func DefaultTimeoutConfig() *TimeoutConfig {
 // TimeoutClient 支持超时控制的 LLM 客户端，包装了基础 Client
 // 通过在 context 上设置 deadline 来实现超时控制
 type TimeoutClient struct {
-	*Client        // 内嵌基础客户端
+	*Client                      // 内嵌基础客户端
 	timeoutConfig *TimeoutConfig // 超时配置
 }
 
 // NewTimeoutClient 创建支持超时控制的客户端
 // 如果 timeoutConfig 为 nil，则使用默认超时配置
+
 func NewTimeoutClient(client *Client, timeoutConfig *TimeoutConfig) *TimeoutClient {
 	if timeoutConfig == nil {
 		timeoutConfig = DefaultTimeoutConfig()

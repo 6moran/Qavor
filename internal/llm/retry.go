@@ -8,9 +8,9 @@ import (
 	"net"
 	"time"
 
+	pkgerrors "Qavor/pkg/errors"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-	pkgerrors "Qavor/pkg/errors"
 )
 
 // RetryConfig 重试配置，控制重试行为的各项参数
@@ -39,23 +39,23 @@ func DefaultRetryConfig() *RetryConfig {
 // RetryableClient 支持自动重试的 LLM 客户端包装器
 // 在原始 Client 基础上增加了重试逻辑，支持可配置的退避策略
 type RetryableClient struct {
-	*Client                           // 嵌入原始 LLM 客户端
-	retryConfig  *RetryConfig         // 重试配置
+	model.BaseChatModel              // 嵌入任意实现了 BaseChatModel 接口的客户端
+	retryConfig         *RetryConfig // 重试配置
 }
 
 // NewRetryableClient 创建支持重试的客户端
 // 参数:
-//   - client: 原始 LLM 客户端实例
+//   - client: 原始 LLM 客户端实例（可以是 *Client、*TimeoutClient 等任意实现了 BaseChatModel 的类型）
 //   - retryConfig: 重试配置，为 nil 时使用默认配置
 //
 // 返回: 包装后的支持重试的客户端
-func NewRetryableClient(client *Client, retryConfig *RetryConfig) *RetryableClient {
+func NewRetryableClient(client model.BaseChatModel, retryConfig *RetryConfig) *RetryableClient {
 	if retryConfig == nil {
 		retryConfig = DefaultRetryConfig()
 	}
 	return &RetryableClient{
-		Client:      client,
-		retryConfig: retryConfig,
+		BaseChatModel: client,
+		retryConfig:   retryConfig,
 	}
 }
 
