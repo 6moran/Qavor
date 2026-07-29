@@ -44,6 +44,20 @@ const (
 	CodeResourceNotFound      = 3001
 	CodeResourceAlreadyExists = 3002
 	CodeResourceLocked        = 3003
+
+	// LLM 错误 4xxx
+	CodeLLMInternalError   = 4001
+	CodeLLMConfigError     = 4002
+	CodeLLMRequestFailed   = 4003
+	CodeLLMResponseInvalid = 4004
+	CodeLLMTimeout         = 4005
+	CodeLLMTokenLimit      = 4006
+
+	// 模型提供商错误 5xxx
+	CodeModelProviderNotFound      = 5001
+	CodeModelProviderAlreadyExists = 5002
+	CodeModelProviderDisabled      = 5003
+	CodeModelProviderAPIKeyMissing = 5004
 )
 
 // 错误码对应的文本消息
@@ -77,6 +91,20 @@ var codeMessages = map[int]string{
 	CodeResourceNotFound:      "资源不存在",
 	CodeResourceAlreadyExists: "资源已存在",
 	CodeResourceLocked:        "资源已被锁定",
+
+	// LLM 错误消息
+	CodeLLMInternalError:   "LLM 内部错误",
+	CodeLLMConfigError:     "LLM 配置错误",
+	CodeLLMRequestFailed:   "LLM 请求失败",
+	CodeLLMResponseInvalid: "LLM 响应无效",
+	CodeLLMTimeout:         "LLM 请求超时",
+	CodeLLMTokenLimit:      "超出 token 限制",
+
+	// 模型提供商错误消息
+	CodeModelProviderNotFound:      "模型提供商不存在",
+	CodeModelProviderAlreadyExists: "模型提供商已存在",
+	CodeModelProviderDisabled:      "模型提供商已禁用",
+	CodeModelProviderAPIKeyMissing: "API Key 未配置",
 }
 
 // GetMessage 获取错误码对应的文本消息
