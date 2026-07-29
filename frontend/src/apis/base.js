@@ -39,6 +39,10 @@ import {
  * 根据 URL 和方法获取 mock 数据
  */
 function getMockData(url, method, options) {
+  // /api/v1 由当前 Go 服务提供，必须始终请求真实后端。
+  // 旧 Mock 中宽泛的 includes('/documents') 等规则会误拦截新版知识库接口。
+  if (url.startsWith('/api/v1/')) return undefined
+
   // ==================== 系统 ====================
   if (url === '/api/system/health') return mockResponse(mockHealth)
   if (url === '/api/system/info') return mockResponse(mockInfo)

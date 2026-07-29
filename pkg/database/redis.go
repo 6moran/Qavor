@@ -48,6 +48,11 @@ func GetRedis() *redis.Client {
 	return redisClient
 }
 
+// RedisAvailable 返回 Redis 是否已成功初始化。
+func RedisAvailable() bool {
+	return redisClient != nil
+}
+
 // CloseRedis 关闭 Redis 连接
 func CloseRedis() error {
 	if redisClient != nil {

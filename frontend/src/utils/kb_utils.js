@@ -17,6 +17,7 @@ export const brandIcons = {
 
 export const getKbTypeLabel = (type) => {
   const labels = {
+    pgvector: 'PostgreSQL / pgvector',
     milvus: 'Yuxi',
     dify: 'Dify',
     notion: 'Notion'

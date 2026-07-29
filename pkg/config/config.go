@@ -1,15 +1,40 @@
 package config
 
-import "time"
+import (
+	"errors"
+	"strings"
+	"time"
+)
 
 // Config 应用配置结构体
 type Config struct {
 	App      AppConfig      `mapstructure:"app"`
+	Auth     AuthConfig     `mapstructure:"auth"`
 	Database DatabaseConfig `mapstructure:"database"`
 	JWT      JWTConfig      `mapstructure:"jwt"`
 	Log      LogConfig      `mapstructure:"log"`
 	CORS     CORSConfig     `mapstructure:"cors"`
 	Email    EmailConfig    `mapstructure:"email"`
+}
+
+// AuthConfig 单实例管理员认证配置。
+type AuthConfig struct {
+	AdminUsername string `mapstructure:"admin_username"`
+	AdminPassword string `mapstructure:"admin_password"`
+}
+
+// ValidateAuth 校验单实例认证启动所需配置。
+func (c *Config) ValidateAuth() error {
+	if strings.TrimSpace(c.Auth.AdminUsername) == "" {
+		return errors.New("缺少 auth.admin_username")
+	}
+	if c.Auth.AdminPassword == "" {
+		return errors.New("缺少 auth.admin_password")
+	}
+	if strings.TrimSpace(c.JWT.Secret) == "" {
+		return errors.New("缺少 jwt.secret")
+	}
+	return nil
 }
 
 // AppConfig 应用配置
@@ -42,12 +67,15 @@ type PostgresConfig struct {
 
 // MinIOConfig MinIO 配置
 type MinIOConfig struct {
-	Endpoint  string `mapstructure:"endpoint"`
-	AccessKey string `mapstructure:"access_key"`
-	SecretKey string `mapstructure:"secret_key"`
-	Bucket    string `mapstructure:"bucket"`
-	UseSSL    bool   `mapstructure:"use_ssl"`
-	Region    string `mapstructure:"region"`
+	Endpoint       string   `mapstructure:"endpoint"`
+	AccessKey      string   `mapstructure:"access_key"`
+	SecretKey      string   `mapstructure:"secret_key"`
+	Bucket         string   `mapstructure:"bucket"`
+	UseSSL         bool     `mapstructure:"use_ssl"`
+	Region         string   `mapstructure:"region"`
+	PublicEndpoint string   `mapstructure:"public_endpoint"` // 对外访问地址，如 https://cdn.example.com
+	MaxFileSize    int64    `mapstructure:"max_file_size"`   // 最大文件大小(bytes)，默认 50MB
+	AllowedTypes   []string `mapstructure:"allowed_types"`   // 允许的 MIME 类型，空=不限制
 }
 
 // RedisConfig Redis 配置
@@ -61,9 +89,8 @@ type RedisConfig struct {
 
 // JWTConfig JWT 配置
 type JWTConfig struct {
-	Secret        string        `mapstructure:"secret"`         // JWT 密钥
-	AccessExpire  time.Duration `mapstructure:"access_expire"`  // 访问令牌过期时间（小时）
-	RefreshExpire time.Duration `mapstructure:"refresh_expire"` // 刷新令牌过期时间（小时）
+	Secret      string        `mapstructure:"secret"`       // JWT 密钥
+	ExpireHours time.Duration `mapstructure:"expire_hours"` // 访问令牌过期时间（小时）
 }
 
 // LogConfig 日志配置

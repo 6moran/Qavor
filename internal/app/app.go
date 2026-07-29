@@ -15,8 +15,8 @@ import (
 	"Qavor/internal/service"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
-	"Qavor/pkg/email"
 	"Qavor/pkg/logger"
+	"Qavor/pkg/minio"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -55,13 +55,18 @@ func (a *App) Initialize() error {
 		return err
 	}
 
-	// 4. 初始化依赖
+	// 4. 初始化 MinIO（可选）
+	if err := a.initMinIO(); err != nil {
+		logger.Warn("MinIO 初始化失败，文件上传功能将不可用", zap.Error(err))
+	}
+
+	// 5. 初始化依赖
 	a.initDependencies()
 
-	// 5. 初始化路由
+	// 6. 初始化路由
 	a.initRouter()
 
-	// 6. 初始化服务器
+	// 7. 初始化服务器
 	a.initServer()
 
 	return nil
@@ -72,6 +77,9 @@ func (a *App) initConfig() error {
 	cfg, err := config.Load("")
 	if err != nil {
 		return fmt.Errorf("加载配置失败: %w", err)
+	}
+	if err := cfg.ValidateAuth(); err != nil {
+		return fmt.Errorf("认证配置无效: %w", err)
 	}
 	a.cfg = cfg
 	return nil
@@ -107,7 +115,6 @@ func (a *App) initDatabase() error {
 	if a.cfg.Database.AutoMigrate {
 		logger.Info("开始数据库迁移...")
 		if err := a.postgresDB.AutoMigrate(
-			&entity.User{},
 			&entity.Agent{},
 			&entity.AgentEnv{},
 			&entity.Conversation{},
@@ -145,9 +152,19 @@ func (a *App) initDatabase() error {
 	return nil
 }
 
+// initMinIO 初始化 MinIO 存储
+func (a *App) initMinIO() error {
+	if err := minio.Init(&a.cfg.Database.MinIO); err != nil {
+		return fmt.Errorf("MinIO 初始化失败: %w", err)
+	}
+	return nil
+}
+
 // initDependencies 初始化依赖注入
 func (a *App) initDependencies() {
 	// 创建 Repository
+	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
+	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
 	userRepo := repository.NewUserRepository(a.postgresDB)
 	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
 
@@ -158,8 +175,12 @@ func (a *App) initDependencies() {
 	userSvc := service.NewUserService(userRepo)
 	authSvc := service.NewAuthService(userRepo, userSvc, emailClient)
 	providerSvc := service.NewModelProviderService(providerRepo)
+	authSvc := service.NewAuthService(a.cfg.Auth)
+	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
+	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
 
 	// 创建 Router
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc)
 	a.router = api.NewRouter(userSvc, authSvc, providerSvc)
 }
 
@@ -222,6 +243,9 @@ func (a *App) gracefulShutdown() {
 	// 关闭数据库连接
 	_ = database.ClosePostgres()
 	_ = database.CloseRedis()
+
+	// 关闭 MinIO
+	_ = minio.Close()
 
 	// 同步日志
 	_ = logger.Sync()

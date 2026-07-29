@@ -23,8 +23,6 @@ type MCPServerResponse struct {
 	Icon           string           `json:"icon,omitempty"`
 	Enabled        int              `json:"enabled"`
 	DisabledTools  entity.JSONArray `json:"disabled_tools,omitempty"`
-	CreatedBy      string           `json:"created_by"`
-	UpdatedBy      string           `json:"updated_by"`
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
 }

@@ -18,10 +18,7 @@ type SkillResponse struct {
 	DirPath           string           `json:"dir_path"`
 	Version           string           `json:"version,omitempty"`
 	ContentHash       string           `json:"content_hash,omitempty"`
-	ShareConfig       entity.JSON      `json:"share_config"`
 	Enabled           bool             `json:"enabled"`
-	CreatedBy         string           `json:"created_by,omitempty"`
-	UpdatedBy         string           `json:"updated_by,omitempty"`
 	CreatedAt         time.Time        `json:"created_at"`
 	UpdatedAt         time.Time        `json:"updated_at"`
 }

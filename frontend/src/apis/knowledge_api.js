@@ -1,5 +1,20 @@
-import { apiGet, apiAdminGet, apiAdminPost, apiAdminPut, apiAdminDelete, apiRequest } from './base'
-import { USE_MOCK, mockResponse, mockDatabases, mockAccessibleDatabases } from '@/mock'
+import {
+  apiGet,
+  apiPost,
+  apiPut,
+  apiDelete,
+  apiAdminGet,
+  apiAdminPost,
+  apiAdminPut,
+  apiAdminDelete,
+  apiRequest
+} from './base'
+import { USE_MOCK, mockResponse, mockAccessibleDatabases } from '@/mock'
+import {
+  unwrapKnowledgeResponse,
+  adaptKnowledgeBaseList,
+  adaptKnowledgeFileList
+} from './knowledge_response'
 
 /**
  * 知识库管理API模块
@@ -16,10 +31,8 @@ export const databaseApi = {
    * @returns {Promise} - 知识库列表
    */
   getDatabases: async () => {
-    if (USE_MOCK) {
-      return mockResponse({ databases: mockDatabases })
-    }
-    return apiAdminGet('/api/knowledge/databases')
+    const response = await apiGet('/api/v1/knowledge/databases')
+    return adaptKnowledgeBaseList(unwrapKnowledgeResponse(response))
   },
 
   /**
@@ -28,7 +41,8 @@ export const databaseApi = {
    * @returns {Promise} - 创建结果
    */
   createDatabase: async (databaseData) => {
-    return apiAdminPost('/api/knowledge/databases', databaseData)
+    const response = await apiPost('/api/v1/knowledge/databases', databaseData)
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -37,7 +51,10 @@ export const databaseApi = {
    * @returns {Promise} - 知识库信息
    */
   getDatabaseInfo: async (kbId) => {
-    return apiAdminGet(`/api/knowledge/databases/${kbId}`)
+    const response = await apiGet(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}`
+    )
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -56,7 +73,11 @@ export const databaseApi = {
    * @returns {Promise} - 更新结果
    */
   updateDatabase: async (kbId, updateData) => {
-    return apiAdminPut(`/api/knowledge/databases/${kbId}`, updateData)
+    const response = await apiPut(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}`,
+      updateData
+    )
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -65,7 +86,11 @@ export const databaseApi = {
    * @returns {Promise} - 删除结果
    */
   deleteDatabase: async (kbId) => {
-    return apiAdminDelete(`/api/knowledge/databases/${kbId}`)
+    const response = await apiDelete(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}`
+    )
+    unwrapKnowledgeResponse(response)
+    return { message: '删除成功' }
   },
 
   /**
@@ -118,7 +143,15 @@ export const documentApi = {
    */
   listDocuments: async (kbId, params = {}) => {
     const query = buildQuery(params)
-    return apiAdminGet(`/api/knowledge/databases/${kbId}/documents${query ? `?${query}` : ''}`)
+    const response = await apiGet(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents${query ? `?${query}` : ''}`
+    )
+    const data = unwrapKnowledgeResponse(response)
+    return adaptKnowledgeFileList(
+      data,
+      Number(params.page) || 1,
+      Number(params.page_size) || 100
+    )
   },
 
   searchDocuments: async (kbId, params = {}) => {
@@ -188,7 +221,10 @@ export const documentApi = {
    * @returns {Promise} - 文档信息
    */
   getDocumentInfo: async (kbId, docId) => {
-    return apiAdminGet(`/api/knowledge/databases/${kbId}/documents/${docId}`)
+    const response = await apiGet(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`
+    )
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -218,7 +254,11 @@ export const documentApi = {
    * @returns {Promise} - 删除结果
    */
   deleteDocument: async (kbId, docId) => {
-    return apiAdminDelete(`/api/knowledge/databases/${kbId}/documents/${docId}`)
+    const response = await apiDelete(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}`
+    )
+    unwrapKnowledgeResponse(response)
+    return { message: '删除成功' }
   },
 
   /**
@@ -477,21 +517,11 @@ export const fileApi = {
     const formData = new FormData()
     formData.append('file', file)
 
-    const url = kbId ? `/api/knowledge/files/upload?kb_id=${kbId}` : '/api/knowledge/files/upload'
-
-    return apiAdminPost(url, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    })
-  },
-
-  /**
-   * 获取支持的文件类型
-   * @returns {Promise} - 文件类型列表
-   */
-  getSupportedFileTypes: async () => {
-    return apiAdminGet('/api/knowledge/files/supported-types')
+    const url = kbId
+      ? `/api/v1/knowledge/files/upload?kb_id=${encodeURIComponent(kbId)}`
+      : '/api/v1/knowledge/files/upload'
+    const response = await apiPost(url, formData)
+    return unwrapKnowledgeResponse(response)
   },
 
   /**

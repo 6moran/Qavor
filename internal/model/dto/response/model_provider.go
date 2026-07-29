@@ -25,8 +25,6 @@ type ModelProviderResponse struct {
 	ExtraJSON               entity.JSON      `json:"extra_json,omitempty"`
 	IsEnabled               bool             `json:"is_enabled"`
 	IsBuiltin               bool             `json:"is_builtin"`
-	CreatedBy               string           `json:"created_by,omitempty"`
-	UpdatedBy               string           `json:"updated_by,omitempty"`
 	CreatedAt               time.Time        `json:"created_at"`
 	UpdatedAt               time.Time        `json:"updated_at"`
 }

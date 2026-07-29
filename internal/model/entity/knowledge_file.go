@@ -21,9 +21,6 @@ type KnowledgeFile struct {
 	ProcessingParams JSON   `gorm:"type:json;comment:处理参数" json:"processing_params,omitempty"`
 	IsFolder         bool   `gorm:"default:false;comment:是否为文件夹" json:"is_folder"`
 	ErrorMessage     string `gorm:"type:text;comment:错误信息" json:"error_message,omitempty"`
-	CreatedBy        string `gorm:"type:varchar(64);comment:创建人" json:"created_by,omitempty"`
-	UpdatedBy        string `gorm:"type:varchar(64);comment:更新人" json:"updated_by,omitempty"`
-
 	// 关联关系
 	KnowledgeBase *KnowledgeBase   `gorm:"foreignKey:KBID;references:KBID" json:"knowledge_base,omitempty"`
 	Parent        *KnowledgeFile   `gorm:"foreignKey:ParentID;references:FileID" json:"parent,omitempty"`

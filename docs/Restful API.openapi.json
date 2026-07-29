@@ -15847,7 +15847,7 @@
           "kb_type": {
             "type": "string",
             "title": "Kb Type",
-            "default": "milvus"
+            "default": "pgvector"
           },
           "additional_params": {
             "anyOf": [
