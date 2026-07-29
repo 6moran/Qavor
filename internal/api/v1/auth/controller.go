@@ -1,9 +1,11 @@
 package auth
 
 import (
+	"Qavor/internal/middleware"
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
+	"Qavor/pkg/validator"
 
 	"github.com/gin-gonic/gin"
 )
@@ -32,7 +34,8 @@ func NewController(authService service.AuthService) *Controller {
 func (ctrl *Controller) Login(c *gin.Context) {
 	var req request.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		code, message := validator.ErrorHandler(err)
+		response.Error(c, code, message)
 		return
 	}
 
@@ -45,29 +48,32 @@ func (ctrl *Controller) Login(c *gin.Context) {
 	response.Success(c, resp)
 }
 
-// RefreshToken 刷新 Token
-// @Summary 刷新 Token
-// @Description 使用旧 Token 获取新 Token
+// Logout 用户登出
+// @Summary 用户登出
+// @Description 用户登出，使 Token 失效
 // @Tags 认证
 // @Accept json
 // @Produce json
-// @Param request body request.RefreshTokenRequest true "Token"
+// @Param request body request.LogoutRequest true "登出信息"
 // @Success 200 {object} response.Response
-// @Router /api/v1/auth/refresh [post]
-func (ctrl *Controller) RefreshToken(c *gin.Context) {
-	var req request.RefreshTokenRequest
+// @Router /api/v1/auth/logout [post]
+func (ctrl *Controller) Logout(c *gin.Context) {
+	var req request.LogoutRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
+		code, message := validator.ErrorHandler(err)
+		response.Error(c, code, message)
 		return
 	}
 
-	newToken, err := ctrl.authService.RefreshToken(req.Token)
-	if err != nil {
+	// 如果请求体中没有 Token，尝试从 Header 获取
+	if req.AccessToken == "" {
+		req.AccessToken = middleware.GetTokenFromHeader(c)
+	}
+
+	if err := ctrl.authService.Logout(req.AccessToken, req.RefreshToken); err != nil {
 		response.BizError(c, err)
 		return
 	}
 
-	response.Success(c, map[string]string{
-		"token": newToken,
-	})
+	response.Success(c, nil)
 }

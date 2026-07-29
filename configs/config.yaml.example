@@ -12,6 +12,7 @@ auth:
 
 # 数据库配置
 database:
+  auto_migrate: false  # 是否自动迁移数据库，设为 false 可跳过每次启动时的迁移
   redis:
     host: "localhost"
     port: 6379
@@ -44,7 +45,8 @@ database:
 # JWT 配置
 jwt:
   secret: ""                       # 生产环境通过环境变量 JWT_SECRET 注入，必须设置
-  expire_hours: 24
+  access_expire: 2                 # 访问令牌过期时间（小时）
+  refresh_expire: 168              # 刷新令牌过期时间（小时），7天
 
 # 日志配置
 log:
@@ -70,3 +72,18 @@ cors:
     - "Origin"
     - "Content-Type"
     - "Authorization"
+
+# 邮件配置
+# SMTP 服务器配置说明：
+# - QQ 邮箱：smtp.qq.com，端口 465（SSL）或 587（STARTTLS）
+# - 163 邮箱：smtp.163.com，端口 465（SSL）
+# - Gmail：smtp.gmail.com，端口 465（SSL）或 587（STARTTLS）
+# - 授权码获取方式：登录邮箱后，在设置 -> 账户 -> POP3/SMTP 服务中开启并获取授权码
+email:
+  smtp:
+    host: "smtp.qq.com"             # SMTP 服务器地址
+    port: 465                       # SMTP 端口（SSL）
+    account: ""                     # 邮箱账号（如：your-email@qq.com）
+    auth_code: ""                   # 邮箱授权码（非登录密码），生产环境通过环境变量 EMAIL_AUTH_CODE 注入
+  from: ""                          # 发件人邮箱（通常与 account 相同）
+  from_name: "Qavor"                # 发件人名称

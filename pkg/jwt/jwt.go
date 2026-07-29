@@ -52,12 +52,3 @@ func ParseToken(tokenString string) (*CustomClaims, error) {
 	return nil, ErrTokenInvalid
 }
 
-// RefreshToken 刷新 Token
-func RefreshToken(tokenString string) (string, error) {
-	_, err := ParseToken(tokenString)
-	if err != nil {
-		return "", err
-	}
-
-	return GenerateToken()
-}
