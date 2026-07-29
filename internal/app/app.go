@@ -149,6 +149,7 @@ func (a *App) initDatabase() error {
 func (a *App) initDependencies() {
 	// 创建 Repository
 	userRepo := repository.NewUserRepository(a.postgresDB)
+	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
 
 	// 创建邮件客户端
 	emailClient := email.NewSMTPClient(&a.cfg.Email)
@@ -156,9 +157,10 @@ func (a *App) initDependencies() {
 	// 创建 Service
 	userSvc := service.NewUserService(userRepo)
 	authSvc := service.NewAuthService(userRepo, userSvc, emailClient)
+	providerSvc := service.NewModelProviderService(providerRepo)
 
 	// 创建 Router
-	a.router = api.NewRouter(userSvc, authSvc)
+	a.router = api.NewRouter(userSvc, authSvc, providerSvc)
 }
 
 // initRouter 初始化路由

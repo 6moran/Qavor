@@ -2,6 +2,7 @@ package api
 
 import (
 	"Qavor/internal/api/v1/auth"
+	"Qavor/internal/api/v1/model_provider"
 	"Qavor/internal/api/v1/user"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
@@ -11,18 +12,21 @@ import (
 
 // Router 路由
 type Router struct {
-	userCtrl *user.Controller
-	authCtrl *auth.Controller
+	userCtrl     *user.Controller
+	authCtrl     *auth.Controller
+	providerCtrl *model_provider.Controller
 }
 
 // NewRouter 创建路由
 func NewRouter(
 	userService service.UserService,
 	authService service.AuthService,
+	providerService service.ModelProviderService,
 ) *Router {
 	return &Router{
-		userCtrl: user.NewController(userService),
-		authCtrl: auth.NewController(authService, userService),
+		userCtrl:     user.NewController(userService),
+		authCtrl:     auth.NewController(authService, userService),
+		providerCtrl: model_provider.NewController(providerService),
 	}
 }
 
@@ -49,5 +53,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// 用户路由
 		r.userCtrl.RegisterRoutes(v1)
+
+		// 模型提供商路由
+		r.providerCtrl.RegisterRoutes(v1)
 	}
 }
