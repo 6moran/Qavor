@@ -83,7 +83,11 @@
         </div>
 
         <main class="database-tab-content">
-          <div v-if="isMilvus" v-show="activeTab === 'filetable'" class="tab-panel file-panel">
+          <div
+            v-if="supportsFileManagement"
+            v-show="activeTab === 'filetable'"
+            class="tab-panel file-panel"
+          >
             <div class="file-management-info">
               <div class="file-info-title">
                 <div class="file-info-title-row">
@@ -422,6 +426,9 @@ const isNotionKb = computed(() => kbType.value === 'notion')
 const isConnector = computed(
   () => isCurrentDatabaseLoaded.value && kbUtils.isReadOnlyDatabase(database.value)
 )
+const supportsFileManagement = computed(
+  () => isCurrentDatabaseLoaded.value && !isConnector.value
+)
 const isEvaluationSupported = computed(() => isMilvus.value)
 const kbTypeIcon = computed(() => getKbTypeIcon(kbType.value || 'milvus'))
 
@@ -437,28 +444,34 @@ const databaseSubtitle = computed(() => {
 })
 
 const tabs = computed(() => {
+  const result = []
+
+  if (supportsFileManagement.value) {
+    result.push({ key: 'filetable', label: '文件管理', icon: FileText })
+  }
+
+  result.push({ key: 'query', label: '检索测试', icon: Search })
+
   if (isMilvus.value) {
-    return [
-      { key: 'filetable', label: '文件管理', icon: FileText },
-      { key: 'query', label: '检索测试', icon: Search },
+    result.push(
       { key: 'graph', label: '知识图谱', icon: Network },
       { key: 'mindmap', label: '知识导图', icon: MapIcon },
       { key: 'evaluation', label: 'RAG 评估', icon: BarChart3 },
       { key: 'benchmarks', label: '评估基准', icon: ClipboardList }
-    ]
+    )
   }
 
-  return [{ key: 'query', label: '检索测试', icon: Search }]
+  return result
 })
 
 const visibleTabs = computed(() => tabs.value)
 const activeTab = ref('filetable')
 
 watch(
-  () => [kbId.value, isMilvus.value],
-  ([newDbId, isMilvusType]) => {
+  () => [kbId.value, supportsFileManagement.value],
+  ([newDbId, fileManagementSupported]) => {
     if (!newDbId) return
-    activeTab.value = isMilvusType ? 'filetable' : 'query'
+    activeTab.value = fileManagementSupported ? 'filetable' : 'query'
   },
   { immediate: true }
 )
