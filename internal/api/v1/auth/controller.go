@@ -15,6 +15,20 @@ type Controller struct {
 	authService service.AuthService
 }
 
+// Logout 使当前管理员的 JWT 立即失效。
+func (ctrl *Controller) Logout(c *gin.Context) {
+	token := middleware.GetTokenFromHeader(c)
+	if token == "" {
+		response.Unauthorized(c, "请提供认证令牌")
+		return
+	}
+	if err := ctrl.authService.Logout(token); err != nil {
+		response.BizError(c, err)
+		return
+	}
+	response.Success(c, nil)
+}
+
 // NewController 创建认证控制器
 func NewController(authService service.AuthService) *Controller {
 	return &Controller{
@@ -46,34 +60,4 @@ func (ctrl *Controller) Login(c *gin.Context) {
 	}
 
 	response.Success(c, resp)
-}
-
-// Logout 用户登出
-// @Summary 用户登出
-// @Description 用户登出，使 Token 失效
-// @Tags 认证
-// @Accept json
-// @Produce json
-// @Param request body request.LogoutRequest true "登出信息"
-// @Success 200 {object} response.Response
-// @Router /api/v1/auth/logout [post]
-func (ctrl *Controller) Logout(c *gin.Context) {
-	var req request.LogoutRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		code, message := validator.ErrorHandler(err)
-		response.Error(c, code, message)
-		return
-	}
-
-	// 如果请求体中没有 Token，尝试从 Header 获取
-	if req.AccessToken == "" {
-		req.AccessToken = middleware.GetTokenFromHeader(c)
-	}
-
-	if err := ctrl.authService.Logout(req.AccessToken, req.RefreshToken); err != nil {
-		response.BizError(c, err)
-		return
-	}
-
-	response.Success(c, nil)
 }

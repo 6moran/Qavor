@@ -13,6 +13,18 @@ var (
 	ErrTokenExpired = errors.New("token 已过期")
 )
 
+// RemainingTTL 返回 Token 从 now 起的剩余有效时间。
+func RemainingTTL(claims *CustomClaims, now time.Time) time.Duration {
+	if claims == nil || claims.ExpiresAt == nil {
+		return 0
+	}
+	ttl := claims.ExpiresAt.Time.Sub(now)
+	if ttl < 0 {
+		return 0
+	}
+	return ttl
+}
+
 // GenerateToken 生成 JWT Token
 func GenerateToken() (string, error) {
 	cfg := config.Get().JWT
@@ -51,4 +63,3 @@ func ParseToken(tokenString string) (*CustomClaims, error) {
 
 	return nil, ErrTokenInvalid
 }
-

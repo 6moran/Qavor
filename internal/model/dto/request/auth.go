@@ -17,12 +17,6 @@ type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token"` // 刷新令牌（必须，用于删除）
 }
 
-// LoginRequest 登录请求
-type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email"`
-	Password string `json:"password" binding:"required"`
-}
-
 // RegisterRequest 注册请求
 type RegisterRequest struct {
 	Nickname        string `json:"nickname" binding:"required,min=2,max=50"`

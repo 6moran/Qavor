@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
-import { loginWithPassword } from '@/apis/session_auth'
+import { loginWithPassword, logoutWithToken } from '@/apis/session_auth'
 import { useAgentStore } from './agent'
 
 export const useUserStore = defineStore('user', () => {
@@ -31,7 +31,13 @@ export const useUserStore = defineStore('user', () => {
   }
 
   function logout() {
-    token.value = ''
+		const currentToken = token.value
+		if (currentToken) {
+			void logoutWithToken(fetch, currentToken).catch((error) => {
+				console.warn('后端登出失败，令牌将自然过期:', error)
+			})
+		}
+		token.value = ''
     username.value = ''
     localStorage.removeItem('user_token')
     localStorage.removeItem('admin_username')

@@ -2,12 +2,25 @@ package service
 
 import (
 	"crypto/subtle"
+	"time"
 
 	"Qavor/internal/model/dto/request"
 	dto "Qavor/internal/model/dto/response"
+	"Qavor/pkg/cache"
 	"Qavor/pkg/config"
 	bizerrors "Qavor/pkg/errors"
 	"Qavor/pkg/jwt"
+	"Qavor/pkg/logger"
+
+	"go.uber.org/zap"
+)
+
+var (
+	parseToken                = jwt.ParseToken
+	blacklistToken            = cache.AddTokenToBlacklist
+	warnBlacklistWriteFailure = func(err error) {
+		logger.Warn("Token 黑名单写入失败，降级为自然过期", zap.Error(err))
+	}
 )
 
 // authService 认证服务实现
@@ -40,11 +53,19 @@ func (s *authService) Login(req *request.LoginRequest) (*dto.LoginResponse, erro
 	}, nil
 }
 
-// RefreshToken 刷新 Token
-func (s *authService) RefreshToken(token string) (string, error) {
-	newToken, err := jwt.RefreshToken(token)
+// Logout 使当前 JWT 进入黑名单直到其自然过期。
+func (s *authService) Logout(token string) error {
+	claims, err := parseToken(token)
 	if err != nil {
-		return "", err
+		return err
 	}
-	return newToken, nil
+
+	ttl := jwt.RemainingTTL(claims, time.Now())
+	if ttl == 0 {
+		return nil
+	}
+	if err := blacklistToken(token, ttl); err != nil {
+		warnBlacklistWriteFailure(err)
+	}
+	return nil
 }
