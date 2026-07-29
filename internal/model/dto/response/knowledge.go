@@ -7,58 +7,58 @@ import (
 
 // KnowledgeBaseResponse 知识库响应
 type KnowledgeBaseResponse struct {
-	ID                 uint             `json:"id"`
-	KBID               string           `json:"kb_id"`
-	Name               string           `json:"name"`
-	Description        string           `json:"description,omitempty"`
-	KBType             string           `json:"kb_type"`
-	EmbeddingModelSpec string           `json:"embedding_model_spec,omitempty"`
-	LLMModelSpec       string           `json:"llm_model_spec,omitempty"`
-	QueryParams        entity.JSON      `json:"query_params,omitempty"`
-	AdditionalParams   entity.JSON      `json:"additional_params,omitempty"`
-	ShareConfig        entity.JSON      `json:"share_config,omitempty"`
-	SampleQuestions    entity.JSONArray `json:"sample_questions,omitempty"`
-	CreatedBy          string           `json:"created_by,omitempty"`
-	CreatedAt          time.Time        `json:"created_at"`
-	UpdatedAt          time.Time        `json:"updated_at"`
+	ID                 uint             `json:"id"`                             // 数据库自增主键
+	KBID               string           `json:"kb_id"`                          // 对外使用的知识库唯一标识
+	Name               string           `json:"name"`                           // 知识库名称
+	Description        string           `json:"description,omitempty"`          // 知识库描述
+	KBType             string           `json:"kb_type"`                        // 知识库类型
+	EmbeddingModelSpec string           `json:"embedding_model_spec,omitempty"` // 向量化模型标识
+	LLMModelSpec       string           `json:"llm_model_spec,omitempty"`       // 大模型表示
+	QueryParams        entity.JSON      `json:"query_params,omitempty"`         // 检索参数
+	AdditionalParams   entity.JSON      `json:"additional_params,omitempty"`    // 扩展参数
+	ShareConfig        entity.JSON      `json:"share_config,omitempty"`         // 共享配置
+	SampleQuestions    entity.JSONArray `json:"sample_questions,omitempty"`     // 示例问题列表
+	CreatedBy          string           `json:"created_by,omitempty"`           // 创建人用户名
+	CreatedAt          time.Time        `json:"created_at"`                     // 创建时间
+	UpdatedAt          time.Time        `json:"updated_at"`                     // 最后更新时间
 }
 
 // KnowledgeBaseListResponse 知识库列表响应
 type KnowledgeBaseListResponse struct {
-	Total int64                   `json:"total"`
-	Items []KnowledgeBaseResponse `json:"items"`
+	Total int64                   `json:"total"` // 符合过滤条件的总数
+	Items []KnowledgeBaseResponse `json:"items"` // 当前页知识库列表
 }
 
 // KnowledgeFileResponse 知识文件响应
 type KnowledgeFileResponse struct {
-	ID               uint      `json:"id"`
-	FileID           string    `json:"file_id"`
-	KBID             string    `json:"kb_id"`
-	ParentID         string    `json:"parent_id,omitempty"`
-	Filename         string    `json:"filename"`
-	OriginalFilename string    `json:"original_filename,omitempty"`
-	FileType         string    `json:"file_type,omitempty"`
-	Path             string    `json:"path,omitempty"`
-	MinioURL         string    `json:"minio_url,omitempty"`
-	MarkdownFile     string    `json:"markdown_file,omitempty"`
-	Status           string    `json:"status"`
-	ContentHash      string    `json:"content_hash"`
-	FileSize         *int64    `json:"file_size,omitempty"`
-	ChunkCount       int       `json:"chunk_count"`
-	TokenCount       int64     `json:"token_count"`
-	ContentType      string    `json:"content_type,omitempty"`
-	IsFolder         bool      `json:"is_folder"`
-	ErrorMessage     string    `json:"error_message,omitempty"`
-	CreatedBy        string    `json:"created_by,omitempty"`
-	UpdatedBy        string    `json:"updated_by,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+	ID               uint      `json:"id"`                          // 数据库自增主键
+	FileID           string    `json:"file_id"`                     // 对外使用的文件唯一标识
+	KBID             string    `json:"kb_id"`                       // 所属知识库 ID；暂存文件可为空
+	ParentID         string    `json:"parent_id,omitempty"`         // 父文件夹 ID
+	Filename         string    `json:"filename"`                    // 清理后的安全文件名
+	OriginalFilename string    `json:"original_filename,omitempty"` // 用户上传时的原始文件名
+	FileType         string    `json:"file_type,omitempty"`         // 文件类型
+	Path             string    `json:"path,omitempty"`              // MinIO 对象相对路径
+	MinioURL         string    `json:"minio_url,omitempty"`         // 文件访问 URL
+	MarkdownFile     string    `json:"markdown_file,omitempty"`     // 解析后 Markdown 文件路径
+	Status           string    `json:"status"`                      // 文件处理状态
+	ContentHash      string    `json:"content_hash"`                // 内容哈希
+	FileSize         *int64    `json:"file_size,omitempty"`         // 文件大小，单位字节
+	ChunkCount       int       `json:"chunk_count"`                 // 已生成的知识分块数量
+	TokenCount       int64     `json:"token_count"`                 // 文档 Token 总数
+	ContentType      string    `json:"content_type,omitempty"`      // 服务端检测到的 MIME 类型
+	IsFolder         bool      `json:"is_folder"`                   // 是否为文件夹记录
+	ErrorMessage     string    `json:"error_message,omitempty"`     // 处理失败时的错误信息
+	CreatedBy        string    `json:"created_by,omitempty"`        // 创建人用户名
+	UpdatedBy        string    `json:"updated_by,omitempty"`        // 最后更新人用户名
+	CreatedAt        time.Time `json:"created_at"`                  // 创建时间
+	UpdatedAt        time.Time `json:"updated_at"`                  // 最后更新时间
 }
 
 // KnowledgeFileListResponse 知识文件列表响应
 type KnowledgeFileListResponse struct {
-	Total int64                   `json:"total"`
-	Items []KnowledgeFileResponse `json:"items"`
+	Total int64                   `json:"total"` // 符合筛选条件的文件总数
+	Items []KnowledgeFileResponse `json:"items"` // 当前页文件列表
 }
 
 // KnowledgeChunkResponse 知识分块响应

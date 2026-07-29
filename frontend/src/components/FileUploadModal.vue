@@ -116,7 +116,7 @@
           :accept="acceptedFileTypes"
           :before-upload="beforeUpload"
           :customRequest="customRequest"
-          :action="'/api/knowledge/files/upload?kb_id=' + kbId"
+          :action="'/api/v1/knowledge/files/upload?kb_id=' + kbId"
           :headers="getAuthHeaders()"
           @change="handleFileUpload"
           @drop="handleDrop"
@@ -345,6 +345,7 @@ import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
 import { fileApi, documentApi } from '@/apis/knowledge_api'
+import { unwrapKnowledgeResponse } from '@/apis/knowledge_response'
 import { getWorkspaceTree } from '@/apis/workspace_api'
 import {
   FileUp,
@@ -1103,7 +1104,10 @@ const runUploadTask = (task) => {
 
     const xhr = new XMLHttpRequest()
     task.xhr = xhr
-    xhr.open('POST', `/api/knowledge/files/upload?kb_id=${currentKbId}`)
+    xhr.open(
+      'POST',
+      `/api/v1/knowledge/files/upload?kb_id=${encodeURIComponent(currentKbId)}`
+    )
 
     const headers = getAuthHeaders()
     for (const [key, value] of Object.entries(headers)) {
@@ -1130,11 +1134,12 @@ const runUploadTask = (task) => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const response = JSON.parse(xhr.responseText)
+          const data = unwrapKnowledgeResponse(response)
           if (fileUid) {
             uploadTaskStatus.value[fileUid] = 'done'
             uploadTaskProgress.value[fileUid] = 100
           }
-          onSuccess(response, xhr)
+          onSuccess(data, xhr)
           resolve()
         } catch (error) {
           if (fileUid) {
@@ -1153,7 +1158,7 @@ const runUploadTask = (task) => {
         errorResp = {}
       }
       file.response = errorResp
-      const error = new Error(errorResp.detail || 'Upload failed')
+      const error = new Error(errorResp.message || errorResp.detail || 'Upload failed')
       if (fileUid) {
         uploadTaskStatus.value[fileUid] = 'error'
       }

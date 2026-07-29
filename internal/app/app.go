@@ -158,13 +158,17 @@ func (a *App) initMinIO() error {
 func (a *App) initDependencies() {
 	// 创建 Repository
 	userRepo := repository.NewUserRepository(a.postgresDB)
+	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
+	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
 
 	// 创建 Service
 	userSvc := service.NewUserService(userRepo)
 	authSvc := service.NewAuthService(userRepo, userSvc)
+	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
+	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
 
 	// 创建 Router
-	a.router = api.NewRouter(userSvc, authSvc)
+	a.router = api.NewRouter(userSvc, authSvc, knowledgeBaseSvc, knowledgeFileSvc)
 }
 
 // initRouter 初始化路由

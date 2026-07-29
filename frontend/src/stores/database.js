@@ -85,9 +85,8 @@ export const useDatabaseStore = defineStore('database', () => {
   async function loadDatabases() {
     state.listLoading = true
     try {
-      const data = userStore.isAdmin
-        ? await databaseApi.getDatabases()
-        : await databaseApi.getAccessibleDatabases()
+      // 当前知识库接口暂不做用户隔离，统一读取同一份知识库列表。
+      const data = await databaseApi.getDatabases()
       const list = data?.databases || []
       databases.value = list.sort((a, b) => {
         const timeA = parseToShanghai(a.created_at)

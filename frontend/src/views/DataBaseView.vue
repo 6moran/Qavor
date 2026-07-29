@@ -343,6 +343,17 @@ const selectedPresetDescription = computed(() =>
   getChunkPresetDescription(newDatabase.chunk_preset_id)
 )
 
+// 后端的知识库类型枚举接口尚未接入时，基本 CRUD 固定使用 pgvector。
+const DEFAULT_KB_TYPES = {
+  pgvector: {
+    name: 'PostgreSQL / pgvector',
+    description: '使用 PostgreSQL pgvector 存储和检索向量',
+    requires_embedding_model: true,
+    supports_documents: true,
+    create_params: { options: [] }
+  }
+}
+
 // 支持的知识库类型
 const supportedKbTypes = ref({})
 
@@ -372,15 +383,15 @@ const resetCreateParamValues = () => {
 const loadSupportedKbTypes = async () => {
   try {
     const data = await typeApi.getKnowledgeBaseTypes()
-    supportedKbTypes.value = data.kb_types || {}
+    supportedKbTypes.value =
+      data?.kb_types && Object.keys(data.kb_types).length ? data.kb_types : DEFAULT_KB_TYPES
     newDatabase.kb_type = kbTypes.value[0] || ''
     resetCreateParamValues()
   } catch (error) {
     console.error('加载知识库类型失败:', error)
-    supportedKbTypes.value = {}
-    newDatabase.kb_type = ''
+    supportedKbTypes.value = DEFAULT_KB_TYPES
+    newDatabase.kb_type = 'pgvector'
     resetCreateParamValues()
-    message.error('加载知识库类型失败，请稍后重试')
   }
 }
 

@@ -43,6 +43,7 @@ configs/*.local
 
 # Claude Code
 .claude/
+.worktrees/
 
 # Logs
 logs/
