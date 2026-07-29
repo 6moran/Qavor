@@ -380,8 +380,6 @@ func (s *modelProviderService) toResponse(provider *entity.ModelProvider) *dto.M
 		ExtraJSON:               provider.ExtraJSON,
 		IsEnabled:               provider.IsEnabled,
 		IsBuiltin:               provider.IsBuiltin,
-		CreatedBy:               provider.CreatedBy,
-		UpdatedBy:               provider.UpdatedBy,
 		CreatedAt:               provider.CreatedAt,
 		UpdatedAt:               provider.UpdatedAt,
 	}
