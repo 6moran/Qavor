@@ -185,9 +185,15 @@ func (r *conversationRepository) FindByIDAndUserID(id, userID uint) (*entity.Con
 	return &conversation, nil
 }
 
-// Update 更新会话
+// Update 更新会话（按需更新指定字段，避免零值覆盖）
 func (r *conversationRepository) Update(conversation *entity.Conversation) error {
-	return r.db.Save(conversation).Error
+	updates := map[string]interface{}{
+		"title":         conversation.Title,
+		"status":        conversation.Status,
+		"is_pinned":     conversation.IsPinned,
+		"extra_metadata": conversation.ExtraMetadata,
+	}
+	return r.db.Model(conversation).Updates(updates).Error
 }
 
 // Delete 删除会话（软删除）
@@ -324,9 +330,14 @@ func (r *messageRepository) FindByIDAndConversationID(id, conversationID uint) (
 	return &message, nil
 }
 
-// Update 更新消息
+// Update 更新消息（按需更新指定字段，避免零值覆盖）
 func (r *messageRepository) Update(message *entity.Message) error {
-	return r.db.Save(message).Error
+	updates := map[string]interface{}{
+		"content":         message.Content,
+		"extra_metadata":  message.ExtraMetadata,
+		"delivery_status": message.DeliveryStatus,
+	}
+	return r.db.Model(message).Updates(updates).Error
 }
 
 // Delete 删除消息（软删除）
@@ -743,8 +754,9 @@ func (s *messageService) publishToRedisStream(message *entity.Message) error {
 
 	streamKey := fmt.Sprintf("stream:conversation:%d:messages", message.ConversationID)
 
-	// 序列化消息为 JSON
-	data, err := json.Marshal(message)
+	// 转换为 DTO 再序列化，避免暴露 GORM 内部字段
+	msgResp := s.toResponse(message)
+	data, err := json.Marshal(msgResp)
 	if err != nil {
 		return err
 	}
@@ -815,6 +827,7 @@ func (s *messageService) DeleteMessage(id, conversationID uint) error {
 }
 
 // ListMessages 获取消息列表
+// 数据库查询倒序（最新在前），内存 Reverse 后返回正序（旧→新）
 func (s *messageService) ListMessages(conversationID uint, req *request.MessageListRequest) (*dto.MessageListResponse, error) {
 	page := req.Page
 	if page < 1 {
@@ -831,6 +844,7 @@ func (s *messageService) ListMessages(conversationID uint, req *request.MessageL
 	var total int64
 	var err error
 
+	// 数据库查询：按 created_at DESC 获取最新消息
 	if req.Role != "" {
 		messages, total, err = s.messageRepo.ListByConversationIDWithRole(conversationID, req.Role, offset, pageSize)
 	} else {
@@ -839,6 +853,11 @@ func (s *messageService) ListMessages(conversationID uint, req *request.MessageL
 
 	if err != nil {
 		return nil, err
+	}
+
+	// 内存 Reverse：将倒序结果翻转为正序（旧→新）
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
 	}
 
 	items := make([]dto.MessageResponse, 0, len(messages))
