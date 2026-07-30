@@ -25,13 +25,11 @@ const STATUS_ACTION = {
 }
 
 const PARSED_PREVIEW_STATUSES = new Set(['done', 'parsed', 'indexed', 'error_indexing'])
-const SOURCE_ONLY_PREVIEW_STATUSES = new Set(['uploaded', 'error_parsing'])
 const TABLE_SELECTION_BLOCKED_STATUSES = new Set(['processing', 'waiting'])
 const DELETE_BLOCKED_STATUSES = new Set(['processing', 'parsing', 'indexing'])
 const PROCESSING_STATUSES = new Set(['processing', 'waiting', 'parsing', 'indexing'])
 const INDEXABLE_STATUSES = new Set(['parsed', 'error_indexing', 'done', 'indexed'])
 const PARSEABLE_STATUSES = new Set(['uploaded', 'error_parsing'])
-const DOWNLOADABLE_STATUSES = new Set(['done', 'indexed', 'parsed', 'error_indexing'])
 const CHUNK_PREVIEW_STATUSES = new Set(['done', 'indexed'])
 const STATUS_SORT_ORDER = {
   done: 1,
@@ -79,7 +77,7 @@ export const canDownloadFile = (record) =>
     record &&
     !record.is_folder &&
     record.file_type !== 'url' &&
-    DOWNLOADABLE_STATUSES.has(record.status)
+    ('has_original_file' in record ? record.has_original_file : Boolean(record.path))
   )
 
 export const canSelectFile = (record, locked = false) =>
@@ -121,7 +119,7 @@ export const canPreviewChunks = (record) =>
 
 export const canOpenFileDetail = (record) =>
   canPreviewParsed(record) ||
-  Boolean(record && SOURCE_ONLY_PREVIEW_STATUSES.has(record.status) && canPreviewOriginal(record))
+  canPreviewOriginal(record)
 
 export const getDefaultDetailView = (record) => {
   if (!canPreviewParsed(record) && canPreviewOriginal(record)) return 'source'

@@ -156,9 +156,16 @@ export const documentApi = {
 
   searchDocuments: async (kbId, params = {}) => {
     const query = buildQuery(params)
-    return apiAdminGet(
-      `/api/knowledge/databases/${kbId}/documents/search${query ? `?${query}` : ''}`
+    const response = await apiGet(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/search${query ? `?${query}` : ''}`
     )
+    const data = unwrapKnowledgeResponse(response)
+    const offset = Number(params.offset) || 0
+    const limit = Number(params.limit) || 100
+    return {
+      files: Array.isArray(data?.items) ? data.items : [],
+      has_more: offset + limit < (Number(data?.total) || 0)
+    }
   },
 
   /**
@@ -180,10 +187,11 @@ export const documentApi = {
    * @returns {Promise} - 创建结果
    */
   createFolder: async (kbId, folderName, parentId = null) => {
-    return apiAdminPost(`/api/knowledge/databases/${kbId}/folders`, {
+    const response = await apiPost(`/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/folders`, {
       folder_name: folderName,
       parent_id: parentId
     })
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -234,7 +242,7 @@ export const documentApi = {
    * @returns {Promise} - 文档基本信息
    */
   getDocumentBasicInfo: async (kbId, docId) => {
-    return apiAdminGet(`/api/knowledge/databases/${kbId}/documents/${docId}/basic`)
+    return documentApi.getDocumentInfo(kbId, docId)
   },
 
   /**
@@ -244,7 +252,10 @@ export const documentApi = {
    * @returns {Promise} - 文档内容信息
    */
   getDocumentContent: async (kbId, docId) => {
-    return apiAdminGet(`/api/knowledge/databases/${kbId}/documents/${docId}/content`)
+    const response = await apiGet(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/content`
+    )
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -268,18 +279,16 @@ export const documentApi = {
    * @returns {Promise} - 批量删除结果
    */
   batchDeleteDocuments: async (kbId, fileIds) => {
-    return apiRequest(
-      `/api/knowledge/databases/${kbId}/documents/batch`,
+    const response = await apiRequest(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/batch`,
       {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(fileIds)
+        body: JSON.stringify({ file_ids: fileIds })
       },
       true,
       'json'
     )
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -289,7 +298,12 @@ export const documentApi = {
    * @returns {Promise} - Response对象
    */
   downloadDocument: async (kbId, docId) => {
-    return apiAdminGet(`/api/knowledge/databases/${kbId}/documents/${docId}/download`, {}, 'blob')
+    return apiGet(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/download`,
+      {},
+      true,
+      'blob'
+    )
   },
 
   /**
@@ -513,12 +527,15 @@ export const fileApi = {
    * @param {string} kbId - 知识库ID（可选）
    * @returns {Promise} - 上传结果
    */
-  uploadFile: async (file, kbId = null) => {
+  uploadFile: async (file, kbId = null, parentId = null) => {
     const formData = new FormData()
     formData.append('file', file)
 
-    const url = kbId
-      ? `/api/v1/knowledge/files/upload?kb_id=${encodeURIComponent(kbId)}`
+    const query = new URLSearchParams()
+    if (kbId) query.set('kb_id', kbId)
+    if (parentId) query.set('parent_id', parentId)
+    const url = query.size
+      ? `/api/v1/knowledge/files/upload?${query}`
       : '/api/v1/knowledge/files/upload'
     const response = await apiPost(url, formData)
     return unwrapKnowledgeResponse(response)

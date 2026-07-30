@@ -611,9 +611,9 @@ const showAddFilesModal = (options = {}) => {
   const { isFolder = false, mode = 'file' } = options
   isFolderUploadMode.value = isFolder
   addFilesMode.value = mode
-  addFilesModalVisible.value = true
   currentFolderId.value =
     fileTableRef.value?.getCurrentFolderId?.() || store.fileBrowser.parentId || null
+  addFilesModalVisible.value = true
 }
 
 const showCreateFolderModal = () => {
