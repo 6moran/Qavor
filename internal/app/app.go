@@ -9,10 +9,14 @@ import (
 	"syscall"
 	"time"
 
+	agentpkg "Qavor/internal/agent"
 	"Qavor/internal/api"
+	chatctrl "Qavor/internal/api/v1/chat"
+	"Qavor/internal/mcp"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
+	"Qavor/internal/store"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
 	"Qavor/pkg/logger"
@@ -129,6 +133,7 @@ func (a *App) initDatabase() error {
 			&entity.TaskRecord{},
 			&entity.Model{},
 			&entity.MCPServer{},
+			&entity.ModelProvider{},
 			&entity.Skill{},
 			&entity.KnowledgeBase{},
 			&entity.KnowledgeFile{},
@@ -168,17 +173,37 @@ func (a *App) initDependencies() {
 	modelRepo := repository.NewModelRepository(a.postgresDB)
 	conversationRepo := repository.NewConversationRepository(a.postgresDB)
 	messageRepo := repository.NewMessageRepository(a.postgresDB)
+	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
+	agentRepo := repository.NewAgentRepository(a.postgresDB)
 
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
+	agentSvc := service.NewAgentService(agentRepo)
+
+	// 初始化 MCPManager
+	mcpManager := mcp.NewMCPManager()
+	fileStore, err := store.NewMCPServerFileStore(".")
+	if err != nil {
+		logger.Warn("MCP 配置文件加载失败", zap.Error(err))
+		fileStore = store.NewEmptyMCPServerFileStore()
+	}
+	mcpConfigs, _ := fileStore.GetAll()
+	mcpManager.StartAll(mcpConfigs)
+
+	// 创建 AgentManager
+	agentMgr := agentpkg.NewAgentManager(mcpManager)
+
+	// 创建 Chat Controller
+	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, providerSvc)
 	conversationSvc := service.NewConversationService(conversationRepo)
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建 Router
 	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, modelSvc, conversationSvc, messageSvc)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, providerSvc, agentSvc, chatCtrl)
 }
 
 // initRouter 初始化路由

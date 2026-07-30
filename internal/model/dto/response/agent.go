@@ -1,24 +1,20 @@
 package response
 
 import (
-	"Qavor/internal/model/entity"
+	"Qavor/internal/agent"
 	"time"
 )
 
 // AgentResponse 智能体响应
 type AgentResponse struct {
-	ID          uint             `json:"id"`
-	Slug        string           `json:"slug"`
-	BackendID   string           `json:"backend_id"`
-	Name        string           `json:"name"`
-	Description string           `json:"description,omitempty"`
-	Icon        string           `json:"icon,omitempty"`
-	Pics        entity.JSONArray `json:"pics"`
-	ConfigJSON  entity.JSON      `json:"config_json"`
-	IsDefault   bool             `json:"is_default"`
-	IsSubagent  bool             `json:"is_subagent"`
-	CreatedAt   time.Time        `json:"created_at"`
-	UpdatedAt   time.Time        `json:"updated_at"`
+	Slug        string            `json:"slug"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Icon        string            `json:"icon,omitempty"`
+	IsDefault   bool              `json:"is_default"`
+	Config      agent.AgentConfig `json:"config"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
 // AgentListResponse 智能体列表响应

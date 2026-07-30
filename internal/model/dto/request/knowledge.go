@@ -40,6 +40,24 @@ type KnowledgeFileListRequest struct {
 	Recursive  bool   `form:"recursive"`                                   // 是否跨子目录递归筛选
 }
 
+// CreateKnowledgeFolderRequest 创建知识库文件夹请求
+type CreateKnowledgeFolderRequest struct {
+	FolderName string `json:"folder_name" binding:"required,max=255"`
+	ParentID   string `json:"parent_id" binding:"omitempty,max=64"`
+}
+
+// SearchKnowledgeFileRequest 文件管理按名称搜索请求
+type SearchKnowledgeFileRequest struct {
+	Query  string `form:"query" binding:"required,max=255"`
+	Offset int    `form:"offset" binding:"omitempty,min=0"`
+	Limit  int    `form:"limit" binding:"omitempty,min=1,max=100"`
+}
+
+// BatchDeleteKnowledgeFileRequest 批量删除知识库文件请求。
+type BatchDeleteKnowledgeFileRequest struct {
+	FileIDs []string `json:"file_ids" binding:"required,min=1,max=50,dive,required,max=64"`
+}
+
 // SearchKnowledgeRequest 知识库搜索请求
 type SearchKnowledgeRequest struct {
 	KBID      string `json:"kb_id" binding:"required"`
