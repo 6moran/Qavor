@@ -1,7 +1,9 @@
 package logger
 
 import (
+	"fmt"
 	"os"
+	"time"
 
 	"Qavor/pkg/config"
 
@@ -11,27 +13,22 @@ import (
 )
 
 var (
-	log   *zap.Logger
-	sugar *zap.SugaredLogger
+	log            *zap.Logger
+	sugar          *zap.SugaredLogger
+	fileLog        *zap.Logger
+	httpConsoleLog *zap.Logger
 )
+
+type httpRequestDetails struct {
+	Status int
+	Method string
+	Path   string
+	Query  string
+}
 
 // Init 初始化日志系统
 func Init(cfg *config.LogConfig) error {
-	// 日志编码器配置
-	encoderConfig := zapcore.EncoderConfig{
-		TimeKey:        "time",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		CallerKey:      "caller",
-		FunctionKey:    zapcore.OmitKey,
-		MessageKey:     "msg",
-		StacktraceKey:  "stacktrace",
-		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
-		EncodeDuration: zapcore.SecondsDurationEncoder,
-		EncodeCaller:   zapcore.ShortCallerEncoder,
-	}
+	encoderConfig := newEncoderConfig()
 
 	// 日志级别
 	level := zapcore.InfoLevel
@@ -55,23 +52,102 @@ func Init(cfg *config.LogConfig) error {
 		Compress:   cfg.Compress,
 	}
 
-	// 创建多个输出（文件 + 控制台）
-	var writers []zapcore.WriteSyncer
-	writers = append(writers, zapcore.AddSync(fileWriter))
-	writers = append(writers, zapcore.AddSync(os.Stdout))
-
-	// 核心
-	core := zapcore.NewCore(
+	fileCore := zapcore.NewCore(
 		zapcore.NewJSONEncoder(encoderConfig),
-		zapcore.NewMultiWriteSyncer(writers...),
+		zapcore.AddSync(fileWriter),
+		level,
+	)
+	consoleCore := zapcore.NewCore(
+		newConsoleEncoder(),
+		zapcore.AddSync(os.Stdout),
 		level,
 	)
 
-	// 创建 logger
-	log = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(zapcore.ErrorLevel))
+	loggerOptions := []zap.Option{zap.AddCaller(), zap.AddCallerSkip(1), zap.AddStacktrace(zapcore.ErrorLevel)}
+	log = zap.New(zapcore.NewTee(fileCore, consoleCore), loggerOptions...)
+	fileLog = zap.New(fileCore, loggerOptions...)
+	httpConsoleLog = zap.New(consoleCore, loggerOptions...)
 	sugar = log.Sugar()
 
 	return nil
+}
+
+func newEncoderConfig() zapcore.EncoderConfig {
+	return zapcore.EncoderConfig{
+		TimeKey:        "time",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		FunctionKey:    zapcore.OmitKey,
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,
+		EncodeTime:     zapcore.TimeEncoderOfLayout("2006-01-02 15:04:05.000"),
+		EncodeDuration: zapcore.SecondsDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+}
+
+func newConsoleEncoder() zapcore.Encoder {
+	consoleConfig := newEncoderConfig()
+	consoleConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	consoleConfig.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02 15:04:05.000")
+	return zapcore.NewConsoleEncoder(consoleConfig)
+}
+
+// HTTPRequest records structured request data to the log file and a compact, colorized line to the console.
+func HTTPRequest(method, path, query string, status int, latency time.Duration, ip, userAgent, requestErrors string) {
+	details := httpRequestDetails{Status: status, Method: method, Path: path, Query: query}
+	fileFields := []zap.Field{
+		zap.String("method", method),
+		zap.String("path", path),
+		zap.String("query", query),
+		zap.Int("status", status),
+		zap.String("ip", ip),
+		zap.String("user_agent", userAgent),
+		zap.Duration("latency", latency),
+	}
+	if requestErrors != "" {
+		fileFields = append(fileFields, zap.String("errors", requestErrors))
+	}
+	fileLog.Info("HTTP Request", fileFields...)
+
+	consoleFields := []zap.Field{
+		zap.Duration("latency", latency),
+		zap.String("ip", ip),
+	}
+	if requestErrors != "" {
+		consoleFields = append(consoleFields, zap.String("errors", requestErrors))
+	}
+	httpConsoleLog.Info(formatHTTPRequestConsoleMessage(details), consoleFields...)
+}
+
+func formatHTTPRequestConsoleMessage(details httpRequestDetails) string {
+	requestPath := details.Path
+	if details.Query != "" {
+		requestPath += "?" + details.Query
+	}
+	return fmt.Sprintf("%s %s %s", colorStatus(details.Status), details.Method, requestPath)
+}
+
+func colorStatus(status int) string {
+	const reset = "\x1b[0m"
+	color := ""
+	switch {
+	case status >= 200 && status < 300:
+		color = "\x1b[32m"
+	case status >= 300 && status < 400:
+		color = "\x1b[36m"
+	case status >= 400 && status < 500:
+		color = "\x1b[33m"
+	case status >= 500:
+		color = "\x1b[31m"
+	}
+	if color == "" {
+		return fmt.Sprintf("%d", status)
+	}
+	return color + fmt.Sprintf("%d", status) + reset
 }
 
 // Debug 调试日志
