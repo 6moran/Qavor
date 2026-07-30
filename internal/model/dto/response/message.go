@@ -13,6 +13,7 @@ type MessageResponse struct {
 	Content        string    `json:"content"`
 	MessageType    string    `json:"message_type"`
 	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 	TokenCount     *int      `json:"token_count,omitempty"`
 	ImageContent   string    `json:"image_content,omitempty"`
 	RunID          string    `json:"run_id,omitempty"`

@@ -12,6 +12,12 @@ type CreateMessageRequest struct {
 	ExtraMetadata  entity.JSON `json:"extra_metadata" binding:"omitempty"`
 }
 
+// UpdateMessageRequest 更新消息请求
+type UpdateMessageRequest struct {
+	Content       string      `json:"content" binding:"omitempty"`
+	ExtraMetadata entity.JSON `json:"extra_metadata" binding:"omitempty"`
+}
+
 // MessageListRequest 消息列表请求
 type MessageListRequest struct {
 	Page           int    `form:"page" binding:"omitempty,min=1"`
