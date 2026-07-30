@@ -5,6 +5,7 @@ import (
 	knowledgebase "Qavor/internal/api/v1/knowledge_base"
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
 	"Qavor/internal/api/v1/model_provider"
+	processingjob "Qavor/internal/api/v1/processing_job"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 
@@ -16,6 +17,7 @@ type Router struct {
 	authCtrl          *auth.Controller
 	knowledgeBaseCtrl *knowledgebase.Controller
 	knowledgeFileCtrl *knowledgefile.Controller
+	processingJobCtrl *processingjob.Controller
 	providerCtrl      *model_provider.Controller
 }
 
@@ -24,12 +26,14 @@ func NewRouter(
 	authService service.AuthService,
 	knowledgeBaseService service.KnowledgeBaseService,
 	knowledgeFileService service.KnowledgeFileService,
+	processingJobService service.ProcessingJobService,
 	providerService service.ModelProviderService,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
 		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService),
 		knowledgeFileCtrl: knowledgefile.NewController(knowledgeFileService),
+		processingJobCtrl: processingjob.NewController(processingJobService),
 		providerCtrl:      model_provider.NewController(providerService),
 	}
 }
@@ -58,6 +62,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 		// 知识库路由
 		r.knowledgeBaseCtrl.RegisterRoutes(v1)
 		r.knowledgeFileCtrl.RegisterRoutes(v1)
+		r.processingJobCtrl.RegisterRoutes(v1)
 
 		// 模型提供商路由
 		r.providerCtrl.RegisterRoutes(v1)

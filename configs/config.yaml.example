@@ -42,6 +42,16 @@ database:
       # - "application/pdf"
       # - "text/*"
 
+# 文档异步处理队列
+document_queue:
+  parse_stream: "qavor:document:parse"
+  parse_group: "qavor-document-parse-workers"
+  read_block_seconds: 5
+  pending_check_seconds: 60
+  pending_min_idle_minutes: 30
+  pending_claim_count: 10
+  max_stream_length: 100000
+
 # JWT 配置
 jwt:
   secret: ""                       # 生产环境通过环境变量 JWT_SECRET 注入，必须设置
