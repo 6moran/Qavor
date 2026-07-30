@@ -2,9 +2,11 @@ package api
 
 import (
 	"Qavor/internal/api/v1/auth"
+	"Qavor/internal/api/v1/conversation"
 	knowledgebase "Qavor/internal/api/v1/knowledge_base"
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
-	"Qavor/internal/api/v1/model_provider"
+	"Qavor/internal/api/v1/message"
+	"Qavor/internal/api/v1/model"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 
@@ -16,7 +18,9 @@ type Router struct {
 	authCtrl          *auth.Controller
 	knowledgeBaseCtrl *knowledgebase.Controller
 	knowledgeFileCtrl *knowledgefile.Controller
-	providerCtrl      *model_provider.Controller
+	modelCtrl         *model.Controller
+	conversationCtrl  *conversation.Controller
+	messageCtrl       *message.Controller
 }
 
 // NewRouter 创建路由
@@ -24,13 +28,17 @@ func NewRouter(
 	authService service.AuthService,
 	knowledgeBaseService service.KnowledgeBaseService,
 	knowledgeFileService service.KnowledgeFileService,
-	providerService service.ModelProviderService,
+	modelService service.ModelService,
+	conversationService service.ConversationService,
+	messageService service.MessageService,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
 		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService),
 		knowledgeFileCtrl: knowledgefile.NewController(knowledgeFileService),
-		providerCtrl:      model_provider.NewController(providerService),
+		modelCtrl:         model.NewController(modelService),
+		conversationCtrl:  conversation.NewController(conversationService),
+		messageCtrl:       message.NewController(messageService),
 	}
 }
 
@@ -59,7 +67,13 @@ func (r *Router) Setup(engine *gin.Engine) {
 		r.knowledgeBaseCtrl.RegisterRoutes(v1)
 		r.knowledgeFileCtrl.RegisterRoutes(v1)
 
-		// 模型提供商路由
-		r.providerCtrl.RegisterRoutes(v1)
+		// 模型路由
+		r.modelCtrl.RegisterRoutes(v1)
+
+		// 会话路由
+		r.conversationCtrl.RegisterRoutes(v1)
+
+		// 消息路由
+		r.messageCtrl.RegisterRoutes(v1)
 	}
 }

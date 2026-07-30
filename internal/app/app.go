@@ -127,7 +127,7 @@ func (a *App) initDatabase() error {
 			&entity.AgentRun{},
 			&entity.SubagentThread{},
 			&entity.TaskRecord{},
-			&entity.ModelProvider{},
+			&entity.Model{},
 			&entity.MCPServer{},
 			&entity.Skill{},
 			&entity.KnowledgeBase{},
@@ -165,16 +165,20 @@ func (a *App) initDependencies() {
 	// 创建 Repository
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
-	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
+	modelRepo := repository.NewModelRepository(a.postgresDB)
+	conversationRepo := repository.NewConversationRepository(a.postgresDB)
+	messageRepo := repository.NewMessageRepository(a.postgresDB)
 
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
-	providerSvc := service.NewModelProviderService(providerRepo)
+	modelSvc := service.NewModelService(modelRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
+	conversationSvc := service.NewConversationService(conversationRepo)
+	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, providerSvc)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, modelSvc, conversationSvc, messageSvc)
 }
 
 // initRouter 初始化路由
