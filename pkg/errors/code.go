@@ -58,6 +58,16 @@ const (
 	CodeModelProviderAlreadyExists = 5002
 	CodeModelProviderDisabled      = 5003
 	CodeModelProviderAPIKeyMissing = 5004
+
+	// 会话错误 40xxx
+	CodeConversationNotFound      = 40001
+	CodeConversationAccessDenied  = 40002
+	CodeConversationStatusInvalid = 40003
+
+	// 消息错误 400xx
+	CodeMessageNotFound     = 40011
+	CodeMessageAccessDenied = 40012
+	CodeMessageRoleInvalid  = 40013
 )
 
 // 错误码对应的文本消息
@@ -105,6 +115,16 @@ var codeMessages = map[int]string{
 	CodeModelProviderAlreadyExists: "模型提供商已存在",
 	CodeModelProviderDisabled:      "模型提供商已禁用",
 	CodeModelProviderAPIKeyMissing: "API Key 未配置",
+
+	// 会话错误消息
+	CodeConversationNotFound:      "会话不存在",
+	CodeConversationAccessDenied:  "无权访问会话",
+	CodeConversationStatusInvalid: "会话状态无效",
+
+	// 消息错误消息
+	CodeMessageNotFound:     "消息不存在",
+	CodeMessageAccessDenied: "无权访问消息",
+	CodeMessageRoleInvalid:  "消息角色无效",
 }
 
 // GetMessage 获取错误码对应的文本消息

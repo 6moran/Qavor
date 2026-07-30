@@ -131,7 +131,7 @@ func (a *App) initDatabase() error {
 			&entity.AgentRun{},
 			&entity.SubagentThread{},
 			&entity.TaskRecord{},
-			&entity.ModelProvider{},
+			&entity.Model{},
 			&entity.Skill{},
 			&entity.KnowledgeBase{},
 			&entity.KnowledgeFile{},
@@ -168,12 +168,14 @@ func (a *App) initDependencies() {
 	// 创建 Repository
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
-	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
+	modelRepo := repository.NewModelRepository(a.postgresDB)
+	conversationRepo := repository.NewConversationRepository(a.postgresDB)
+	messageRepo := repository.NewMessageRepository(a.postgresDB)
 	agentRepo := repository.NewAgentRepository(a.postgresDB)
 
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
-	providerSvc := service.NewModelProviderService(providerRepo)
+	modelSvc := service.NewModelService(modelRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
 	agentSvc := service.NewAgentService(agentRepo)
@@ -192,10 +194,12 @@ func (a *App) initDependencies() {
 	agentMgr := agentpkg.NewAgentManager(mcpManager)
 
 	// 创建 Chat Controller
-	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, providerSvc)
+	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc)
+	conversationSvc := service.NewConversationService(conversationRepo)
+	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, providerSvc, agentSvc, chatCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl)
 }
 
 // initRouter 初始化路由

@@ -1,0 +1,304 @@
+package service
+
+import (
+	"context"
+
+	"Qavor/internal/embedding"
+	"Qavor/internal/llm"
+	"Qavor/internal/model/dto/request"
+	dto "Qavor/internal/model/dto/response"
+	"Qavor/internal/model/entity"
+	"Qavor/internal/repository"
+	"Qavor/pkg/crypto"
+	"Qavor/pkg/database/types"
+	"Qavor/pkg/errors"
+)
+
+// ModelService 模型服务接口
+type ModelService interface {
+	// CreateModel 创建模型
+	CreateModel(req *request.CreateModelRequest) (*dto.ModelResponse, error)
+	// GetModel 根据 ID 获取模型
+	GetModel(id uint) (*dto.ModelResponse, error)
+	// UpdateModel 更新模型
+	UpdateModel(id uint, req *request.UpdateModelRequest) (*dto.ModelResponse, error)
+	// DeleteModel 删除模型
+	DeleteModel(id uint) error
+	// ListModels 获取模型列表（分页）
+	ListModels(req *request.ModelListRequest) (*dto.ModelListResponse, error)
+	// GetModelWithDecryptedKey 获取模型（解密 API Key，用于内部使用）
+	GetModelWithDecryptedKey(id uint) (*entity.Model, error)
+}
+
+// modelService 模型服务实现
+type modelService struct {
+	modelRepo repository.ModelRepository
+}
+
+// NewModelService 创建模型服务
+func NewModelService(modelRepo repository.ModelRepository) ModelService {
+	return &modelService{
+		modelRepo: modelRepo,
+	}
+}
+
+// CreateModel 创建模型
+func (s *modelService) CreateModel(req *request.CreateModelRequest) (*dto.ModelResponse, error) {
+	// 加密 API Key
+	var encryptedAPIKey string
+	if req.APIKey != "" {
+		encrypted, err := crypto.Encrypt(req.APIKey)
+		if err != nil {
+			return nil, errors.New(errors.CodeInternalError, "API Key加密失败")
+		}
+		encryptedAPIKey = encrypted
+	}
+
+	// 设置默认值
+	timeout := req.Timeout
+	if timeout == 0 {
+		timeout = 60000
+	}
+
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	modelType := req.ModelType
+	if modelType == "" {
+		modelType = "chat"
+	}
+
+	// 构建模型参数
+	params := toModelParams(req.Params)
+
+	// 构建实体
+	model := &entity.Model{
+		Name:           req.Name,
+		Protocol:       req.Protocol,
+		BaseURL:        req.BaseURL,
+		APIKey:         encryptedAPIKey,
+		OrganizationID: req.OrganizationID,
+		Headers:        types.StringMap(req.Headers),
+		Timeout:        timeout,
+		Enabled:        enabled,
+		ModelType:      modelType,
+		Params:         params,
+	}
+
+	// 保存到数据库
+	if err := s.modelRepo.Create(model); err != nil {
+		return nil, err
+	}
+
+	return s.toResponse(model), nil
+}
+
+// GetModel 根据 ID 获取模型
+func (s *modelService) GetModel(id uint) (*dto.ModelResponse, error) {
+	model, err := s.modelRepo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, errors.New(errors.CodeInvalidParam, "模型不存在")
+	}
+
+	return s.toResponse(model), nil
+}
+
+// UpdateModel 更新模型
+func (s *modelService) UpdateModel(id uint, req *request.UpdateModelRequest) (*dto.ModelResponse, error) {
+	model, err := s.modelRepo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, errors.New(errors.CodeInvalidParam, "模型不存在")
+	}
+
+	// 更新字段
+	if req.Name != "" {
+		model.Name = req.Name
+	}
+	if req.Protocol != "" {
+		model.Protocol = req.Protocol
+	}
+	if req.BaseURL != "" {
+		model.BaseURL = req.BaseURL
+	}
+	if req.APIKey != "" {
+		encrypted, err := crypto.Encrypt(req.APIKey)
+		if err != nil {
+			return nil, errors.New(errors.CodeInternalError, "API Key加密失败")
+		}
+		model.APIKey = encrypted
+	}
+	if req.OrganizationID != "" {
+		model.OrganizationID = req.OrganizationID
+	}
+	if req.Headers != nil {
+		model.Headers = types.StringMap(req.Headers)
+	}
+	if req.Timeout > 0 {
+		model.Timeout = req.Timeout
+	}
+	if req.Enabled != nil {
+		model.Enabled = *req.Enabled
+	}
+	if req.ModelType != "" {
+		model.ModelType = req.ModelType
+	}
+	if req.Params != nil {
+		model.Params = toModelParams(req.Params)
+	}
+
+	// 保存更新
+	if err := s.modelRepo.Update(model); err != nil {
+		return nil, err
+	}
+
+	return s.toResponse(model), nil
+}
+
+// DeleteModel 删除模型
+func (s *modelService) DeleteModel(id uint) error {
+	model, err := s.modelRepo.FindByID(id)
+	if err != nil {
+		return err
+	}
+	if model == nil {
+		return errors.New(errors.CodeInvalidParam, "模型不存在")
+	}
+
+	return s.modelRepo.Delete(id)
+}
+
+// ListModels 获取模型列表（分页）
+func (s *modelService) ListModels(req *request.ModelListRequest) (*dto.ModelListResponse, error) {
+	// 设置默认分页参数
+	page := req.Page
+	if page < 1 {
+		page = 1
+	}
+	pageSize := req.PageSize
+	if pageSize < 1 {
+		pageSize = 10
+	}
+
+	// 计算偏移量
+	offset := (page - 1) * pageSize
+
+	// 查询数据库
+	models, total, err := s.modelRepo.List(offset, pageSize, req.Keyword, req.ModelType)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为响应 DTO
+	items := make([]dto.ModelResponse, 0, len(models))
+	for _, model := range models {
+		items = append(items, *s.toResponse(model))
+	}
+
+	return &dto.ModelListResponse{
+		Total: total,
+		Items: items,
+	}, nil
+}
+
+// GetModelWithDecryptedKey 获取模型（解密 API Key，用于内部使用）
+func (s *modelService) GetModelWithDecryptedKey(id uint) (*entity.Model, error) {
+	model, err := s.modelRepo.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if model == nil {
+		return nil, errors.New(errors.CodeInvalidParam, "模型不存在")
+	}
+
+	// 解密 API Key
+	if model.APIKey != "" {
+		decrypted, err := crypto.Decrypt(model.APIKey)
+		if err != nil {
+			return nil, errors.New(errors.CodeInternalError, "API Key解密失败")
+		}
+		model.APIKey = decrypted
+	}
+
+	return model, nil
+}
+
+// CreateLLMClient 创建 LLM Client
+func (s *modelService) CreateLLMClient(ctx context.Context, modelID uint) (llm.Client, error) {
+	model, err := s.GetModelWithDecryptedKey(modelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if model.ModelType != "chat" {
+		return nil, errors.New(errors.CodeInvalidParam, "模型类型不是 chat")
+	}
+
+	return llm.NewClient(ctx, model.Protocol, model.Name, model.APIKey, model.BaseURL, model.Timeout)
+}
+
+// CreateEmbeddingClient 创建 Embedding Client
+func (s *modelService) CreateEmbeddingClient(ctx context.Context, modelID uint) (embedding.Client, error) {
+	model, err := s.GetModelWithDecryptedKey(modelID)
+	if err != nil {
+		return nil, err
+	}
+
+	if model.ModelType != "embedding" {
+		return nil, errors.New(errors.CodeInvalidParam, "模型类型不是 embedding")
+	}
+
+	return embedding.NewOpenAIClient(ctx, model.APIKey, model.Name, model.BaseURL, model.Timeout)
+}
+
+// toResponse 将实体转换为响应 DTO
+func (s *modelService) toResponse(model *entity.Model) *dto.ModelResponse {
+	return &dto.ModelResponse{
+		ID:             model.ID,
+		Name:           model.Name,
+		Protocol:       model.Protocol,
+		BaseURL:        model.BaseURL,
+		OrganizationID: model.OrganizationID,
+		Headers:        map[string]string(model.Headers),
+		Timeout:        model.Timeout,
+		Enabled:        model.Enabled,
+		ModelType:      model.ModelType,
+		Params: dto.ModelParams{
+			MaxTokens:        model.Params.MaxTokens,
+			Temperature:      model.Params.Temperature,
+			TopP:             model.Params.TopP,
+			PresencePenalty:  model.Params.PresencePenalty,
+			FrequencyPenalty: model.Params.FrequencyPenalty,
+			Stop:             model.Params.Stop,
+		},
+		CreatedAt: model.CreatedAt,
+		UpdatedAt: model.UpdatedAt,
+	}
+}
+
+// toModelParams 将请求参数转换为实体参数
+func toModelParams(req *request.ModelParams) types.ModelParams {
+	params := types.DefaultModelParams()
+	if req != nil {
+		if req.MaxTokens > 0 {
+			params.MaxTokens = req.MaxTokens
+		}
+		if req.Temperature > 0 {
+			params.Temperature = req.Temperature
+		}
+		if req.TopP > 0 {
+			params.TopP = req.TopP
+		}
+		params.PresencePenalty = req.PresencePenalty
+		params.FrequencyPenalty = req.FrequencyPenalty
+		params.Stop = req.Stop
+	}
+	return params
+}

@@ -4,9 +4,11 @@ import (
 	agentctrl "Qavor/internal/api/v1/agent"
 	"Qavor/internal/api/v1/auth"
 	chatctrl "Qavor/internal/api/v1/chat"
+	"Qavor/internal/api/v1/conversation"
 	knowledgebase "Qavor/internal/api/v1/knowledge_base"
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
-	"Qavor/internal/api/v1/model_provider"
+	"Qavor/internal/api/v1/message"
+	"Qavor/internal/api/v1/model"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 
@@ -18,7 +20,9 @@ type Router struct {
 	authCtrl          *auth.Controller
 	knowledgeBaseCtrl *knowledgebase.Controller
 	knowledgeFileCtrl *knowledgefile.Controller
-	providerCtrl      *model_provider.Controller
+	modelCtrl         *model.Controller
+	conversationCtrl  *conversation.Controller
+	messageCtrl       *message.Controller
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
 }
@@ -28,7 +32,9 @@ func NewRouter(
 	authService service.AuthService,
 	knowledgeBaseService service.KnowledgeBaseService,
 	knowledgeFileService service.KnowledgeFileService,
-	providerService service.ModelProviderService,
+	modelService service.ModelService,
+	conversationService service.ConversationService,
+	messageService service.MessageService,
 	agentService service.AgentService,
 	chatCtrl *chatctrl.Controller,
 ) *Router {
@@ -36,7 +42,9 @@ func NewRouter(
 		authCtrl:          auth.NewController(authService),
 		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService),
 		knowledgeFileCtrl: knowledgefile.NewController(knowledgeFileService),
-		providerCtrl:      model_provider.NewController(providerService),
+		modelCtrl:         model.NewController(modelService),
+		conversationCtrl:  conversation.NewController(conversationService),
+		messageCtrl:       message.NewController(messageService),
 		agentCtrl:         agentctrl.NewController(agentService),
 		chatCtrl:          chatCtrl,
 	}
@@ -67,13 +75,19 @@ func (r *Router) Setup(engine *gin.Engine) {
 		r.knowledgeBaseCtrl.RegisterRoutes(v1)
 		r.knowledgeFileCtrl.RegisterRoutes(v1)
 
-		// 模型提供商路由
-		r.providerCtrl.RegisterRoutes(v1)
-
 		// 智能体路由
 		r.agentCtrl.RegisterRoutes(v1)
 
 		// 聊天路由
 		r.chatCtrl.RegisterRoutes(v1)
+
+		// 模型路由
+		r.modelCtrl.RegisterRoutes(v1)
+
+		// 会话路由
+		r.conversationCtrl.RegisterRoutes(v1)
+
+		// 消息路由
+		r.messageCtrl.RegisterRoutes(v1)
 	}
 }
