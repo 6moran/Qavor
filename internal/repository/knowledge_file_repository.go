@@ -2,6 +2,7 @@ package repository
 
 import (
 	"errors"
+	"strings"
 
 	"Qavor/internal/model/entity"
 
@@ -11,6 +12,24 @@ import (
 // knowledgeFileRepository 知识文件数据访问实现
 type knowledgeFileRepository struct {
 	db *gorm.DB
+}
+
+// SearchByKBID 按文件名、原始文件名或路径进行不区分大小写的模糊检索。
+func (r *knowledgeFileRepository) SearchByKBID(kbID, keyword string, offset, limit int) ([]*entity.KnowledgeFile, int64, error) {
+	pattern := "%" + strings.ReplaceAll(strings.ReplaceAll(keyword, "%", "\\%"), "_", "\\_") + "%"
+	query := r.db.Model(&entity.KnowledgeFile{}).
+		Where("kb_id = ?", kbID).
+		Where("filename ILIKE ? ESCAPE '\\' OR original_filename ILIKE ? ESCAPE '\\' OR path ILIKE ? ESCAPE '\\'", pattern, pattern, pattern)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var files []*entity.KnowledgeFile
+	if err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&files).Error; err != nil {
+		return nil, 0, err
+	}
+	return files, total, nil
 }
 
 // NewKnowledgeFileRepository 创建知识文件数据访问实例

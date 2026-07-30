@@ -1126,11 +1126,16 @@ const runUploadTask = (task) => {
       return
     }
 
+    const uploadParams = new URLSearchParams({ kb_id: currentKbId })
+    if (selectedFolderId.value) {
+      uploadParams.set('parent_id', selectedFolderId.value)
+    }
+
     const xhr = new XMLHttpRequest()
     task.xhr = xhr
     xhr.open(
       'POST',
-      `/api/v1/knowledge/files/upload?kb_id=${encodeURIComponent(currentKbId)}`
+      `/api/v1/knowledge/files/upload?${uploadParams}`
     )
 
     const headers = getAuthHeaders()
