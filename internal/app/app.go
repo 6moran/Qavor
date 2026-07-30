@@ -9,10 +9,14 @@ import (
 	"syscall"
 	"time"
 
+	agentpkg "Qavor/internal/agent"
 	"Qavor/internal/api"
+	chatctrl "Qavor/internal/api/v1/chat"
+	"Qavor/internal/mcp"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
+	"Qavor/internal/store"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
 	"Qavor/pkg/logger"
@@ -128,7 +132,6 @@ func (a *App) initDatabase() error {
 			&entity.SubagentThread{},
 			&entity.TaskRecord{},
 			&entity.ModelProvider{},
-			&entity.MCPServer{},
 			&entity.Skill{},
 			&entity.KnowledgeBase{},
 			&entity.KnowledgeFile{},
@@ -166,15 +169,33 @@ func (a *App) initDependencies() {
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
 	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
+	agentRepo := repository.NewAgentRepository(a.postgresDB)
 
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	providerSvc := service.NewModelProviderService(providerRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
+	agentSvc := service.NewAgentService(agentRepo)
+
+	// 初始化 MCPManager
+	mcpManager := mcp.NewMCPManager()
+	fileStore, err := store.NewMCPServerFileStore(".")
+	if err != nil {
+		logger.Warn("MCP 配置文件加载失败", zap.Error(err))
+		fileStore = store.NewEmptyMCPServerFileStore()
+	}
+	mcpConfigs, _ := fileStore.GetAll()
+	mcpManager.StartAll(mcpConfigs)
+
+	// 创建 AgentManager
+	agentMgr := agentpkg.NewAgentManager(mcpManager)
+
+	// 创建 Chat Controller
+	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, providerSvc)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, providerSvc)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, providerSvc, agentSvc, chatCtrl)
 }
 
 // initRouter 初始化路由

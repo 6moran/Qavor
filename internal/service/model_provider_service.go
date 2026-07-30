@@ -11,6 +11,9 @@ import (
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/pkg/errors"
+
+	einoOpenAI "github.com/cloudwego/eino-ext/components/model/openai"
+	"github.com/cloudwego/eino/components/model"
 )
 
 // ModelProviderService 模型提供商服务接口
@@ -32,6 +35,9 @@ type ModelProviderService interface {
 	// GetLLMClientByCapability 根据能力类型获取 LLM 客户端
 	// 会自动选择第一个支持该能力的提供商
 	GetLLMClientByCapability(ctx context.Context, capability string, model string) (*llm.RetryableClient, error)
+	// GetToolCallingModel 获取支持 WithTools 的原始模型实例
+	// 用于 adk Agent，需要 model.ToolCallingChatModel 接口
+	GetToolCallingModel(ctx context.Context, providerID string, modelName string) (model.ToolCallingChatModel, error)
 }
 
 // modelProviderService 模型提供商服务实现
@@ -383,4 +389,36 @@ func (s *modelProviderService) toResponse(provider *entity.ModelProvider) *dto.M
 		CreatedAt:               provider.CreatedAt,
 		UpdatedAt:               provider.UpdatedAt,
 	}
+}
+
+// GetToolCallingModel 获取支持 WithTools 的原始模型实例
+func (s *modelProviderService) GetToolCallingModel(ctx context.Context, providerID string, modelName string) (model.ToolCallingChatModel, error) {
+	provider, err := s.providerRepo.FindByProviderID(providerID)
+	if err != nil {
+		return nil, err
+	}
+	if provider == nil {
+		return nil, errors.New(errors.CodeModelProviderNotFound, "模型提供商不存在")
+	}
+	if !provider.IsEnabled {
+		return nil, errors.New(errors.CodeModelProviderDisabled, "模型提供商已禁用")
+	}
+
+	apiKey := provider.APIKey
+	if provider.APIKeyEnv != "" && apiKey == "" {
+		apiKey = os.Getenv(provider.APIKeyEnv)
+	}
+	if apiKey == "" {
+		return nil, errors.New(errors.CodeModelProviderAPIKeyMissing, "API Key未配置")
+	}
+
+	m, err := einoOpenAI.NewChatModel(ctx, &einoOpenAI.ChatModelConfig{
+		APIKey:  apiKey,
+		Model:   modelName,
+		BaseURL: provider.BaseURL,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
 }
