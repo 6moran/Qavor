@@ -21,15 +21,6 @@
         <div class="settings-sider-nav">
           <div
             class="sider-item"
-            :class="{ activesec: activeTab === 'account' }"
-            @click="activeTab = 'account'"
-            v-if="userStore.isLoggedIn"
-          >
-            <CircleUser class="icon" :size="18" />
-            <span>账户设置</span>
-          </div>
-          <div
-            class="sider-item"
             :class="{ activesec: activeTab === 'apiKeys' }"
             @click="activeTab = 'apiKeys'"
             v-if="userStore.isLoggedIn"
@@ -55,15 +46,6 @@
             <ScanText class="icon" :size="18" />
             <span>OCR 配置</span>
           </div>
-          <div
-            class="sider-item"
-            :class="{ activesec: activeTab === 'user' }"
-            @click="activeTab = 'user'"
-            v-if="userStore.isSuperAdmin"
-          >
-            <User class="icon" :size="18" />
-            <span>用户管理</span>
-          </div>
           </div>
 
         
@@ -71,14 +53,6 @@
 
       <!-- 顶部导航 (Mobile) -->
       <div class="settings-mobile-nav">
-        <div
-          class="nav-item"
-          :class="{ active: activeTab === 'account' }"
-          @click="activeTab = 'account'"
-          v-if="userStore.isLoggedIn"
-        >
-          账户设置
-        </div>
         <div
           class="nav-item"
           :class="{ active: activeTab === 'apiKeys' }"
@@ -104,23 +78,11 @@
         >
           OCR 配置
         </div>
-        <div
-          class="nav-item"
-          :class="{ active: activeTab === 'user' }"
-          @click="activeTab = 'user'"
-          v-if="userStore.isSuperAdmin"
-        >
-          用户管理
-        </div>
         </div>
 
       <!-- 内容区域 -->
       <div class="settings-content-wrapper">
         <div class="settings-content">
-          <div v-show="activeTab === 'account'" v-if="userStore.isLoggedIn">
-            <AccountSettingsComponent />
-          </div>
-
           <div v-if="activeTab === 'apiKeys' && userStore.isLoggedIn">
             <ApiKeyManagementComponent />
           </div>
@@ -135,9 +97,6 @@
             <OCRSettingsSection />
           </div>
 
-          <div v-show="activeTab === 'user'" v-if="userStore.isSuperAdmin">
-            <UserManagementComponent />
-          </div>
         </div>
       </div>
     </div>
@@ -145,21 +104,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useUserStore } from '@/stores/user'
 import {
-  CircleUser,
   Settings,
   Key,
   ScanText,
-  User,
   X
 } from 'lucide-vue-next'
-import AccountSettingsComponent from '@/components/AccountSettingsComponent.vue'
 import BasicSettingsSection from '@/components/BasicSettingsSection.vue'
 import OCRSettingsSection from '@/components/OCRSettingsSection.vue'
 import ApiKeyManagementComponent from '@/components/ApiKeyManagementComponent.vue'
-import UserManagementComponent from '@/components/UserManagementComponent.vue'
 
 const props = defineProps({
   visible: {
@@ -175,7 +130,7 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'close'])
 
 const userStore = useUserStore()
-const activeTab = ref('account')
+const activeTab = ref('apiKeys')
 
 const visible = computed({
   get: () => props.visible,
@@ -184,8 +139,8 @@ const visible = computed({
 
 const availableTabs = computed(() => {
   const tabs = []
-  if (userStore.isLoggedIn) tabs.push('account', 'apiKeys')
-  if (userStore.isAdmin) tabs.push('base', 'ocr', 'user')
+  if (userStore.isLoggedIn) tabs.push('apiKeys')
+  if (userStore.isAdmin) tabs.push('base', 'ocr')
   if (userStore.isSuperAdmin) tabs.push('department')
   return tabs
 })
