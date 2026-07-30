@@ -6,6 +6,8 @@ import (
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/pkg/errors"
+
+	"github.com/google/uuid"
 )
 
 // ConversationService 会话服务接口
@@ -34,10 +36,11 @@ func NewConversationService(conversationRepo repository.ConversationRepository) 
 // CreateConversation 创建会话
 func (s *conversationService) CreateConversation(userID uint, req *request.CreateConversationRequest) (*dto.ConversationResponse, error) {
 	conversation := &entity.Conversation{
-		Title:   req.Title,
-		Status:  "active",
-		UserID:  userID,
-		AgentID: req.AgentID,
+		ThreadID: uuid.New().String(),
+		Title:    req.Title,
+		Status:   "active",
+		UserID:   userID,
+		AgentID:  req.AgentID,
 	}
 
 	if err := s.conversationRepo.Create(conversation); err != nil {
