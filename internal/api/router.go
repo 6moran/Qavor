@@ -23,7 +23,6 @@ type Router struct {
 	modelCtrl         *model.Controller
 	conversationCtrl  *conversation.Controller
 	messageCtrl       *message.Controller
-	providerCtrl      *model_provider.Controller
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
 }
@@ -36,7 +35,6 @@ func NewRouter(
 	modelService service.ModelService,
 	conversationService service.ConversationService,
 	messageService service.MessageService,
-	providerService service.ModelProviderService,
 	agentService service.AgentService,
 	chatCtrl *chatctrl.Controller,
 ) *Router {
@@ -47,7 +45,6 @@ func NewRouter(
 		modelCtrl:         model.NewController(modelService),
 		conversationCtrl:  conversation.NewController(conversationService),
 		messageCtrl:       message.NewController(messageService),
-		providerCtrl:      model_provider.NewController(providerService),
 		agentCtrl:         agentctrl.NewController(agentService),
 		chatCtrl:          chatCtrl,
 	}
@@ -78,14 +75,12 @@ func (r *Router) Setup(engine *gin.Engine) {
 		r.knowledgeBaseCtrl.RegisterRoutes(v1)
 		r.knowledgeFileCtrl.RegisterRoutes(v1)
 
-		// 模型提供商路由
-		r.providerCtrl.RegisterRoutes(v1)
-
 		// 智能体路由
 		r.agentCtrl.RegisterRoutes(v1)
 
 		// 聊天路由
 		r.chatCtrl.RegisterRoutes(v1)
+
 		// 模型路由
 		r.modelCtrl.RegisterRoutes(v1)
 

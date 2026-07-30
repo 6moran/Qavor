@@ -22,7 +22,7 @@ func NewController(messageService service.MessageService) *Controller {
 
 // CreateMessage 创建消息
 func (ctrl *Controller) CreateMessage(c *gin.Context) {
-	conversationIDStr := c.Param("conversation_id")
+	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的会话ID")
@@ -49,14 +49,14 @@ func (ctrl *Controller) CreateMessage(c *gin.Context) {
 
 // GetMessage 获取消息详情
 func (ctrl *Controller) GetMessage(c *gin.Context) {
-	conversationIDStr := c.Param("conversation_id")
+	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的会话ID")
 		return
 	}
 
-	idStr := c.Param("id")
+	idStr := c.Param("msg_id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的消息ID")
@@ -74,14 +74,14 @@ func (ctrl *Controller) GetMessage(c *gin.Context) {
 
 // UpdateMessage 更新消息
 func (ctrl *Controller) UpdateMessage(c *gin.Context) {
-	conversationIDStr := c.Param("conversation_id")
+	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的会话ID")
 		return
 	}
 
-	idStr := c.Param("id")
+	idStr := c.Param("msg_id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的消息ID")
@@ -106,14 +106,14 @@ func (ctrl *Controller) UpdateMessage(c *gin.Context) {
 
 // DeleteMessage 删除消息
 func (ctrl *Controller) DeleteMessage(c *gin.Context) {
-	conversationIDStr := c.Param("conversation_id")
+	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的会话ID")
 		return
 	}
 
-	idStr := c.Param("id")
+	idStr := c.Param("msg_id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的消息ID")
@@ -130,7 +130,7 @@ func (ctrl *Controller) DeleteMessage(c *gin.Context) {
 
 // ListMessages 获取消息列表
 func (ctrl *Controller) ListMessages(c *gin.Context) {
-	conversationIDStr := c.Param("conversation_id")
+	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的会话ID")
@@ -155,7 +155,7 @@ func (ctrl *Controller) ListMessages(c *gin.Context) {
 
 // GetLatestMessage 获取最新消息
 func (ctrl *Controller) GetLatestMessage(c *gin.Context) {
-	conversationIDStr := c.Param("conversation_id")
+	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
 		response.Error(c, 400, "无效的会话ID")

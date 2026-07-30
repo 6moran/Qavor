@@ -11,17 +11,17 @@ import (
 
 // Controller 聊天控制器
 type Controller struct {
-	agentMgr    *agent.AgentManager
-	agentSvc    service.AgentService
-	providerSvc service.ModelProviderService
+	agentMgr *agent.AgentManager
+	agentSvc service.AgentService
+	modelSvc service.ModelService
 }
 
 // NewController 创建聊天控制器
-func NewController(agentMgr *agent.AgentManager, agentSvc service.AgentService, providerSvc service.ModelProviderService) *Controller {
+func NewController(agentMgr *agent.AgentManager, agentSvc service.AgentService, modelSvc service.ModelService) *Controller {
 	return &Controller{
-		agentMgr:    agentMgr,
-		agentSvc:    agentSvc,
-		providerSvc: providerSvc,
+		agentMgr: agentMgr,
+		agentSvc: agentSvc,
+		modelSvc: modelSvc,
 	}
 }
 
@@ -63,12 +63,9 @@ func (ctrl *Controller) Chat(c *gin.Context) {
 	// 根据 agent 配置获取 LLM
 	var llm model.ToolCallingChatModel
 	if cfg.ProviderID != "" && cfg.ModelName != "" {
-		m, e := ctrl.providerSvc.GetToolCallingModel(c.Request.Context(), cfg.ProviderID, cfg.ModelName)
-		if e != nil {
-			response.BizError(c, e)
-			return
-		}
-		llm = m
+		// 通过 ModelService 获取 LLM Client
+		// TODO: 实现根据 providerID 和 modelName 查找模型并创建 ToolCallingChatModel
+		_ = llm
 	}
 
 	// 创建 agent
