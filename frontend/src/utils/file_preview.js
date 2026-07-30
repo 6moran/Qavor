@@ -174,6 +174,18 @@ export const normalizePreviewResponse = async (response, baseFile = {}) => {
 
   const previewType =
     response?.headers?.get?.('x-yuxi-preview-type') || getPreviewTypeByContentType(contentType)
+
+  if (['text', 'markdown', 'json', 'html'].includes(previewType)) {
+    return {
+      ...baseFile,
+      content: await response.text(),
+      previewType,
+      supported: true,
+      message: '',
+      previewUrl: ''
+    }
+  }
+
   const blob = await response.blob()
 
   return {

@@ -57,6 +57,23 @@ type KnowledgeFileListResponse struct {
 	Items []KnowledgeFileResponse `json:"items"` // 当前页文件列表
 }
 
+// KnowledgeFilePreviewResponse 文档文本预览响应
+type KnowledgeFilePreviewResponse struct {
+	Content string `json:"content"`
+}
+
+// KnowledgeFileDeleteFailure 描述批量删除中未成功的文件。
+type KnowledgeFileDeleteFailure struct {
+	FileID  string `json:"file_id"`
+	Message string `json:"message"`
+}
+
+// KnowledgeFileBatchDeleteResponse 批量删除结果。
+type KnowledgeFileBatchDeleteResponse struct {
+	DeletedCount int                          `json:"deleted_count"`
+	FailedItems  []KnowledgeFileDeleteFailure `json:"failed_items,omitempty"`
+}
+
 // KnowledgeChunkResponse 知识分块响应
 type KnowledgeChunkResponse struct {
 	ID            uint             `json:"id"`

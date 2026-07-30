@@ -2,6 +2,9 @@
 package knowledge_file
 
 import (
+	"net/url"
+	"strings"
+
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
@@ -17,6 +20,21 @@ func NewController(service service.KnowledgeFileService) *Controller {
 	return &Controller{service: service}
 }
 
+// CreateFolder 创建知识库中的元数据文件夹。
+func (ctrl *Controller) CreateFolder(c *gin.Context) {
+	var req request.CreateKnowledgeFolderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.CreateFolder(c.Param("kb_id"), &req)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 // Upload 接收 multipart 的 file 字段；kb_id 为可选参数
 func (ctrl *Controller) Upload(c *gin.Context) {
 	file, err := c.FormFile("file")
@@ -24,7 +42,7 @@ func (ctrl *Controller) Upload(c *gin.Context) {
 		response.BadRequest(c, "缺少上传文件")
 		return
 	}
-	result, err := ctrl.service.Upload(c.Query("kb_id"), file)
+	result, err := ctrl.service.Upload(c.Query("kb_id"), c.Query("parent_id"), file)
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -47,9 +65,69 @@ func (ctrl *Controller) List(c *gin.Context) {
 	response.Success(c, result)
 }
 
+// Search 按文件名、原始文件名或存储路径搜索当前知识库的文件。
+func (ctrl *Controller) Search(c *gin.Context) {
+	var req request.SearchKnowledgeFileRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.Search(c.Param("kb_id"), req.Query, req.Offset, req.Limit)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
 // Get 根据 kb_id 和 doc_id 获取文件详情，避免跨知识库查询
 func (ctrl *Controller) Get(c *gin.Context) {
 	result, err := ctrl.service.Get(c.Param("kb_id"), c.Param("doc_id"))
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// Preview 返回解析后的 Markdown 或原始文件的有限文本内容。
+func (ctrl *Controller) Preview(c *gin.Context) {
+	result, err := ctrl.service.Preview(c.Param("kb_id"), c.Param("doc_id"))
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+// Download 以附件形式流式返回原始文件。
+func (ctrl *Controller) Download(c *gin.Context) {
+	result, err := ctrl.service.Download(c.Param("kb_id"), c.Param("doc_id"))
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	defer result.Reader.Close()
+	filename := result.Filename
+	if filename == "" {
+		filename = "download"
+	}
+	contentType := result.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(strings.ReplaceAll(filename, "\\", "_")))
+	c.DataFromReader(200, result.Size, contentType, result.Reader, nil)
+}
+
+// BatchDelete 批量删除指定知识库中的文件。
+func (ctrl *Controller) BatchDelete(c *gin.Context) {
+	var req request.BatchDeleteKnowledgeFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.BatchDelete(c.Param("kb_id"), req.FileIDs)
 	if err != nil {
 		response.BizError(c, err)
 		return

@@ -123,7 +123,6 @@
 import { computed, h, onBeforeUnmount, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { documentApi } from '@/apis/knowledge_api'
-import { getWorkspaceKnowledgeFileContent } from '@/apis/workspace_api'
 import { mergeChunks } from '@/utils/chunkUtils'
 import { getPreviewTypeByPath, normalizePreviewResponse } from '@/utils/file_preview'
 import {
@@ -480,7 +479,7 @@ const loadSourcePreview = async () => {
   const requestId = ++sourceRequestSeq
   sourcePreview.value.loading = true
   try {
-    const response = await getWorkspaceKnowledgeFileContent(props.kbId, props.fileId)
+    const response = await documentApi.downloadDocument(props.kbId, props.fileId)
     const preview = await normalizePreviewResponse(response)
     if (requestId !== sourceRequestSeq) {
       if (preview.previewUrl) {

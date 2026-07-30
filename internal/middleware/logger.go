@@ -5,7 +5,6 @@ import (
 
 	"Qavor/pkg/logger"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 // Logger 日志中间件
@@ -23,22 +22,20 @@ func Logger() gin.HandlerFunc {
 		end := time.Now()
 		latency := end.Sub(start)
 
-		// 记录日志
-		fields := []zap.Field{
-			zap.String("method", c.Request.Method),
-			zap.String("path", path),
-			zap.String("query", query),
-			zap.Int("status", c.Writer.Status()),
-			zap.String("ip", c.ClientIP()),
-			zap.String("user_agent", c.Request.UserAgent()),
-			zap.Duration("latency", latency),
-		}
-
-		// 获取错误信息
+		requestErrors := ""
 		if len(c.Errors) > 0 {
-			fields = append(fields, zap.String("errors", c.Errors.String()))
+			requestErrors = c.Errors.String()
 		}
 
-		logger.Info("HTTP Request", fields...)
+		logger.HTTPRequest(
+			c.Request.Method,
+			path,
+			query,
+			c.Writer.Status(),
+			latency,
+			c.ClientIP(),
+			c.Request.UserAgent(),
+			requestErrors,
+		)
 	}
 }
