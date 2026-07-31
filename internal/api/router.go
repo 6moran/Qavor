@@ -9,8 +9,8 @@ import (
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
-	toolctrl "Qavor/internal/api/v1/tool"
 	processingjob "Qavor/internal/api/v1/processing_job"
+	toolctrl "Qavor/internal/api/v1/tool"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 	"Qavor/internal/tool"
@@ -24,7 +24,6 @@ type Router struct {
 	knowledgeBaseCtrl *knowledgebase.Controller
 	knowledgeFileCtrl *knowledgefile.Controller
 	processingJobCtrl *processingjob.Controller
-	providerCtrl      *model_provider.Controller
 	modelCtrl         *model.Controller
 	conversationCtrl  *conversation.Controller
 	messageCtrl       *message.Controller
@@ -39,7 +38,6 @@ func NewRouter(
 	knowledgeBaseService service.KnowledgeBaseService,
 	knowledgeFileService service.KnowledgeFileService,
 	processingJobService service.ProcessingJobService,
-	providerService service.ModelProviderService,
 	modelService service.ModelService,
 	conversationService service.ConversationService,
 	messageService service.MessageService,
@@ -52,7 +50,6 @@ func NewRouter(
 		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService),
 		knowledgeFileCtrl: knowledgefile.NewController(knowledgeFileService),
 		processingJobCtrl: processingjob.NewController(processingJobService),
-		providerCtrl:      model_provider.NewController(providerService),
 		modelCtrl:         model.NewController(modelService),
 		conversationCtrl:  conversation.NewController(conversationService),
 		messageCtrl:       message.NewController(messageService),
