@@ -9,13 +9,17 @@ import (
 	"syscall"
 	"time"
 
+	agentpkg "Qavor/internal/agent"
 	"Qavor/internal/api"
+	chatctrl "Qavor/internal/api/v1/chat"
+	"Qavor/internal/mcp"
 	"Qavor/internal/ingestion"
 	"Qavor/internal/model/entity"
 	documentqueue "Qavor/internal/queue"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
 	"Qavor/internal/worker"
+	"Qavor/internal/store"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
 	"Qavor/pkg/logger"
@@ -132,8 +136,7 @@ func (a *App) initDatabase() error {
 			&entity.AgentRun{},
 			&entity.SubagentThread{},
 			&entity.TaskRecord{},
-			&entity.ModelProvider{},
-			&entity.MCPServer{},
+			&entity.Model{},
 			&entity.Skill{},
 			&entity.KnowledgeBase{},
 			&entity.KnowledgeFile{},
@@ -173,6 +176,10 @@ func (a *App) initDependencies() {
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
 	processingJobRepo := repository.NewDocumentProcessingJobRepository(a.postgresDB)
 	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
+	modelRepo := repository.NewModelRepository(a.postgresDB)
+	conversationRepo := repository.NewConversationRepository(a.postgresDB)
+	messageRepo := repository.NewMessageRepository(a.postgresDB)
+	agentRepo := repository.NewAgentRepository(a.postgresDB)
 
 	var queue documentqueue.DocumentQueue
 	if a.redis != nil {
@@ -196,11 +203,12 @@ func (a *App) initDependencies() {
 
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
-	providerSvc := service.NewModelProviderService(providerRepo)
+	modelSvc := service.NewModelService(modelRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
 	storage := service.NewMinIOObjectStorage()
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
+	agentSvc := service.NewAgentService(agentRepo)
 
 	if queue != nil {
 		workerCtx, cancelWorker := context.WithCancel(context.Background())
@@ -224,8 +232,27 @@ func (a *App) initDependencies() {
 		logger.Warn("Redis 不可用，文档异步处理 Worker 未启动")
 	}
 
+
+	// 初始化 MCPManager
+	mcpManager := mcp.NewMCPManager()
+	fileStore, err := store.NewMCPServerFileStore(".")
+	if err != nil {
+		logger.Warn("MCP 配置文件加载失败", zap.Error(err))
+		fileStore = store.NewEmptyMCPServerFileStore()
+	}
+	mcpConfigs, _ := fileStore.GetAll()
+	mcpManager.StartAll(mcpConfigs)
+
+	// 创建 AgentManager
+	agentMgr := agentpkg.NewAgentManager(mcpManager)
+
+	// 创建 Chat Controller
+	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc)
+	conversationSvc := service.NewConversationService(conversationRepo)
+	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, providerSvc)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc,processingJobSvc, providerSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl)
 }
 
 // initRouter 初始化路由

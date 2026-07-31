@@ -1,13 +1,9 @@
 package entity
 
-import "time"
-
 // AgentEnv Agent环境变量实体
 type AgentEnv struct {
 	BaseEntity
-	Env       JSON      `gorm:"type:json;not null;default:{};comment:环境变量配置" json:"env"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Env JSON `gorm:"type:json;not null;default:{};comment:环境变量配置" json:"env"`
 }
 
 // TableName 指定表名

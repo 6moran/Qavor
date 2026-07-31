@@ -1,0 +1,103 @@
+[
+  {
+    "name": "OpenAI",
+    "protocol": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "sk-your-openai-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true,
+    "model_type": "chat",
+    "max_tokens": 128000
+  },
+  {
+    "name": "Anthropic (Claude)",
+    "protocol": "anthropic",
+    "base_url": "https://api.anthropic.com",
+    "api_key": "sk-ant-your-anthropic-api-key",
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "timeout": 60000,
+    "enabled": true,
+    "model_type": "chat",
+    "max_tokens": 200000
+  },
+  {
+    "name": "Ollama (本地)",
+    "protocol": "ollama",
+    "base_url": "http://localhost:11434/v1",
+    "api_key": "ollama",
+    "headers": {},
+    "timeout": 30000,
+    "enabled": true,
+    "model_type": "chat",
+    "max_tokens": 128000
+  },
+  {
+    "name": "DeepSeek Chat",
+    "protocol": "openai",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-your-deepseek-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true,
+    "model_type": "chat",
+    "max_tokens": 65536
+  },
+  {
+    "name": "DeepSeek Reasoner",
+    "protocol": "openai",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-your-deepseek-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true,
+    "model_type": "chat",
+    "max_tokens": 65536
+  },
+  {
+    "name": "智谱 GLM-4 Plus",
+    "protocol": "openai",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "api_key": "your-zhipu-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true,
+    "model_type": "chat",
+    "max_tokens": 128000
+  },
+  {
+    "name": "智谱 Embedding-3",
+    "protocol": "openai",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "api_key": "your-zhipu-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true,
+    "model_type": "embedding",
+    "max_tokens": 8192
+  },
+  {
+    "name": "SiliconFlow Qwen2.5 72B",
+    "protocol": "openai",
+    "base_url": "https://api.siliconflow.cn/v1",
+    "api_key": "sk-your-siliconflow-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true,
+    "model_type": "chat",
+    "max_tokens": 32768
+  },
+  {
+    "name": "SiliconFlow BGE Large ZH",
+    "protocol": "openai",
+    "base_url": "https://api.siliconflow.cn/v1",
+    "api_key": "sk-your-siliconflow-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true,
+    "model_type": "embedding",
+    "max_tokens": 512
+  }
+]

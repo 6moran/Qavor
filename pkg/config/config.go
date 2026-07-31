@@ -16,6 +16,13 @@ type Config struct {
 	Log           LogConfig           `mapstructure:"log"`
 	CORS          CORSConfig          `mapstructure:"cors"`
 	Email         EmailConfig         `mapstructure:"email"`
+	Ollama   OllamaConfig   `mapstructure:"ollama"` // Ollama 配置（可选）
+}
+
+// OllamaConfig Ollama 配置
+type OllamaConfig struct {
+	BaseURL string `mapstructure:"base_url"` // Ollama 服务地址
+	Model   string `mapstructure:"model"`    // 默认模型
 }
 
 // DocumentQueueConfig 配置文档异步处理使用的 Redis Stream。

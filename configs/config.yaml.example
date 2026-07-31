@@ -97,3 +97,36 @@ email:
     auth_code: ""                   # 邮箱授权码（非登录密码），生产环境通过环境变量 EMAIL_AUTH_CODE 注入
   from: ""                          # 发件人邮箱（通常与 account 相同）
   from_name: "Qavor"                # 发件人名称
+
+# LLM 配置（统一接口，通过 provider 切换不同厂商）
+llm:
+  provider: "openai"                          # 厂商类型：openai | deepseek | moonshot | ollama
+  model: "gpt-4o"                             # 模型名称
+  api_key: ""                                 # API 密钥（通过环境变量 LLM_API_KEY 覆盖）
+  base_url: ""                                # API 基础地址（可选，OpenAI 默认使用官方地址）
+  timeout: 60000                              # 请求超时时间（毫秒）
+  temperature: 0.7                            # 温度参数 (0-2)
+  max_tokens: 2048                            # 最大生成 token 数
+  top_p: 1.0                                  # Top P 采样
+  stop: []                                    # 停止词
+  presence_penalty: 0                         # 存在惩罚 (-2.0 到 2.0)
+  frequency_penalty: 0                        # 频率惩罚 (-2.0 到 2.0)
+  provider_config:                            # 厂商特有参数（按厂商不同而不同）
+    seed: null                                # [OpenAI] 随机种子
+    user: null                                # [OpenAI] 用户标识
+    response_format: null                     # [OpenAI] 响应格式
+    extra_fields: {}                          # [OpenAI] 额外字段
+
+# Embedding 配置（用于文本向量化）
+embedding:
+  provider: "openai"                          # 厂商类型：openai
+  model: "text-embedding-3-small"             # 模型名称
+  api_key: ""                                 # API 密钥
+  base_url: ""                                # API 基础地址（可选）
+  timeout: 60000                              # 请求超时时间（毫秒）
+  dimensions: 1536                            # 向量维度
+
+# Ollama 配置（本地模型，可选）
+ollama:
+  base_url: "http://localhost:11434"          # Ollama 服务地址
+  model: "llama3"                             # 默认模型

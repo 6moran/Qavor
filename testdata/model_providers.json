@@ -1,0 +1,59 @@
+[
+  {
+    "name": "OpenAI",
+    "protocol": "openai",
+    "base_url": "https://api.openai.com/v1",
+    "api_key": "sk-your-openai-api-key",
+    "org_id": "",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true
+  },
+  {
+    "name": "Anthropic (Claude)",
+    "protocol": "anthropic",
+    "base_url": "https://api.anthropic.com",
+    "api_key": "sk-ant-your-anthropic-api-key",
+    "headers": {
+      "anthropic-version": "2023-06-01"
+    },
+    "timeout": 60000,
+    "enabled": true
+  },
+  {
+    "name": "Ollama (本地)",
+    "protocol": "ollama",
+    "base_url": "http://localhost:11434/v1",
+    "api_key": "ollama",
+    "headers": {},
+    "timeout": 30000,
+    "enabled": true
+  },
+  {
+    "name": "DeepSeek",
+    "protocol": "openai",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-your-deepseek-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true
+  },
+  {
+    "name": "智谱 AI (GLM)",
+    "protocol": "openai",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "api_key": "your-zhipu-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true
+  },
+  {
+    "name": "SiliconFlow (硅基流动)",
+    "protocol": "openai",
+    "base_url": "https://api.siliconflow.cn/v1",
+    "api_key": "sk-your-siliconflow-api-key",
+    "headers": {},
+    "timeout": 60000,
+    "enabled": true
+  }
+]
