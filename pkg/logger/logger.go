@@ -19,6 +19,11 @@ var (
 	httpConsoleLog *zap.Logger
 )
 
+// Initialized reports whether Init has configured the process logger.
+func Initialized() bool {
+	return log != nil
+}
+
 type httpRequestDetails struct {
 	Status int
 	Method string

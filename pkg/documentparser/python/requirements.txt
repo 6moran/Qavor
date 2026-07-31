@@ -1,0 +1,6 @@
+# 文档解析模块依赖包
+# 用于解析 PDF、Word 和 PowerPoint 文件
+
+pdfplumber==0.11.8    # PDF 文本提取
+python-docx==1.2.0    # Word 文档解析
+python-pptx==1.0.2    # PowerPoint 文档解析

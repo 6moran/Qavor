@@ -32,7 +32,7 @@ func (ctrl *Controller) CreateFolder(c *gin.Context) {
 		response.BizError(c, err)
 		return
 	}
-	response.Success(c, result)
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入解析队列", Data: result})
 }
 
 // Upload 接收 multipart 的 file 字段；kb_id 为可选参数
@@ -42,7 +42,8 @@ func (ctrl *Controller) Upload(c *gin.Context) {
 		response.BadRequest(c, "缺少上传文件")
 		return
 	}
-	result, err := ctrl.service.Upload(c.Query("kb_id"), c.Query("parent_id"), file)
+	autoIndex := strings.EqualFold(c.Query("auto_index"), "true")
+	result, err := ctrl.service.Upload(c.Query("kb_id"), c.Query("parent_id"), autoIndex, file)
 	if err != nil {
 		response.BizError(c, err)
 		return

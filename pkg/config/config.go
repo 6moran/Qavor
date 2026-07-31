@@ -8,13 +8,15 @@ import (
 
 // Config 应用配置结构体
 type Config struct {
-	App      AppConfig      `mapstructure:"app"`
-	Auth     AuthConfig     `mapstructure:"auth"`
-	Database DatabaseConfig `mapstructure:"database"`
-	JWT      JWTConfig      `mapstructure:"jwt"`
-	Log      LogConfig      `mapstructure:"log"`
-	CORS     CORSConfig     `mapstructure:"cors"`
-	Email    EmailConfig    `mapstructure:"email"`
+	App           AppConfig           `mapstructure:"app"`
+	Auth          AuthConfig          `mapstructure:"auth"`
+	Database      DatabaseConfig      `mapstructure:"database"`
+	DocumentQueue DocumentQueueConfig `mapstructure:"document_queue"`
+	JWT           JWTConfig           `mapstructure:"jwt"`
+	Log           LogConfig           `mapstructure:"log"`
+	CORS          CORSConfig          `mapstructure:"cors"`
+	Email         EmailConfig         `mapstructure:"email"`
+	Ollama   OllamaConfig   `mapstructure:"ollama"` // Ollama 配置（可选）
 	MCP      MCPConfig      `mapstructure:"mcp"`
 }
 
@@ -37,6 +39,42 @@ type MCPToolRetrievalConfig struct {
 type OllamaConfig struct {
 	BaseURL string `mapstructure:"base_url"` // Ollama 服务地址
 	Model   string `mapstructure:"model"`    // 默认模型
+}
+
+// DocumentQueueConfig 配置文档异步处理使用的 Redis Stream。
+type DocumentQueueConfig struct {
+	ParseStream           string `mapstructure:"parse_stream"`
+	ParseGroup            string `mapstructure:"parse_group"`
+	ReadBlockSeconds      int    `mapstructure:"read_block_seconds"`
+	PendingCheckSeconds   int    `mapstructure:"pending_check_seconds"`
+	PendingMinIdleMinutes int    `mapstructure:"pending_min_idle_minutes"`
+	PendingClaimCount     int64  `mapstructure:"pending_claim_count"`
+	MaxStreamLength       int64  `mapstructure:"max_stream_length"`
+}
+
+// ApplyDefaults 为未显式配置的文档队列参数设置安全默认值。
+func (c *DocumentQueueConfig) ApplyDefaults() {
+	if c.ParseStream == "" {
+		c.ParseStream = "qavor:document:parse"
+	}
+	if c.ParseGroup == "" {
+		c.ParseGroup = "qavor-document-parse-workers"
+	}
+	if c.ReadBlockSeconds <= 0 {
+		c.ReadBlockSeconds = 5
+	}
+	if c.PendingCheckSeconds <= 0 {
+		c.PendingCheckSeconds = 60
+	}
+	if c.PendingMinIdleMinutes <= 0 {
+		c.PendingMinIdleMinutes = 30
+	}
+	if c.PendingClaimCount <= 0 {
+		c.PendingClaimCount = 10
+	}
+	if c.MaxStreamLength <= 0 {
+		c.MaxStreamLength = 100000
+	}
 }
 
 // AuthConfig 单实例管理员认证配置。
