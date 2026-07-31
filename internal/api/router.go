@@ -9,8 +9,10 @@ import (
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
+	toolctrl "Qavor/internal/api/v1/tool"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
+	"Qavor/internal/tool"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,6 +27,7 @@ type Router struct {
 	messageCtrl       *message.Controller
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
+	toolCtrl          *toolctrl.Controller
 }
 
 // NewRouter 创建路由
@@ -37,6 +40,7 @@ func NewRouter(
 	messageService service.MessageService,
 	agentService service.AgentService,
 	chatCtrl *chatctrl.Controller,
+	toolRegistry *tool.Registry,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -47,6 +51,7 @@ func NewRouter(
 		messageCtrl:       message.NewController(messageService),
 		agentCtrl:         agentctrl.NewController(agentService),
 		chatCtrl:          chatCtrl,
+		toolCtrl:          toolctrl.NewController(toolRegistry),
 	}
 }
 
@@ -89,5 +94,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// 消息路由
 		r.messageCtrl.RegisterRoutes(v1)
+
+		// 工具路由
+		r.toolCtrl.RegisterRoutes(v1)
 	}
 }

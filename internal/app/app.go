@@ -17,6 +17,8 @@ import (
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
 	"Qavor/internal/store"
+	"Qavor/internal/tool"
+	"Qavor/internal/tool/builtin"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
 	"Qavor/pkg/logger"
@@ -190,8 +192,16 @@ func (a *App) initDependencies() {
 	mcpConfigs, _ := fileStore.GetAll()
 	mcpManager.StartAll(mcpConfigs)
 
+	// 创建 ToolVectorizer（预留，embedder 为 nil 时不启用向量检索）
+	vectorizer := mcp.NewToolVectorizer(mcpManager, nil)
+
+	// 创建 ToolRegistry
+	toolRegistry := tool.NewDefaultRegistry()
+	toolProvider := builtin.NewBuiltinToolProvider()
+	toolRegistry.RegisterFromProvider(toolProvider)
+
 	// 创建 AgentManager
-	agentMgr := agentpkg.NewAgentManager(mcpManager)
+	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry)
 
 	// 创建 Chat Controller
 	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc)
@@ -199,7 +209,7 @@ func (a *App) initDependencies() {
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, toolRegistry)
 }
 
 // initRouter 初始化路由
