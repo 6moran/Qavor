@@ -17,6 +17,22 @@ type Config struct {
 	CORS          CORSConfig          `mapstructure:"cors"`
 	Email         EmailConfig         `mapstructure:"email"`
 	Ollama   OllamaConfig   `mapstructure:"ollama"` // Ollama 配置（可选）
+	MCP      MCPConfig      `mapstructure:"mcp"`
+}
+
+// MCPConfig MCP 配置
+type MCPConfig struct {
+	ToolRetrieval MCPToolRetrievalConfig `mapstructure:"tool_retrieval"`
+}
+
+// MCPToolRetrievalConfig MCP 工具向量检索配置
+type MCPToolRetrievalConfig struct {
+	Enabled           bool         `mapstructure:"enabled"`
+	Threshold         int          `mapstructure:"threshold"`
+	TopK              int          `mapstructure:"top_k"`
+	EmbeddingProvider string       `mapstructure:"embedding_provider"`
+	EmbeddingModel    string       `mapstructure:"embedding_model"`
+	Ollama            OllamaConfig `mapstructure:"ollama"` // Ollama 配置（可选）
 }
 
 // OllamaConfig Ollama 配置

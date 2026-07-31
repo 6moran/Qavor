@@ -1,6 +1,23 @@
 package app
 
 import (
+	agentpkg "Qavor/internal/agent"
+	"Qavor/internal/api"
+	chatctrl "Qavor/internal/api/v1/chat"
+	"Qavor/internal/ingestion"
+	"Qavor/internal/mcp"
+	"Qavor/internal/model/entity"
+	documentqueue "Qavor/internal/queue"
+	"Qavor/internal/repository"
+	"Qavor/internal/service"
+	"Qavor/internal/store"
+	"Qavor/internal/tool"
+	"Qavor/internal/tool/builtin"
+	"Qavor/internal/worker"
+	"Qavor/pkg/config"
+	"Qavor/pkg/database"
+	"Qavor/pkg/logger"
+	"Qavor/pkg/minio"
 	"context"
 	"fmt"
 	"net/http"
@@ -8,22 +25,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	agentpkg "Qavor/internal/agent"
-	"Qavor/internal/api"
-	chatctrl "Qavor/internal/api/v1/chat"
-	"Qavor/internal/mcp"
-	"Qavor/internal/ingestion"
-	"Qavor/internal/model/entity"
-	documentqueue "Qavor/internal/queue"
-	"Qavor/internal/repository"
-	"Qavor/internal/service"
-	"Qavor/internal/worker"
-	"Qavor/internal/store"
-	"Qavor/pkg/config"
-	"Qavor/pkg/database"
-	"Qavor/pkg/logger"
-	"Qavor/pkg/minio"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -175,7 +176,6 @@ func (a *App) initDependencies() {
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
 	processingJobRepo := repository.NewDocumentProcessingJobRepository(a.postgresDB)
-	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
 	modelRepo := repository.NewModelRepository(a.postgresDB)
 	conversationRepo := repository.NewConversationRepository(a.postgresDB)
 	messageRepo := repository.NewMessageRepository(a.postgresDB)
@@ -232,7 +232,6 @@ func (a *App) initDependencies() {
 		logger.Warn("Redis 不可用，文档异步处理 Worker 未启动")
 	}
 
-
 	// 初始化 MCPManager
 	mcpManager := mcp.NewMCPManager()
 	fileStore, err := store.NewMCPServerFileStore(".")
@@ -243,8 +242,16 @@ func (a *App) initDependencies() {
 	mcpConfigs, _ := fileStore.GetAll()
 	mcpManager.StartAll(mcpConfigs)
 
+	// 创建 ToolVectorizer（预留，embedder 为 nil 时不启用向量检索）
+	vectorizer := mcp.NewToolVectorizer(mcpManager, nil)
+
+	// 创建 ToolRegistry
+	toolRegistry := tool.NewDefaultRegistry()
+	toolProvider := builtin.NewBuiltinToolProvider()
+	toolRegistry.RegisterFromProvider(toolProvider)
+
 	// 创建 AgentManager
-	agentMgr := agentpkg.NewAgentManager(mcpManager)
+	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry)
 
 	// 创建 Chat Controller
 	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc)
@@ -252,7 +259,7 @@ func (a *App) initDependencies() {
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc,processingJobSvc, providerSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, toolRegistry)
 }
 
 // initRouter 初始化路由

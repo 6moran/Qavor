@@ -10,8 +10,10 @@ import (
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
 	processingjob "Qavor/internal/api/v1/processing_job"
+	toolctrl "Qavor/internal/api/v1/tool"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
+	"Qavor/internal/tool"
 
 	"github.com/gin-gonic/gin"
 )
@@ -22,12 +24,12 @@ type Router struct {
 	knowledgeBaseCtrl *knowledgebase.Controller
 	knowledgeFileCtrl *knowledgefile.Controller
 	processingJobCtrl *processingjob.Controller
-	providerCtrl      *model_provider.Controller
 	modelCtrl         *model.Controller
 	conversationCtrl  *conversation.Controller
 	messageCtrl       *message.Controller
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
+	toolCtrl          *toolctrl.Controller
 }
 
 // NewRouter 创建路由
@@ -36,24 +38,24 @@ func NewRouter(
 	knowledgeBaseService service.KnowledgeBaseService,
 	knowledgeFileService service.KnowledgeFileService,
 	processingJobService service.ProcessingJobService,
-	providerService service.ModelProviderService,
 	modelService service.ModelService,
 	conversationService service.ConversationService,
 	messageService service.MessageService,
 	agentService service.AgentService,
 	chatCtrl *chatctrl.Controller,
+	toolRegistry *tool.Registry,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
 		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService),
 		knowledgeFileCtrl: knowledgefile.NewController(knowledgeFileService),
 		processingJobCtrl: processingjob.NewController(processingJobService),
-		providerCtrl:      model_provider.NewController(providerService),
 		modelCtrl:         model.NewController(modelService),
 		conversationCtrl:  conversation.NewController(conversationService),
 		messageCtrl:       message.NewController(messageService),
 		agentCtrl:         agentctrl.NewController(agentService),
 		chatCtrl:          chatCtrl,
+		toolCtrl:          toolctrl.NewController(toolRegistry),
 	}
 }
 
@@ -97,5 +99,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// 消息路由
 		r.messageCtrl.RegisterRoutes(v1)
+
+		// 工具路由
+		r.toolCtrl.RegisterRoutes(v1)
 	}
 }
