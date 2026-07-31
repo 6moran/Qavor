@@ -24,10 +24,8 @@ import {
   mockTools, mockToolOptions,
   // 工作区
   mockWorkspaceTree,
-  // 任务
-  mockTasks,
   // 模型
-  mockModelProviders, mockModels
+  mockModelProviders
 } from '@/mock'
 
 /**
@@ -38,7 +36,7 @@ import {
 /**
  * 根据 URL 和方法获取 mock 数据
  */
-function getMockData(url, method, options) {
+function getMockData(url, method) {
   // /api/v1 由当前 Go 服务提供，必须始终请求真实后端。
   // 旧 Mock 中宽泛的 includes('/documents') 等规则会误拦截新版知识库接口。
   if (url.startsWith('/api/v1/')) return undefined
@@ -176,10 +174,6 @@ function getMockData(url, method, options) {
   if (url.includes('/viewer/filesystem/tree')) return mockResponse({ entries: mockWorkspaceTree })
   if (url.includes('/viewer/filesystem/')) return mockResponse({ success: true })
 
-  // ==================== 任务 ====================
-  if (url.startsWith('/api/tasks')) return mockResponse({ tasks: mockTasks })
-  if (url.match(/^\/api\/tasks\/[^/]+/)) return mockResponse({ success: true })
-
   // ==================== Mention ====================
   if (url.startsWith('/api/mention/search')) return mockResponse([])
 
@@ -199,7 +193,7 @@ export async function apiRequest(url, options = {}, requiresAuth = true, respons
   // Mock 数据拦截
   if (USE_MOCK) {
     const method = options?.method || 'GET'
-    const mockResult = getMockData(url, method, options)
+    const mockResult = getMockData(url, method)
     if (mockResult !== undefined) {
       return mockResult
     }

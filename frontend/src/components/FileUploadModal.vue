@@ -65,14 +65,23 @@
             <p class="param-description">选择文件保存的目标文件夹</p>
           </div>
           <div class="col-item" v-if="shouldShowOcrSelector">
-            <div class="setting-label">OCR 引擎（仅应用于 PDF/图片文件）</div>
+            <div class="setting-label">
+              OCR 引擎
+              <span v-if="hasImageFiles" class="required-badge">必须</span>
+              <span v-else class="recommended-badge">建议</span>
+            </div>
             <div class="setting-content">
               <OCRSelector
                 v-model="processingParams.ocr_engine"
                 :disabled="chunkLoading"
+                :include-disable="hasPdfFiles && !hasImageFiles"
                 @change="ocrEngineTouched = true"
                 @options-loaded="handleOcrOptionsLoaded"
               />
+              <p class="param-description" v-if="hasPdfFiles && !hasImageFiles">
+                <Info :size="12" />
+                <span>文本型 PDF 可直接解析；若 PDF 为扫描版或拍照版，启用 OCR 可识别其中文字</span>
+              </p>
             </div>
           </div>
         </div>
@@ -102,9 +111,9 @@
         <Info :size="16" />
         <span>检测到图片文件，必须启用 OCR 才能提取文本内容</span>
       </div>
-      <div v-else-if="hasPdfFiles && !isOcrEnabled" class="inline-alert warning">
+      <div v-else-if="hasPdfFiles && !isOcrEnabled" class="inline-alert info">
         <Info :size="16" />
-        <span>检测到 PDF 文件；文本型 PDF 可直接解析，扫描版 PDF 建议启用 OCR</span>
+        <span>检测到 PDF 文件。文本型 PDF 无需 OCR 即可解析；若为扫描版或拍照版 PDF，建议启用 OCR</span>
       </div>
 
       <!-- 文件上传区域 -->
@@ -348,7 +357,7 @@ import { message, Upload, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
-import { fileApi, documentApi } from '@/apis/knowledge_api'
+import { fileApi, documentApi, processingJobApi } from '@/apis/knowledge_api'
 import { unwrapKnowledgeResponse } from '@/apis/knowledge_response'
 import { getWorkspaceTree } from '@/apis/workspace_api'
 import {
@@ -367,6 +376,7 @@ import {
   ChevronUp
 } from 'lucide-vue-next'
 import { buildChunkParamsPayload } from '@/utils/chunkUtils'
+import { pollDocumentProcessingJobs } from '@/utils/document_processing_jobs'
 import ChunkParamsConfig from '@/components/ChunkParamsConfig.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import OCRSelector from '@/components/OCRSelector.vue'
@@ -452,15 +462,6 @@ const normalizeExtensions = (extensions) => {
 }
 
 const supportedFileTypes = ref(normalizeExtensions(DEFAULT_SUPPORTED_TYPES))
-
-const applySupportedFileTypes = (extensions) => {
-  const normalized = normalizeExtensions(extensions)
-  if (normalized.length > 0) {
-    supportedFileTypes.value = normalized
-  } else {
-    supportedFileTypes.value = normalizeExtensions(DEFAULT_SUPPORTED_TYPES)
-  }
-}
 
 const acceptedFileTypes = computed(() => {
   if (!supportedFileTypes.value.length) {
@@ -938,19 +939,28 @@ const validateOcrService = () => {
     return true
   }
 
+  // 图片文件必须启用 OCR
   if (hasImageFiles.value && !isOcrEnabled.value) {
     message.error('检测到图片文件，必须启用 OCR 才能提取文本内容')
     return false
   }
 
-  if (!isOcrEnabled.value) {
+  // 如果 OCR 被禁用（disable），可以直接提交（文本型 PDF 无需 OCR）
+  if (processingParams.value.ocr_engine === 'disable') {
     return true
   }
 
+  // 如果 OCR 已启用但选项尚未加载完成，提示用户等待
+  if (ocrEngineOptions.value.length === 0) {
+    message.warning('OCR 引擎选项正在加载中，请稍后重试')
+    return false
+  }
+
+  // 检查当前选择的引擎是否在可用选项中
   if (
     !ocrEngineOptions.value.some((option) => option.value === processingParams.value.ocr_engine)
   ) {
-    message.error('OCR 引擎选项尚未加载，请稍后重试')
+    message.warning('当前选择的 OCR 引擎不可用，请重新选择')
     return false
   }
 
@@ -1130,6 +1140,9 @@ const runUploadTask = (task) => {
     if (selectedFolderId.value) {
       uploadParams.set('parent_id', selectedFolderId.value)
     }
+    if (autoIndex.value) {
+      uploadParams.set('auto_index', 'true')
+    }
 
     const xhr = new XMLHttpRequest()
     task.xhr = xhr
@@ -1256,6 +1269,50 @@ const openDocLink = () => {
   )
 }
 
+const monitorProcessingJobs = async (processingJobIds) => {
+  if (processingJobIds.length === 0) return
+
+  const notificationKey = `document-processing-${Date.now()}`
+  message.loading({
+    key: notificationKey,
+    content: `正在解析 ${processingJobIds.length} 个文档`,
+    duration: 0
+  })
+  try {
+    const jobs = await pollDocumentProcessingJobs(processingJobIds, {
+      fetchJob: (jobId) => processingJobApi.get(jobId)
+    })
+    await store.getDatabaseInfo(undefined, true)
+    await store.loadDocumentFiles({ isBackground: true })
+
+    const failedJobs = jobs.filter((job) => job.status === 'failed')
+    const cancelledJobs = jobs.filter((job) => job.status === 'cancelled')
+    if (failedJobs.length > 0) {
+      const errorMessage = failedJobs.find((job) => job.error_message)?.error_message
+      message.error({
+        key: notificationKey,
+        content: errorMessage || `${failedJobs.length} 个文档解析失败`
+      })
+    } else if (cancelledJobs.length > 0) {
+      message.warning({
+        key: notificationKey,
+        content: `${cancelledJobs.length} 个文档解析已取消`
+      })
+    } else {
+      message.success({
+        key: notificationKey,
+        content: `${jobs.length} 个文档解析完成`
+      })
+    }
+  } catch (error) {
+    console.error('查询文档处理任务失败:', error)
+    message.warning({
+      key: notificationKey,
+      content: error.message || '文档仍在后台处理，请稍后查看文件列表'
+    })
+  }
+}
+
 const finalizePersistedUploads = async () => {
   const completedUploads = fileList.value.filter((file) => file.status === 'done')
   if (completedUploads.length === 0) {
@@ -1268,12 +1325,20 @@ const finalizePersistedUploads = async () => {
   if (!isPersistedByCurrentApi) {
     return false
   }
+  const processingJobIds = completedUploads
+    .map((file) => file.response?.processing_job_id)
+    .filter(Boolean)
 
   store.state.chunkLoading = true
   try {
     await store.getDatabaseInfo(undefined, true)
     await store.loadDocumentFiles({ isBackground: true })
-    message.success('文件已添加到知识库')
+    message.success(
+      processingJobIds.length > 0 ? '文件已进入解析队列' : '文件已添加到知识库'
+    )
+    if (processingJobIds.length > 0) {
+      void monitorProcessingJobs(processingJobIds)
+    }
     emit('success')
     fileList.value = []
     sameNameFiles.value = []
@@ -1589,6 +1654,26 @@ const chunkData = async () => {
   gap: 8px;
 }
 
+.required-badge,
+.recommended-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.required-badge {
+  background: var(--color-error-50);
+  color: var(--color-error-600);
+  border: 1px solid var(--color-error-200);
+}
+
+.recommended-badge {
+  background: var(--color-warning-50);
+  color: var(--color-warning-600);
+  border: 1px solid var(--color-warning-200);
+}
+
 .action-icon {
   color: var(--gray-400);
   cursor: pointer;
@@ -1721,6 +1806,12 @@ const chunkData = async () => {
     background: var(--color-warning-50);
     border: 1px solid var(--color-warning-200);
     color: var(--color-warning-700);
+  }
+
+  &.info {
+    background: var(--color-info-50);
+    border: 1px solid var(--color-info-200);
+    color: var(--color-info-700);
   }
 }
 

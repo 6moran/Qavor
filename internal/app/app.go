@@ -13,9 +13,12 @@ import (
 	"Qavor/internal/api"
 	chatctrl "Qavor/internal/api/v1/chat"
 	"Qavor/internal/mcp"
+	"Qavor/internal/ingestion"
 	"Qavor/internal/model/entity"
+	documentqueue "Qavor/internal/queue"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
+	"Qavor/internal/worker"
 	"Qavor/internal/store"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
@@ -35,6 +38,8 @@ type App struct {
 	redis      *redis.Client
 	router     *api.Router
 	server     *http.Server
+	workerStop context.CancelFunc
+	workerDone chan struct{}
 }
 
 // NewApp 创建应用实例
@@ -136,6 +141,7 @@ func (a *App) initDatabase() error {
 			&entity.KnowledgeBase{},
 			&entity.KnowledgeFile{},
 			&entity.KnowledgeChunk{},
+			&entity.DocumentProcessingJob{},
 		); err != nil {
 			logger.Warn("数据库迁移警告", zap.Error(err))
 		} else {
@@ -168,17 +174,64 @@ func (a *App) initDependencies() {
 	// 创建 Repository
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
+	processingJobRepo := repository.NewDocumentProcessingJobRepository(a.postgresDB)
+	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
 	modelRepo := repository.NewModelRepository(a.postgresDB)
 	conversationRepo := repository.NewConversationRepository(a.postgresDB)
 	messageRepo := repository.NewMessageRepository(a.postgresDB)
 	agentRepo := repository.NewAgentRepository(a.postgresDB)
 
+	var queue documentqueue.DocumentQueue
+	if a.redis != nil {
+		candidate, err := documentqueue.NewRedisDocumentQueue(
+			a.redis,
+			a.cfg.DocumentQueue.ParseStream,
+			a.cfg.DocumentQueue.ParseGroup,
+			a.cfg.DocumentQueue.MaxStreamLength,
+		)
+		if err == nil {
+			queueCtx, cancelQueue := context.WithTimeout(context.Background(), 5*time.Second)
+			err = candidate.EnsureGroup(queueCtx)
+			cancelQueue()
+		}
+		if err == nil {
+			queue = candidate
+		} else {
+			logger.Warn("文档处理队列初始化失败，文档异步处理将不可用", zap.Error(err))
+		}
+	}
+
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
-	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, service.NewMinIOObjectStorage())
+	storage := service.NewMinIOObjectStorage()
+	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue)
+	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo)
+
+	if queue != nil {
+		workerCtx, cancelWorker := context.WithCancel(context.Background())
+		a.workerStop = cancelWorker
+		a.workerDone = make(chan struct{})
+		parser := ingestion.NewParser(ingestion.NewPythonParser("python", "pkg/documentparser/python/parse_document.py"))
+		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser)
+		hostname, _ := os.Hostname()
+		workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
+		options := worker.DocumentWorkerOptions{
+			ReadBlock:        time.Duration(a.cfg.DocumentQueue.ReadBlockSeconds) * time.Second,
+			PendingCheck:     time.Duration(a.cfg.DocumentQueue.PendingCheckSeconds) * time.Second,
+			PendingMinIdle:   time.Duration(a.cfg.DocumentQueue.PendingMinIdleMinutes) * time.Minute,
+			PendingClaimSize: a.cfg.DocumentQueue.PendingClaimCount,
+		}
+		go func() {
+			defer close(a.workerDone)
+			documentWorker.Run(workerCtx, workerID, options)
+		}()
+	} else {
+		logger.Warn("Redis 不可用，文档异步处理 Worker 未启动")
+	}
+
 
 	// 初始化 MCPManager
 	mcpManager := mcp.NewMCPManager()
@@ -199,7 +252,7 @@ func (a *App) initDependencies() {
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc,processingJobSvc, providerSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl)
 }
 
 // initRouter 初始化路由
@@ -256,6 +309,16 @@ func (a *App) gracefulShutdown() {
 	// 关闭 HTTP 服务器
 	if err := a.server.Shutdown(ctx); err != nil {
 		logger.Error("服务器关闭失败", zap.Error(err))
+	}
+	if a.workerStop != nil {
+		a.workerStop()
+	}
+	if a.workerDone != nil {
+		select {
+		case <-a.workerDone:
+		case <-time.After(5 * time.Second):
+			logger.Warn("等待文档处理 Worker 关闭超时")
+		}
 	}
 
 	// 关闭数据库连接

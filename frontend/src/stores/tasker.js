@@ -2,8 +2,14 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { taskerApi } from '@/apis/tasker'
+import { processingJobApi } from '@/apis/knowledge_api'
 import { useUserStore } from '@/stores/user'
 import { parseToShanghai } from '@/utils/time'
+import {
+  mergeTaskSources,
+  normalizeDocumentProcessingJob,
+  summarizeTasks
+} from '@/utils/document_processing_task'
 
 const ACTIVE_STATUSES = new Set(['pending', 'running', 'queued'])
 const FAILED_STATUSES = new Set(['failed', 'cancelled'])
@@ -29,7 +35,8 @@ const toTask = (raw = {}) => ({
   payload: raw.payload || {},
   result: raw.result,
   error: raw.error,
-  cancel_requested: raw.cancel_requested || false
+  cancel_requested: raw.cancel_requested || false,
+  source: raw.source || 'legacy'
 })
 
 export const useTaskerStore = defineStore('tasker', () => {
@@ -97,13 +104,29 @@ export const useTaskerStore = defineStore('tasker', () => {
     loading.value = true
     lastError.value = null
     try {
-      const response = await taskerApi.fetchTasks(params)
-      const taskList = response?.tasks || []
-      summary.value = {
-        ...createDefaultSummary(),
-        ...(response?.summary || {})
+      const [legacyResult, processingResult] = await Promise.allSettled([
+        taskerApi.fetchTasks(params),
+        processingJobApi.list(100)
+      ])
+      const legacyTasks =
+        legacyResult.status === 'fulfilled'
+          ? (legacyResult.value?.tasks || []).map(toTask)
+          : []
+      const processingJobs =
+        processingResult.status === 'fulfilled' ? processingResult.value?.items || [] : []
+
+      tasks.value = mergeTaskSources(legacyTasks, processingJobs).map(toTask)
+      summary.value = summarizeTasks(tasks.value)
+
+      if (legacyResult.status === 'rejected') {
+        console.warn('旧任务列表加载失败，继续展示文档解析任务', legacyResult.reason)
       }
-      tasks.value = taskList.map(toTask)
+      if (processingResult.status === 'rejected') {
+        console.warn('文档解析任务列表加载失败，继续展示旧任务', processingResult.reason)
+      }
+      if (legacyResult.status === 'rejected' && processingResult.status === 'rejected') {
+        lastError.value = processingResult.reason || legacyResult.reason
+      }
     } catch (error) {
       console.error('加载任务列表失败', error)
       lastError.value = error
@@ -117,6 +140,13 @@ export const useTaskerStore = defineStore('tasker', () => {
   async function refreshTask(taskId) {
     if (!taskId) return
     try {
+      const current = tasks.value.find((task) => task.id === taskId)
+      if (current?.source === 'document_processing') {
+        const job = await processingJobApi.get(taskId)
+        upsertTask(normalizeDocumentProcessingJob(job))
+        summary.value = summarizeTasks(tasks.value)
+        return
+      }
       const response = await taskerApi.fetchTaskDetail(taskId)
       if (response?.task) {
         upsertTask(response.task)
@@ -124,6 +154,18 @@ export const useTaskerStore = defineStore('tasker', () => {
     } catch (error) {
       console.error(`刷新任务 ${taskId} 详情失败`, error)
       lastError.value = error
+    }
+  }
+
+  async function retryProcessingJob(jobId) {
+    if (!jobId) return
+    try {
+      await processingJobApi.retry(jobId)
+      message.success('解析任务已重新进入队列')
+      await loadTasks()
+    } catch (error) {
+      console.error(`重试解析任务 ${jobId} 失败`, error)
+      message.error(error?.message || '重试解析任务失败')
     }
   }
 
@@ -226,6 +268,7 @@ export const useTaskerStore = defineStore('tasker', () => {
     activeCount,
     loadTasks,
     refreshTask,
+    retryProcessingJob,
     cancelTask,
     deleteTask,
     registerQueuedTask,

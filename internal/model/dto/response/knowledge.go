@@ -47,6 +47,7 @@ type KnowledgeFileResponse struct {
 	ContentType      string    `json:"content_type,omitempty"`      // 服务端检测到的 MIME 类型
 	IsFolder         bool      `json:"is_folder"`                   // 是否为文件夹记录
 	ErrorMessage     string    `json:"error_message,omitempty"`     // 处理失败时的错误信息
+	ProcessingJobID  string    `json:"processing_job_id,omitempty"` // 最近创建的解析任务 ID
 	CreatedAt        time.Time `json:"created_at"`                  // 创建时间
 	UpdatedAt        time.Time `json:"updated_at"`                  // 最后更新时间
 }
@@ -60,6 +61,28 @@ type KnowledgeFileListResponse struct {
 // KnowledgeFilePreviewResponse 文档文本预览响应
 type KnowledgeFilePreviewResponse struct {
 	Content string `json:"content"`
+}
+
+// DocumentProcessingJobResponse exposes asynchronous document-processing state.
+type DocumentProcessingJobResponse struct {
+	JobID        string     `json:"job_id"`
+	KBID         string     `json:"kb_id"`
+	FileID       string     `json:"file_id"`
+	Filename     string     `json:"filename,omitempty"` // 源文件名（优先显示 original_filename）
+	Status       string     `json:"status"`
+	Attempt      int        `json:"attempt"`
+	MaxAttempts  int        `json:"max_attempts"`
+	ErrorCode    string     `json:"error_code,omitempty"`
+	ErrorMessage string     `json:"error_message,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+}
+
+// DocumentProcessingJobListResponse is the task-center view of recent parse jobs.
+type DocumentProcessingJobListResponse struct {
+	Total int64                           `json:"total"`
+	Items []DocumentProcessingJobResponse `json:"items"`
 }
 
 // KnowledgeFileDeleteFailure 描述批量删除中未成功的文件。

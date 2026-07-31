@@ -87,6 +87,14 @@
             </div>
             <div class="task-card-actions">
               <a-button
+                v-if="canRetry(task)"
+                type="text"
+                size="small"
+                @click.stop="handleRetry(task.id)"
+              >
+                重试
+              </a-button>
+              <a-button
                 type="text"
                 size="small"
                 danger
@@ -99,7 +107,7 @@
                 type="text"
                 size="small"
                 danger
-                v-if="isTaskCompleted(task)"
+                v-if="canDelete(task)"
                 @click.stop="handleDelete(task.id, task.name)"
               >
                 删除
@@ -331,6 +339,10 @@ function handleCancel(taskId) {
   taskerStore.cancelTask(taskId)
 }
 
+function handleRetry(taskId) {
+  taskerStore.retryProcessingJob(taskId)
+}
+
 function handleDelete(taskId, taskName) {
   Modal.confirm({
     title: '确认删除',
@@ -394,7 +406,19 @@ function progressStatus(status) {
 }
 
 function canCancel(task) {
-  return Boolean(STATUS_CONFIG[task.status]?.cancelable) && !task.cancel_requested
+  return (
+    task.source !== 'document_processing' &&
+    Boolean(STATUS_CONFIG[task.status]?.cancelable) &&
+    !task.cancel_requested
+  )
+}
+
+function canRetry(task) {
+  return task.source === 'document_processing' && task.status === 'failed'
+}
+
+function canDelete(task) {
+  return task.source !== 'document_processing' && isTaskCompleted(task)
 }
 </script>
 <style scoped lang="less">
