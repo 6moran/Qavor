@@ -16,8 +16,16 @@ type Config struct {
 	Log           LogConfig           `mapstructure:"log"`
 	CORS          CORSConfig          `mapstructure:"cors"`
 	Email         EmailConfig         `mapstructure:"email"`
-	Ollama   OllamaConfig   `mapstructure:"ollama"` // Ollama 配置（可选）
-	MCP      MCPConfig      `mapstructure:"mcp"`
+	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
+	MCP           MCPConfig           `mapstructure:"mcp"`
+	SSE           SSEConfig           `mapstructure:"sse"` // SSE 流式服务配置
+}
+
+// SSEConfig SSE 流式服务配置
+type SSEConfig struct {
+	MaxStreamTime     int `mapstructure:"max_stream_time"`     // 单次流式最大时长（秒）
+	HeartbeatInterval int `mapstructure:"heartbeat_interval"` // 心跳间隔（秒）
+	MaxConcurrentTasks int `mapstructure:"max_concurrent_tasks"` // 单用户最大并发任务数
 }
 
 // MCPConfig MCP 配置

@@ -4,8 +4,9 @@ import (
 	agentpkg "Qavor/internal/agent"
 	"Qavor/internal/api"
 	chatctrl "Qavor/internal/api/v1/chat"
-	"Qavor/internal/ingestion"
+	ssectrl "Qavor/internal/api/v1/sse"
 	contextmgr "Qavor/internal/context"
+	"Qavor/internal/ingestion"
 	"Qavor/internal/llm"
 	"Qavor/internal/mcp"
 	"Qavor/internal/model/entity"
@@ -269,16 +270,13 @@ func (a *App) initDependencies() {
 	}
 	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, logger.GetLogger())
 
-	// 创建 SSE Controller
+	// 创建 SSE API Controller (HTTP 处理)
 	sseConfig := sse.DefaultConfig()
 	llmFactory := llm.NewClient
-	sseCtrl := sse.NewController(contextMgr, messageRepo, messageSvc, llmFactory, sseConfig, logger.GetLogger())
-
-	// 创建 Chat Controller
-	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc, sseCtrl)
+	sseAPICtrl := ssectrl.NewController(contextMgr, messageSvc, llmFactory, sseConfig, logger.GetLogger())
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, toolRegistry)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, toolRegistry, sseAPICtrl)
 }
 
 // initRouter 初始化路由

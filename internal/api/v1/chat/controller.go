@@ -3,7 +3,6 @@ package chat
 import (
 	"Qavor/internal/agent"
 	"Qavor/internal/service"
-	"Qavor/internal/sse"
 	"Qavor/pkg/response"
 
 	"github.com/cloudwego/eino/components/model"
@@ -15,16 +14,14 @@ type Controller struct {
 	agentMgr *agent.AgentManager
 	agentSvc service.AgentService
 	modelSvc service.ModelService
-	sseCtrl  *sse.Controller
 }
 
 // NewController 创建聊天控制器
-func NewController(agentMgr *agent.AgentManager, agentSvc service.AgentService, modelSvc service.ModelService, sseCtrl *sse.Controller) *Controller {
+func NewController(agentMgr *agent.AgentManager, agentSvc service.AgentService, modelSvc service.ModelService) *Controller {
 	return &Controller{
 		agentMgr: agentMgr,
 		agentSvc: agentSvc,
 		modelSvc: modelSvc,
-		sseCtrl:  sseCtrl,
 	}
 }
 

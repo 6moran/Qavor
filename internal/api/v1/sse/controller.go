@@ -2,9 +2,7 @@ package sse
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -12,24 +10,24 @@ import (
 	contextmgr "Qavor/internal/context"
 	"Qavor/internal/llm"
 	"Qavor/internal/middleware"
-	"Qavor/internal/repository"
+	"Qavor/internal/sse"
 	"Qavor/internal/service"
+	pkgerrors "Qavor/pkg/errors"
 
-	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
+	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
 // Controller SSE 控制器
 type Controller struct {
-	contextMgr  contextmgr.ContextManager
-	messageRepo repository.MessageRepository
-	messageSvc  service.MessageService
-	llmFactory  llm.ClientFactory
-	config      *SSEConfig
-	logger      *zap.Logger
-	heartbeat   *HeartbeatManager
+	contextMgr contextmgr.ContextManager
+	messageSvc service.MessageService
+	llmFactory llm.ClientFactory
+	config     *sse.SSEConfig
+	logger     *zap.Logger
+	heartbeat  *sse.HeartbeatManager
 
 	// 任务管理：支持取消
 	mu          sync.RWMutex
@@ -53,20 +51,18 @@ type TaskInfo struct {
 // NewController 创建 SSE 控制器
 func NewController(
 	contextMgr contextmgr.ContextManager,
-	messageRepo repository.MessageRepository,
 	messageSvc service.MessageService,
 	llmFactory llm.ClientFactory,
-	config *SSEConfig,
+	config *sse.SSEConfig,
 	logger *zap.Logger,
 ) *Controller {
 	return &Controller{
 		contextMgr:       contextMgr,
-		messageRepo:      messageRepo,
 		messageSvc:       messageSvc,
 		llmFactory:       llmFactory,
 		config:           config,
 		logger:           logger,
-		heartbeat:        NewHeartbeatManager(config.HeartbeatInterval, logger),
+		heartbeat:        sse.NewHeartbeatManager(config.HeartbeatInterval, logger),
 		activeTasks:      make(map[string]*TaskInfo),
 		conversationTasks: make(map[uint]string),
 		userTaskCount:    make(map[uint]int),
@@ -75,18 +71,24 @@ func NewController(
 
 // GenerateTaskID 生成任务ID
 func GenerateTaskID() string {
-	id := uuid.New().String()[:8]
+	uuid := uuid.New().String()[:8]
 	timestamp := time.Now().Unix() % 1000000
-	return fmt.Sprintf("task_%s_%06d", id, timestamp)
+	return fmt.Sprintf("task_%s_%06d", uuid, timestamp)
 }
 
 // Stream 处理 SSE 流式请求
 // POST /api/v1/chat/stream
 func (ctrl *Controller) Stream(c *gin.Context) {
 	// 1. 解析请求
-	var req StreamRequest
+	var req struct {
+		ConversationID uint   `json:"conversation_id" binding:"required"`
+		Content        string `json:"content" binding:"required"`
+		AgentSlug      string `json:"agent_slug"`
+		ModelName      string `json:"model_name"`
+		FileIDs        []uint `json:"file_ids"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, NewErrorResponse(GetHTTPStatus(ErrCodeInvalidRequest), "请求参数无效: "+err.Error()))
+		c.JSON(http.StatusBadRequest, pkgerrors.New(pkgerrors.CodeSSEInvalidRequest, "请求参数无效: "+err.Error()))
 		return
 	}
 
@@ -96,7 +98,7 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 
 	// 2. 检查用户并发任务限制
 	if err := ctrl.checkUserTaskLimit(userID); err != nil {
-		c.JSON(http.StatusTooManyRequests, NewErrorResponse(GetHTTPStatus(ErrCodeTooManyRequests), err.Error()))
+		c.JSON(http.StatusTooManyRequests, pkgerrors.New(pkgerrors.CodeSSETooManyRequests, err.Error()))
 		return
 	}
 
@@ -113,7 +115,7 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 
 	// 6. 创建 SSE 写入器（线程安全）
-	writer := NewSSEWriter(c, ctrl.logger)
+	writer := sse.NewSSEWriter(c, ctrl.logger)
 	defer writer.Close()
 
 	// 7. 创建任务上下文（支持取消和超时）
@@ -143,11 +145,11 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 			zap.String("task_id", taskID),
 			zap.Error(err),
 		)
-		writer.Send(EventMessageError, ErrorData{
-			Code:    ErrCodeContextBuildFailed,
+		writer.Send(sse.EventMessageError, sse.ErrorData{
+			Code:    "CONTEXT_BUILD_FAILED",
 			Message: "构建上下文失败",
 		})
-		writer.Send(EventDone, nil)
+		writer.Send(sse.EventDone, nil)
 		return
 	}
 
@@ -182,11 +184,11 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 			zap.String("task_id", taskID),
 			zap.Error(err),
 		)
-		writer.Send(EventMessageError, ErrorData{
-			Code:    ErrCodeLLMInitFailed,
+		writer.Send(sse.EventMessageError, sse.ErrorData{
+			Code:    "LLM_INIT_FAILED",
 			Message: "初始化LLM失败: " + err.Error(),
 		})
-		writer.Send(EventDone, nil)
+		writer.Send(sse.EventDone, nil)
 		return
 	}
 
@@ -198,7 +200,7 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 	defer ctrl.heartbeat.Stop(stopHeartbeat)
 
 	// 14. 发送 message.start 事件
-	writer.Send(EventMessageStart, MessageStartData{
+	writer.Send(sse.EventMessageStart, sse.MessageStartData{
 		MessageID:      messageID,
 		ConversationID: conversationID,
 		Model:          req.ModelName,
@@ -218,14 +220,13 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 			zap.String("task_id", taskID),
 			zap.Error(err),
 		)
-		writer.Send(EventMessageError, ErrorData{
-			Code:    ErrCodeLLMStreamFailed,
+		writer.Send(sse.EventMessageError, sse.ErrorData{
+			Code:    "LLM_STREAM_FAILED",
 			Message: "LLM调用失败: " + err.Error(),
 		})
-		writer.Send(EventDone, nil)
+		writer.Send(sse.EventDone, nil)
 		return
 	}
-	defer streamReader.Close()
 
 	// 16. 读取流式输出并推送事件
 	var fullContent string
@@ -236,7 +237,7 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 		chunk, err := streamReader.Recv()
 		if err != nil {
 			// 检查是否是正常结束
-			if errors.Is(err, io.EOF) {
+			if err.Error() == "EOF" {
 				break
 			}
 			// 检查是否是取消
@@ -245,11 +246,11 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 					zap.String("task_id", taskID),
 					zap.String("message_id", messageID),
 				)
-				writer.Send(EventMessageCancelled, MessageCancelledData{
+				writer.Send(sse.EventMessageCancelled, sse.MessageCancelledData{
 					MessageID: messageID,
 					Reason:    "user_cancel",
 				})
-				writer.Send(EventDone, nil)
+				writer.Send(sse.EventDone, nil)
 				return
 			}
 			// 检查是否是超时
@@ -258,11 +259,11 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 					zap.String("task_id", taskID),
 					zap.String("message_id", messageID),
 				)
-				writer.Send(EventMessageError, ErrorData{
-					Code:    ErrCodeTimeout,
+				writer.Send(sse.EventMessageError, sse.ErrorData{
+					Code:    "TIMEOUT",
 					Message: "请求超时",
 				})
-				writer.Send(EventDone, nil)
+				writer.Send(sse.EventDone, nil)
 				return
 			}
 			// 其他错误
@@ -270,18 +271,18 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 				zap.String("task_id", taskID),
 				zap.Error(err),
 			)
-			writer.Send(EventMessageError, ErrorData{
-				Code:    ErrCodeStreamReadFailed,
+			writer.Send(sse.EventMessageError, sse.ErrorData{
+				Code:    "STREAM_READ_FAILED",
 				Message: "读取流式输出失败",
 			})
-			writer.Send(EventDone, nil)
+			writer.Send(sse.EventDone, nil)
 			return
 		}
 
 		// 推送 message.delta 事件
-		if chunk != nil && chunk.Content != "" {
+		if chunk.Content != "" {
 			fullContent += chunk.Content
-			writer.Send(EventMessageDelta, MessageDeltaData{
+			writer.Send(sse.EventMessageDelta, sse.MessageDeltaData{
 				MessageID: messageID,
 				Content:   chunk.Content,
 				Index:     index,
@@ -304,7 +305,7 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 
 	// 18. 发送 message.complete 事件
 	duration := time.Since(startTime)
-	writer.Send(EventMessageComplete, MessageCompleteData{
+	writer.Send(sse.EventMessageComplete, sse.MessageCompleteData{
 		MessageID:    messageID,
 		Content:      fullContent,
 		TokenCount:   0, // TODO: 从LLM响应中获取
@@ -319,15 +320,17 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 	)
 
 	// 19. 发送 done 事件
-	writer.Send(EventDone, nil)
+	writer.Send(sse.EventDone, nil)
 }
 
 // Cancel 取消正在生成的消息
 // POST /api/v1/chat/cancel
 func (ctrl *Controller) Cancel(c *gin.Context) {
-	var req CancelRequest
+	var req struct {
+		TaskID string `json:"task_id" binding:"required"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, NewErrorResponse(GetHTTPStatus(ErrCodeInvalidRequest), "请求参数无效: "+err.Error()))
+		c.JSON(http.StatusBadRequest, pkgerrors.New(pkgerrors.CodeSSEInvalidRequest, "请求参数无效: "+err.Error()))
 		return
 	}
 
@@ -336,7 +339,7 @@ func (ctrl *Controller) Cancel(c *gin.Context) {
 	ctrl.mu.RUnlock()
 
 	if !ok {
-		c.JSON(http.StatusNotFound, NewErrorResponse(GetHTTPStatus(ErrCodeTaskNotFound), "任务不存在或已完成"))
+		c.JSON(http.StatusNotFound, pkgerrors.New(pkgerrors.CodeSSETaskNotFound, "任务不存在或已完成"))
 		return
 	}
 
@@ -350,7 +353,96 @@ func (ctrl *Controller) Cancel(c *gin.Context) {
 	// 取消任务
 	taskInfo.Cancel()
 
-	c.JSON(http.StatusOK, NewSuccessResponse(map[string]string{"message": "任务已取消"}))
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "任务已取消",
+	})
+}
+
+// UploadFile 上传文件
+// POST /api/v1/chat/upload
+func (ctrl *Controller) UploadFile(c *gin.Context) {
+	var req struct {
+		ConversationID uint   `json:"conversation_id" binding:"required"`
+		FileType       string `json:"file_type" binding:"required,oneof=image document code audio video"`
+		FileName       string `json:"file_name" binding:"required"`
+		FileSize       int64  `json:"file_size" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, pkgerrors.New(pkgerrors.CodeSSEInvalidRequest, "请求参数无效: "+err.Error()))
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+
+	// 1. 校验会话权限
+	// TODO: 调用 ConversationService 校验会话属于当前用户
+
+	// 2. 校验文件大小
+	maxSize := ctrl.getMaxFileSize(req.FileType)
+	if req.FileSize > maxSize {
+		c.JSON(http.StatusRequestEntityTooLarge, pkgerrors.New(pkgerrors.CodeSSEFileTooLarge,
+			fmt.Sprintf("文件大小超过限制，最大允许 %dMB", maxSize/1024/1024)))
+		return
+	}
+
+	// 3. 创建文件记录
+	fileID := uint(0) // TODO: 从文件服务获取
+
+	// 4. 生成预签名上传URL
+	uploadURL := "" // TODO: 从 MinIO 生成预签名URL
+
+	// 5. 记录日志
+	ctrl.logger.Info("文件上传请求",
+		zap.Uint("user_id", userID),
+		zap.Uint("conversation_id", req.ConversationID),
+		zap.Uint("file_id", fileID),
+		zap.String("file_name", req.FileName),
+		zap.String("file_type", req.FileType),
+		zap.Int64("file_size", req.FileSize),
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"file_id":    fileID,
+			"file_name":  req.FileName,
+			"file_size":  req.FileSize,
+			"file_type":  req.FileType,
+			"upload_url": uploadURL,
+		},
+	})
+}
+
+// ProcessFile 处理已上传的文件
+// POST /api/v1/chat/process-file
+func (ctrl *Controller) ProcessFile(c *gin.Context) {
+	var req struct {
+		FileID uint `json:"file_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, pkgerrors.New(pkgerrors.CodeSSEInvalidRequest, "请求参数无效: "+err.Error()))
+		return
+	}
+
+	userID := middleware.GetUserID(c)
+
+	// 1. 获取文件信息
+	// TODO: 从文件服务获取文件信息
+
+	// 2. 处理文件
+	// TODO: 根据文件类型进行处理
+
+	// 3. 记录日志
+	ctrl.logger.Info("文件处理请求",
+		zap.Uint("user_id", userID),
+		zap.Uint("file_id", req.FileID),
+	)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "文件处理请求已接受",
+	})
 }
 
 // registerTask 注册活跃任务
@@ -415,8 +507,8 @@ func (ctrl *Controller) checkUserTaskLimit(userID uint) error {
 	count := ctrl.userTaskCount[userID]
 	ctrl.mu.RUnlock()
 
-	if count >= MaxConcurrentTasksPerUser {
-		return fmt.Errorf("用户 %d 已达到最大并发任务数 %d", userID, MaxConcurrentTasksPerUser)
+	if count >= ctrl.config.MaxConcurrentTasks {
+		return fmt.Errorf("用户 %d 已达到最大并发任务数 %d", userID, ctrl.config.MaxConcurrentTasks)
 	}
 	return nil
 }
@@ -435,95 +527,17 @@ func (ctrl *Controller) getLLMClient(agentSlug, modelName string) (llm.Client, e
 // getMaxFileSize 根据文件类型获取最大文件大小
 func (ctrl *Controller) getMaxFileSize(fileType string) int64 {
 	switch fileType {
-	case FileTypeImage:
-		return MaxFileSizeImage
-	case FileTypeDocument:
-		return MaxFileSizeDocument
-	case FileTypeCode:
-		return MaxFileSizeCode
-	case FileTypeAudio:
-		return MaxFileSizeAudio
-	case FileTypeVideo:
-		return MaxFileSizeVideo
+	case "image":
+		return 10 * 1024 * 1024 // 10MB
+	case "document":
+		return 20 * 1024 * 1024 // 20MB
+	case "code":
+		return 1 * 1024 * 1024 // 1MB
+	case "audio":
+		return 50 * 1024 * 1024 // 50MB
+	case "video":
+		return 100 * 1024 * 1024 // 100MB
 	default:
-		return MaxFileSizeDocument // 默认20MB
+		return 20 * 1024 * 1024 // 默认20MB
 	}
-}
-
-// UploadFile 上传文件
-// POST /api/v1/chat/upload
-func (ctrl *Controller) UploadFile(c *gin.Context) {
-	var req FileUploadRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, NewErrorResponse(GetHTTPStatus(ErrCodeInvalidRequest), "请求参数无效: "+err.Error()))
-		return
-	}
-
-	userID := middleware.GetUserID(c)
-	conversationID := req.ConversationID
-
-	// 1. 校验会话权限
-	// TODO: 调用 ConversationService 校验会话属于当前用户
-
-	// 2. 校验文件大小
-	maxSize := ctrl.getMaxFileSize(req.FileType)
-	if req.FileSize > maxSize {
-		c.JSON(http.StatusRequestEntityTooLarge, NewErrorResponse(GetHTTPStatus(ErrCodeFileTooLarge),
-			fmt.Sprintf("文件大小超过限制，最大允许 %dMB", maxSize/1024/1024)))
-		return
-	}
-
-	// 3. 创建文件记录
-	fileID := uint(0) // TODO: 从文件服务获取
-
-	// 4. 生成预签名上传URL
-	uploadURL := "" // TODO: 从 MinIO 生成预签名URL
-
-	// 5. 记录日志
-	ctrl.logger.Info("文件上传请求",
-		zap.Uint("user_id", userID),
-		zap.Uint("conversation_id", conversationID),
-		zap.Uint("file_id", fileID),
-		zap.String("file_name", req.FileName),
-		zap.String("file_type", req.FileType),
-		zap.Int64("file_size", req.FileSize),
-	)
-
-	c.JSON(http.StatusOK, NewSuccessResponse(FileUploadResponse{
-		FileID:    fileID,
-		FileName:  req.FileName,
-		FileSize:  req.FileSize,
-		FileType:  req.FileType,
-		UploadURL: uploadURL,
-	}))
-}
-
-// ProcessFile 处理已上传的文件
-// POST /api/v1/chat/process-file
-func (ctrl *Controller) ProcessFile(c *gin.Context) {
-	var req struct {
-		FileID uint `json:"file_id" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, NewErrorResponse(GetHTTPStatus(ErrCodeInvalidRequest), "请求参数无效: "+err.Error()))
-		return
-	}
-
-	userID := middleware.GetUserID(c)
-
-	// 1. 获取文件信息
-	// TODO: 从文件服务获取文件信息
-
-	// 2. 处理文件
-	// TODO: 根据文件类型进行处理
-
-	// 3. 记录日志
-	ctrl.logger.Info("文件处理请求",
-		zap.Uint("user_id", userID),
-		zap.Uint("file_id", req.FileID),
-	)
-
-	c.JSON(http.StatusOK, NewSuccessResponse(map[string]string{
-		"message": "文件处理请求已接受",
-	}))
 }
