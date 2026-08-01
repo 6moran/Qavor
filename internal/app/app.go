@@ -12,10 +12,13 @@ import (
 	agentpkg "Qavor/internal/agent"
 	"Qavor/internal/api"
 	chatctrl "Qavor/internal/api/v1/chat"
+	contextmgr "Qavor/internal/context"
+	"Qavor/internal/llm"
 	"Qavor/internal/mcp"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
+	"Qavor/internal/sse"
 	"Qavor/internal/store"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
@@ -193,10 +196,24 @@ func (a *App) initDependencies() {
 	// 创建 AgentManager
 	agentMgr := agentpkg.NewAgentManager(mcpManager)
 
-	// 创建 Chat Controller
-	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc)
 	conversationSvc := service.NewConversationService(conversationRepo)
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
+
+	// 创建 Context Manager
+	contextConfig := &contextmgr.ContextConfig{
+		MaxTokens:     4096,
+		ReserveTokens: 1024,
+		SystemPrompt:  "You are a helpful assistant.",
+	}
+	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, logger.GetLogger())
+
+	// 创建 SSE Controller
+	sseConfig := sse.DefaultConfig()
+	llmFactory := llm.NewClient
+	sseCtrl := sse.NewController(contextMgr, messageRepo, messageSvc, llmFactory, sseConfig, logger.GetLogger())
+
+	// 创建 Chat Controller
+	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc, sseCtrl)
 
 	// 创建 Router
 	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl)
