@@ -270,10 +270,13 @@ func (a *App) initDependencies() {
 	}
 	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, logger.GetLogger())
 
-	// 创建 SSE API Controller (HTTP 处理)
+	// 创建 SSE Service
 	sseConfig := sse.DefaultConfig()
 	llmFactory := llm.NewClient
-	sseAPICtrl := ssectrl.NewController(contextMgr, messageSvc, llmFactory, sseConfig, logger.GetLogger())
+	sseSvc := service.NewSSEService(contextMgr, llmFactory, sseConfig, logger.GetLogger())
+
+	// 创建 SSE API Controller (HTTP 处理)
+	sseAPICtrl := ssectrl.NewController(sseSvc, sseConfig, logger.GetLogger())
 
 	// 创建 Router
 	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, toolRegistry, sseAPICtrl)
