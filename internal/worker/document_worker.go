@@ -11,32 +11,40 @@ import (
 	"Qavor/internal/ingestion"
 	"Qavor/internal/model/entity"
 	documentqueue "Qavor/internal/queue"
-	"Qavor/internal/repository"
+	"Qavor/internal/rag"
+	"Qavor/internal/reposito
 	"Qavor/internal/service"
 	"Qavor/pkg/logger"
 
 	"go.uber.org/zap"
 )
 
+// DocumentWorkerOptions 文档处理 Worker 的配置选项。
 type DocumentWorkerOptions struct {
-	ReadBlock        time.Duration
-	PendingCheck     time.Duration
-	PendingMinIdle   time.Duration
-	PendingClaimSize int64
+	ReadBlock        time.Duration // 从 Redis Stream 读取新消息的阻塞时间
+	PendingCheck     time.Duration // 定期检查 Pending 状态任务的时间间隔
+	PendingMinIdle   time.Duration // Pending 任务被重新领取前的最小空闲时间
+	PendingClaimSize int64         // 每次领取 Pending 任务的数量上限
 }
 
+// DocumentWorker 文档处理 Worker，负责从 Redis 队列消费文档处理任务。
+// 处理流程：解析文档 -> 上传 Markdown -> RAG 索引（可选）-> 标记任务完成。
 type DocumentWorker struct {
-	queue   documentqueue.DocumentQueue
-	jobs    repository.DocumentProcessingJobRepository
-	files   repository.KnowledgeFileRepository
-	storage service.ObjectStorage
-	parser  *ingestion.Parser
+	queue   documentqueue.DocumentQueue                // 文档处理任务队列（Redis Stream）
+	jobs    repository.DocumentProcessingJobRepository // 任务状态存储
+	files   repository.KnowledgeFileRepository         // 知识文件存储
+	storage service.ObjectStorage                      // 对象存储（MinIO）
+	parser  *ingestion.Parser                          // 文档解析器
+	indexer rag.DocumentIndexer                        // RAG 索引器（可选，Embedding 未配置时为 nil）
 }
 
-func NewDocumentWorker(queue documentqueue.DocumentQueue, jobs repository.DocumentProcessingJobRepository, files repository.KnowledgeFileRepository, storage service.ObjectStorage, parser *ingestion.Parser) *DocumentWorker {
-	return &DocumentWorker{queue: queue, jobs: jobs, files: files, storage: storage, parser: parser}
+// NewDocumentWorker 创建文档处理 Worker 实例。
+func NewDocumentWorker(queue documentqueue.DocumentQueue, jobs repository.DocumentProcessingJobRepository, files repository.KnowledgeFileRepository, storage service.ObjectStorage, parser *ingestion.Parser, indexer rag.DocumentIndexer) *DocumentWorker {
+	return &DocumentWorker{queue: queue, jobs: jobs, files: files, storage: storage, parser: parser, indexer: indexer}
 }
 
+// processMessage 处理单条文档处理消息，返回 (是否确认消费, 错误)。
+// 流程：领取/恢复任务 -> 验证任务状态 -> 解析文档 -> 上传 Markdown -> RAG 索引 -> 标记成功。
 func (w *DocumentWorker) processMessage(ctx context.Context, message documentqueue.Message, workerID string, reclaimed bool) (bool, error) {
 	if message.InvalidReason != "" || message.JobID == "" {
 		return true, nil
@@ -95,6 +103,7 @@ func (w *DocumentWorker) processMessage(ctx context.Context, message documentque
 	if closeErr != nil {
 		return w.failJob(job, "STORAGE_READ_FAILED", "关闭原文件失败")
 	}
+	// 步骤 1: 解析文档 - 将上传的文件解析为 Markdown 格式
 	parsed, err := w.parser.Parse(ctx, ingestion.ParseInput{
 		Filename: file.OriginalFilename,
 		Content:  content,
@@ -103,6 +112,7 @@ func (w *DocumentWorker) processMessage(ctx context.Context, message documentque
 	if err != nil {
 		return w.failJob(job, "PARSER_FAILED", "文档解析失败")
 	}
+	// 步骤 2: 上传解析后的 Markdown 文件到对象存储
 	object, err := w.storage.UploadReader(
 		fmt.Sprintf("knowledge-internal/%s/%s/derived", job.KBID, job.FileID),
 		"normalized.md",
@@ -113,15 +123,38 @@ func (w *DocumentWorker) processMessage(ctx context.Context, message documentque
 	if err != nil {
 		return w.failJob(job, "STORAGE_WRITE_FAILED", "保存解析结果失败")
 	}
+	// 步骤 3: 更新文件状态为 ready
 	if err := w.files.UpdateProcessingResult(job.KBID, job.FileID, "ready", object.Path, ""); err != nil {
 		return false, err
 	}
+
+	// 步骤 4: RAG 索引（可选）
+	// 未配置 Embedding 时 indexer 为 nil，跳过索引直接标记成功。
+	// 配置了 Embedding 时，会将文档分块并生成向量存储到 pgvector。
+	if w.indexer != nil {
+		if _, err := w.indexer.Index(ctx, rag.IndexInput{
+			KBID:     job.KBID,
+			FileID:   job.FileID,
+			Filename: file.OriginalFilename,
+			Markdown: parsed.Markdown,
+		}); err != nil {
+			logger.Warn("RAG 文档索引失败",
+				zap.String("job_id", job.JobID),
+				zap.String("kb_id", job.KBID),
+				zap.String("file_id", job.FileID),
+				zap.Error(err),
+			)
+			return w.failJob(job, "RAG_INDEX_FAILED", fmt.Sprintf("RAG 索引失败: %v", err))
+		}
+	}
+
 	if err := w.jobs.MarkSucceeded(job.JobID); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
+// failJob 标记任务失败并更新文件处理状态。
 func (w *DocumentWorker) failJob(job *entity.DocumentProcessingJob, code, message string) (bool, error) {
 	if err := w.files.UpdateProcessingResult(job.KBID, job.FileID, "failed", "", message); err != nil {
 		return false, err
@@ -132,6 +165,7 @@ func (w *DocumentWorker) failJob(job *entity.DocumentProcessingJob, code, messag
 	return true, nil
 }
 
+// handleMessage 处理消息并在成功后确认消费。
 func (w *DocumentWorker) handleMessage(ctx context.Context, message documentqueue.Message, workerID string, reclaimed bool) error {
 	ack, err := w.processMessage(ctx, message, workerID, reclaimed)
 	if err != nil {
@@ -143,7 +177,8 @@ func (w *DocumentWorker) handleMessage(ctx context.Context, message documentqueu
 	return w.queue.Ack(ctx, message.ID)
 }
 
-// Run blocks on Redis for new document jobs and starts a Redis-only Pending recovery loop.
+// Run 启动文档处理 Worker，监听 Redis 队列中的新任务，并启动 Pending 状态任务的恢复循环。
+// 当 Embedding 未配置时，RAG 索引步骤会被跳过，文档仅完成解析标记为成功。
 func (w *DocumentWorker) Run(ctx context.Context, workerID string, options DocumentWorkerOptions) {
 	options.applyDefaults()
 	if err := w.queue.EnsureGroup(ctx); err != nil {
@@ -198,6 +233,7 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 	}
 }
 
+// runPendingRecovery 定期检查并回收处于 Pending 状态超过指定时间的任务。
 func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string, options DocumentWorkerOptions) {
 	ticker := time.NewTicker(options.PendingCheck)
 	defer ticker.Stop()
@@ -222,6 +258,7 @@ func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string
 	}
 }
 
+// applyDefaults 应用默认配置值。
 func (o *DocumentWorkerOptions) applyDefaults() {
 	if o.ReadBlock <= 0 {
 		o.ReadBlock = 5 * time.Second
@@ -237,6 +274,7 @@ func (o *DocumentWorkerOptions) applyDefaults() {
 	}
 }
 
+// waitForContext 等待指定时间或上下文取消，返回是否超时。
 func waitForContext(ctx context.Context, duration time.Duration) bool {
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
