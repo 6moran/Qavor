@@ -19,6 +19,7 @@ type MessageRepository interface {
 	ListByConversationIDWithRole(conversationID uint, role string, offset, limit int) ([]entity.Message, int64, error)
 	CountByConversationID(conversationID uint) (int64, error)
 	GetLatestByConversationID(conversationID uint) (*entity.Message, error)
+	ListBeforeID(conversationID uint, beforeID uint, limit int) ([]entity.Message, error)
 }
 
 // messageRepository 消息仓储实现
@@ -77,7 +78,7 @@ func (r *messageRepository) Delete(id uint) error {
 	return r.db.Delete(&entity.Message{}, id).Error
 }
 
-// ListByConversationID 根据会话 ID 分页获取消息列表（倒序）
+// ListByConversationID 根据会话 ID 分页获取消息列表（正序：旧->新）
 func (r *messageRepository) ListByConversationID(conversationID uint, offset, limit int) ([]entity.Message, int64, error) {
 	var messages []entity.Message
 	var total int64
@@ -88,7 +89,7 @@ func (r *messageRepository) ListByConversationID(conversationID uint, offset, li
 		return nil, 0, err
 	}
 
-	err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&messages).Error
+	err := query.Order("created_at ASC").Offset(offset).Limit(limit).Find(&messages).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -96,7 +97,7 @@ func (r *messageRepository) ListByConversationID(conversationID uint, offset, li
 	return messages, total, nil
 }
 
-// ListByConversationIDWithRole 根据会话 ID 和角色分页获取消息列表（倒序）
+// ListByConversationIDWithRole 根据会话 ID 和角色分页获取消息列表（正序：旧->新）
 func (r *messageRepository) ListByConversationIDWithRole(conversationID uint, role string, offset, limit int) ([]entity.Message, int64, error) {
 	var messages []entity.Message
 	var total int64
@@ -107,7 +108,7 @@ func (r *messageRepository) ListByConversationIDWithRole(conversationID uint, ro
 		return nil, 0, err
 	}
 
-	err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&messages).Error
+	err := query.Order("created_at ASC").Offset(offset).Limit(limit).Find(&messages).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -133,4 +134,14 @@ func (r *messageRepository) GetLatestByConversationID(conversationID uint) (*ent
 		return nil, err
 	}
 	return &message, nil
+}
+
+// ListBeforeID 根据会话 ID 获取指定 ID 之前的消息（正序）
+func (r *messageRepository) ListBeforeID(conversationID uint, beforeID uint, limit int) ([]entity.Message, error) {
+	var messages []entity.Message
+	err := r.db.Where("conversation_id = ? AND id < ?", conversationID, beforeID).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&messages).Error
+	return messages, err
 }
