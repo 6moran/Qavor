@@ -8,7 +8,7 @@ import (
 	"unicode"
 )
 
-// Parser handles Go-native text formats and delegates binary Office formats.
+// Parser 处理 Go 原生文本格式，并将二进制 Office 格式委托给其他解析器处理。
 type Parser struct {
 	python DocumentParser
 }
