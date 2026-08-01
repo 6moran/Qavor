@@ -75,3 +75,5 @@ frontend/node_modules/
 *.bak
 *.tmp
 *.temp
+
+AGENT.md

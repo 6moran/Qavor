@@ -57,6 +57,7 @@ func Load(configPath string) (*Config, error) {
 	if err := v.Unmarshal(config); err != nil {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
+	config.DocumentQueue.ApplyDefaults()
 
 	err := godotenv.Load(".env")
 	if err != nil {

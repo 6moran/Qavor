@@ -330,12 +330,6 @@ export const mockWorkspaceTree = [
   ]}
 ]
 
-// ==================== 任务 ====================
-export const mockTasks = [
-  { id: 'task-001', name: '数据导入', status: 'completed', progress: 100, created_at: '2024-07-27T10:00:00Z' },
-  { id: 'task-002', name: '索引任务', status: 'running', progress: 65, created_at: '2024-07-27T10:10:00Z' }
-]
-
 // ==================== 模型提供商 ====================
 export const mockModelProviders = [
   { id: 'openai', name: 'OpenAI', type: 'openai', enabled: true },

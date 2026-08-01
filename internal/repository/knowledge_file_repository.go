@@ -87,3 +87,7 @@ func (r *knowledgeFileRepository) ListByKBID(kbID string, offset, limit int, par
 func (r *knowledgeFileRepository) DeleteByKBIDAndFileID(kbID, fileID string) error {
 	return r.db.Where("kb_id = ? AND file_id = ?", kbID, fileID).Delete(&entity.KnowledgeFile{}).Error
 }
+
+func (r *knowledgeFileRepository) UpdateProcessingResult(kbID, fileID, status, markdownFile, errorMessage string) error {
+	return r.db.Model(&entity.KnowledgeFile{}).Where("kb_id = ? AND file_id = ?", kbID, fileID).Updates(map[string]any{"status": status, "markdown_file": markdownFile, "error_message": errorMessage}).Error
+}

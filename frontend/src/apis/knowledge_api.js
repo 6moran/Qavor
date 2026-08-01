@@ -353,6 +353,34 @@ export const documentApi = {
 }
 
 // =============================================================================
+// === 文档异步处理任务分组 ===
+// =============================================================================
+
+export const processingJobApi = {
+  list: async (limit = 100) => {
+    const response = await apiGet(
+      `/api/v1/knowledge/processing-jobs?limit=${encodeURIComponent(limit)}`
+    )
+    return unwrapKnowledgeResponse(response)
+  },
+
+  get: async (jobId) => {
+    const response = await apiGet(
+      `/api/v1/knowledge/processing-jobs/${encodeURIComponent(jobId)}`
+    )
+    return unwrapKnowledgeResponse(response)
+  },
+
+  retry: async (jobId) => {
+    const response = await apiPost(
+      `/api/v1/knowledge/processing-jobs/${encodeURIComponent(jobId)}/retry`,
+      {}
+    )
+    return unwrapKnowledgeResponse(response)
+  }
+}
+
+// =============================================================================
 // === 图谱构建分组 ===
 // =============================================================================
 

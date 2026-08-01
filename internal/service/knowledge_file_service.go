@@ -8,10 +8,12 @@ import (
 	"mime/multipart"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/model/dto/response"
 	"Qavor/internal/model/entity"
+	documentqueue "Qavor/internal/queue"
 	"Qavor/internal/repository"
 	bizerrors "Qavor/pkg/errors"
 	storagepkg "Qavor/pkg/minio"
@@ -24,18 +26,20 @@ import (
 type knowledgeFileService struct {
 	baseRepo repository.KnowledgeBaseRepository // 知识库仓库
 	fileRepo repository.KnowledgeFileRepository // 文件仓库
-	storage  ObjectStorage                      // 对象存储
+	jobRepo  repository.DocumentProcessingJobRepository
+	storage  ObjectStorage // 对象存储
+	queue    documentqueue.DocumentQueue
 }
 
 const maxKnowledgeFilePreviewSize = 2 << 20
 
 // NewKnowledgeFileService 创建知识文件服务实例
-func NewKnowledgeFileService(baseRepo repository.KnowledgeBaseRepository, fileRepo repository.KnowledgeFileRepository, storage ObjectStorage) KnowledgeFileService {
-	return &knowledgeFileService{baseRepo: baseRepo, fileRepo: fileRepo, storage: storage}
+func NewKnowledgeFileService(baseRepo repository.KnowledgeBaseRepository, fileRepo repository.KnowledgeFileRepository, jobRepo repository.DocumentProcessingJobRepository, storage ObjectStorage, queue documentqueue.DocumentQueue) KnowledgeFileService {
+	return &knowledgeFileService{baseRepo: baseRepo, fileRepo: fileRepo, jobRepo: jobRepo, storage: storage, queue: queue}
 }
 
 // Upload 上传文件到知识库
-func (s *knowledgeFileService) Upload(kbID, parentID string, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error) {
+func (s *knowledgeFileService) Upload(kbID, parentID string, autoIndex bool, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error) {
 	// 参数校验
 	if file == nil {
 		return nil, bizerrors.New(bizerrors.CodeMissingParam, "缺少上传文件")
@@ -58,6 +62,9 @@ func (s *knowledgeFileService) Upload(kbID, parentID string, file *multipart.Fil
 				return nil, bizerrors.New(bizerrors.CodeResourceNotFound, "父文件夹不存在")
 			}
 		}
+	}
+	if s.jobRepo != nil && s.queue == nil {
+		return nil, bizerrors.New(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用")
 	}
 	// 指定知识库的文件,存储到对应的id下
 	folder := "knowledge/uploads"
@@ -84,12 +91,35 @@ func (s *knowledgeFileService) Upload(kbID, parentID string, file *multipart.Fil
 		Status:           "uploaded", // 初始状态为已上传
 		FileSize:         &fileSize,
 		ContentType:      object.ContentType,
+		ProcessingParams: entity.JSON{"auto_index": autoIndex},
 	}
 	// 保存文件记录到数据库
 	if err := s.fileRepo.Create(knowledgeFile); err != nil {
 		return nil, err
 	}
-	return knowledgeFileResponse(knowledgeFile), nil
+	result := knowledgeFileResponse(knowledgeFile)
+	if !knowledgeFile.IsFolder && s.jobRepo != nil {
+		job := &entity.DocumentProcessingJob{JobID: uuid.NewString(), KBID: kbID, FileID: knowledgeFile.FileID, Status: entity.JobPending, MaxAttempts: 1, AvailableAt: time.Now()}
+		if err := s.jobRepo.Create(job); err != nil {
+			_ = s.fileRepo.DeleteByKBIDAndFileID(kbID, knowledgeFile.FileID)
+			_ = s.storage.Delete(object.Path)
+			return nil, err
+		}
+		result.ProcessingJobID = job.JobID
+		if err := s.queue.Publish(context.Background(), documentqueue.Message{
+			JobID:     job.JobID,
+			KBID:      job.KBID,
+			FileID:    job.FileID,
+			CreatedAt: time.Now(),
+			Schema:    1,
+		}); err != nil {
+			_ = s.jobRepo.MarkFailed(job.JobID, "QUEUE_ENQUEUE_FAILED", "文档处理任务投递失败")
+			_ = s.fileRepo.DeleteByKBIDAndFileID(kbID, knowledgeFile.FileID)
+			_ = s.storage.Delete(object.Path)
+			return nil, bizerrors.NewWithErr(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用", err)
+		}
+	}
+	return result, nil
 }
 
 // Get 获取文件详情
@@ -397,4 +427,12 @@ func (minIOObjectStorage) Delete(path string) error {
 // Read 从 MinIO 打开对象内容流。
 func (minIOObjectStorage) Read(path string) (io.ReadCloser, error) {
 	return storagepkg.Get().Client().GetObject(context.Background(), storagepkg.Get().Config().Bucket, path, minio.GetObjectOptions{})
+}
+
+func (minIOObjectStorage) UploadReader(folder, filename, contentType string, reader io.Reader, size int64) (*UploadedObject, error) {
+	result, err := storagepkg.Get().UploadFromReader(folder, filename, contentType, reader, size)
+	if err != nil {
+		return nil, err
+	}
+	return &UploadedObject{Path: result.RelativePath, URL: result.FullURL, Filename: result.FileName, Size: result.FileSize, ContentType: result.ContentType}, nil
 }

@@ -14,4 +14,5 @@ type KnowledgeFileRepository interface {
 	SearchByKBID(kbID, query string, offset, limit int) ([]*entity.KnowledgeFile, int64, error)
 	// DeleteByKBIDAndFileID 根据知识库ID和文件ID删除
 	DeleteByKBIDAndFileID(kbID, fileID string) error
+	UpdateProcessingResult(kbID, fileID, status, markdownFile, errorMessage string) error
 }

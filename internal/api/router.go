@@ -9,8 +9,11 @@ import (
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
+	processingjob "Qavor/internal/api/v1/processing_job"
+	toolctrl "Qavor/internal/api/v1/tool"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
+	"Qavor/internal/tool"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,11 +23,13 @@ type Router struct {
 	authCtrl          *auth.Controller
 	knowledgeBaseCtrl *knowledgebase.Controller
 	knowledgeFileCtrl *knowledgefile.Controller
+	processingJobCtrl *processingjob.Controller
 	modelCtrl         *model.Controller
 	conversationCtrl  *conversation.Controller
 	messageCtrl       *message.Controller
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
+	toolCtrl          *toolctrl.Controller
 }
 
 // NewRouter 创建路由
@@ -32,21 +37,25 @@ func NewRouter(
 	authService service.AuthService,
 	knowledgeBaseService service.KnowledgeBaseService,
 	knowledgeFileService service.KnowledgeFileService,
+	processingJobService service.ProcessingJobService,
 	modelService service.ModelService,
 	conversationService service.ConversationService,
 	messageService service.MessageService,
 	agentService service.AgentService,
 	chatCtrl *chatctrl.Controller,
+	toolRegistry *tool.Registry,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
 		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService),
 		knowledgeFileCtrl: knowledgefile.NewController(knowledgeFileService),
+		processingJobCtrl: processingjob.NewController(processingJobService),
 		modelCtrl:         model.NewController(modelService),
 		conversationCtrl:  conversation.NewController(conversationService),
 		messageCtrl:       message.NewController(messageService),
 		agentCtrl:         agentctrl.NewController(agentService),
 		chatCtrl:          chatCtrl,
+		toolCtrl:          toolctrl.NewController(toolRegistry),
 	}
 }
 
@@ -74,6 +83,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 		// 知识库路由
 		r.knowledgeBaseCtrl.RegisterRoutes(v1)
 		r.knowledgeFileCtrl.RegisterRoutes(v1)
+		r.processingJobCtrl.RegisterRoutes(v1)
 
 		// 智能体路由
 		r.agentCtrl.RegisterRoutes(v1)
@@ -89,5 +99,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// 消息路由
 		r.messageCtrl.RegisterRoutes(v1)
+
+		// 工具路由
+		r.toolCtrl.RegisterRoutes(v1)
 	}
 }
