@@ -23,11 +23,11 @@ func (p *Parser) Parse(ctx context.Context, input ParseInput) (ParseResult, erro
 		return ParseResult{Markdown: normalizeText(string(input.Content))}, nil
 	case ".docx", ".pdf", ".pptx":
 		if p.python == nil {
-			return ParseResult{}, fmt.Errorf("document parser is not configured")
+			return ParseResult{}, fmt.Errorf("未配置文档解析器")
 		}
 		return p.python.Parse(ctx, input)
 	default:
-		return ParseResult{}, fmt.Errorf("unsupported document type: %s", filepath.Ext(input.Filename))
+		return ParseResult{}, fmt.Errorf("不支持的文件格式: %s", filepath.Ext(input.Filename))
 	}
 }
 
