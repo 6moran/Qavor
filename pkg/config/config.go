@@ -23,9 +23,22 @@ type Config struct {
 
 // SSEConfig SSE 流式服务配置
 type SSEConfig struct {
-	MaxStreamTime     int `mapstructure:"max_stream_time"`     // 单次流式最大时长（秒）
-	HeartbeatInterval int `mapstructure:"heartbeat_interval"` // 心跳间隔（秒）
+	MaxStreamTime      int `mapstructure:"max_stream_time"`      // 单次流式最大时长（秒）
+	HeartbeatInterval  int `mapstructure:"heartbeat_interval"`  // 心跳间隔（秒）
 	MaxConcurrentTasks int `mapstructure:"max_concurrent_tasks"` // 单用户最大并发任务数
+}
+
+// ApplyDefaults 为未显式配置的 SSE 参数设置默认值
+func (c *SSEConfig) ApplyDefaults() {
+	if c.MaxStreamTime <= 0 {
+		c.MaxStreamTime = 300 // 5分钟
+	}
+	if c.HeartbeatInterval <= 0 {
+		c.HeartbeatInterval = 15 // 15秒
+	}
+	if c.MaxConcurrentTasks <= 0 {
+		c.MaxConcurrentTasks = 5 // 5个并发任务
+	}
 }
 
 // MCPConfig MCP 配置

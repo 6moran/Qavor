@@ -270,8 +270,8 @@ func (a *App) initDependencies() {
 	}
 	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, logger.GetLogger())
 
-	// 创建 SSE Service
-	sseConfig := sse.DefaultConfig()
+	// 创建 SSE Service（从配置文件读取）
+	sseConfig := sse.NewSSEConfig(&a.cfg.SSE)
 	llmFactory := llm.NewClient
 	sseSvc := service.NewSSEService(contextMgr, llmFactory, sseConfig, logger.GetLogger())
 
