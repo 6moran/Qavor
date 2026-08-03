@@ -69,7 +69,7 @@ func (ctrl *Controller) Chat(c *gin.Context) {
 	}
 
 	// 创建 agent
-	a, err := ctrl.agentMgr.Create(c.Request.Context(), cfg, llm)
+	a, err := ctrl.agentMgr.Create(c.Request.Context(), cfg, llm, req.Message)
 	if err != nil {
 		response.BizError(c, err)
 		return

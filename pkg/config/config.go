@@ -18,6 +18,8 @@ type Config struct {
 	Email         EmailConfig         `mapstructure:"email"`
 	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
 	RAG           RAGConfig           `mapstructure:"rag"`
+	MCP           MCPConfig           `mapstructure:"mcp"`
+	SSE           SSEConfig           `mapstructure:"sse"` // SSE 流式服务配置
 }
 
 // RAGConfig RAG 功能配置。第一版仅支持文档索引和问答同步接口。
@@ -106,6 +108,44 @@ type RerankerConfig struct {
 	BaseURL        string `mapstructure:"base_url"`
 	APIKey         string `mapstructure:"api_key"`
 	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
+	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
+	MCP           MCPConfig           `mapstructure:"mcp"`
+	SSE           SSEConfig           `mapstructure:"sse"` // SSE 流式服务配置
+}
+
+// SSEConfig SSE 流式服务配置
+type SSEConfig struct {
+	MaxStreamTime      int `mapstructure:"max_stream_time"`      // 单次流式最大时长（秒）
+	HeartbeatInterval  int `mapstructure:"heartbeat_interval"`  // 心跳间隔（秒）
+	MaxConcurrentTasks int `mapstructure:"max_concurrent_tasks"` // 单用户最大并发任务数
+}
+
+// ApplyDefaults 为未显式配置的 SSE 参数设置默认值
+func (c *SSEConfig) ApplyDefaults() {
+	if c.MaxStreamTime <= 0 {
+		c.MaxStreamTime = 300 // 5分钟
+	}
+	if c.HeartbeatInterval <= 0 {
+		c.HeartbeatInterval = 15 // 15秒
+	}
+	if c.MaxConcurrentTasks <= 0 {
+		c.MaxConcurrentTasks = 5 // 5个并发任务
+	}
+}
+
+// MCPConfig MCP 配置
+type MCPConfig struct {
+	ToolRetrieval MCPToolRetrievalConfig `mapstructure:"tool_retrieval"`
+}
+
+// MCPToolRetrievalConfig MCP 工具向量检索配置
+type MCPToolRetrievalConfig struct {
+	Enabled           bool         `mapstructure:"enabled"`
+	Threshold         int          `mapstructure:"threshold"`
+	TopK              int          `mapstructure:"top_k"`
+	EmbeddingProvider string       `mapstructure:"embedding_provider"`
+	EmbeddingModel    string       `mapstructure:"embedding_model"`
+	Ollama            OllamaConfig `mapstructure:"ollama"` // Ollama 配置（可选）
 }
 
 // OllamaConfig Ollama 配置

@@ -1,6 +1,30 @@
 package app
 
 import (
+	agentpkg "Qavor/internal/agent"
+	"Qavor/internal/api"
+	chatctrl "Qavor/internal/api/v1/chat"
+	ragctrl "Qavor/internal/api/v1/rag"
+	ssectrl "Qavor/internal/api/v1/sse"
+	contextmgr "Qavor/internal/context"
+	"Qavor/internal/ingestion"
+	"Qavor/internal/llm"
+	"Qavor/internal/mcp"
+	"Qavor/internal/model/entity"
+	documentqueue "Qavor/internal/queue"
+	"Qavor/internal/rag"
+	"Qavor/internal/repository"
+	"Qavor/internal/service"
+	"Qavor/internal/sse"
+	"Qavor/internal/store"
+	"Qavor/internal/worker"
+	"Qavor/internal/tool"
+	"Qavor/internal/tool/builtin"
+	"Qavor/internal/worker"
+	"Qavor/pkg/config"
+	"Qavor/pkg/database"
+	"Qavor/pkg/logger"
+	"Qavor/pkg/minio"
 	"context"
 	"fmt"
 	"net/http"
@@ -8,24 +32,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	agentpkg "Qavor/internal/agent"
-	"Qavor/internal/api"
-	chatctrl "Qavor/internal/api/v1/chat"
-	ragctrl "Qavor/internal/api/v1/rag"
-	"Qavor/internal/ingestion"
-	"Qavor/internal/mcp"
-	"Qavor/internal/model/entity"
-	documentqueue "Qavor/internal/queue"
-	"Qavor/internal/rag"
-	"Qavor/internal/repository"
-	"Qavor/internal/service"
-	"Qavor/internal/store"
-	"Qavor/internal/worker"
-	"Qavor/pkg/config"
-	"Qavor/pkg/database"
-	"Qavor/pkg/logger"
-	"Qavor/pkg/minio"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -268,16 +274,40 @@ func (a *App) initDependencies() {
 	mcpConfigs, _ := fileStore.GetAll()
 	mcpManager.StartAll(mcpConfigs)
 
+	// 创建 ToolVectorizer（预留，embedder 为 nil 时不启用向量检索）
+	vectorizer := mcp.NewToolVectorizer(mcpManager, nil)
+
+	// 创建 ToolRegistry
+	toolRegistry := tool.NewDefaultRegistry()
+	toolProvider := builtin.NewBuiltinToolProvider()
+	toolRegistry.RegisterFromProvider(toolProvider)
+
 	// 创建 AgentManager
-	agentMgr := agentpkg.NewAgentManager(mcpManager)
+	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry)
 
 	// 创建 Chat Controller
 	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc)
 	conversationSvc := service.NewConversationService(conversationRepo)
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
+	// 创建 Context Manager
+	contextConfig := &contextmgr.ContextConfig{
+		MaxTokens:     4096,
+		ReserveTokens: 1024,
+		SystemPrompt:  "You are a helpful assistant.",
+	}
+	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, logger.GetLogger())
+
+	// 创建 SSE Service（从配置文件读取）
+	sseConfig := sse.NewSSEConfig(&a.cfg.SSE)
+	llmFactory := llm.NewClient
+	sseSvc := service.NewSSEService(contextMgr, llmFactory, sseConfig, logger.GetLogger())
+
+	// 创建 SSE API Controller (HTTP 处理)
+	sseAPICtrl := ssectrl.NewController(sseSvc, sseConfig, logger.GetLogger())
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc,processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl, toolRegistry, sseAPICtrl)
 }
 
 // initRouter 初始化路由

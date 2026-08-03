@@ -50,14 +50,14 @@ func NewSSEService(
 	logger *zap.Logger,
 ) *SSEServiceImpl {
 	return &SSEServiceImpl{
-		contextMgr:        contextMgr,
-		llmFactory:        llmFactory,
-		config:            config,
-		logger:            logger,
-		heartbeat:         sse.NewHeartbeatManager(config.HeartbeatInterval, logger),
-		activeTasks:       make(map[string]*SSETaskInfo),
+		contextMgr:       contextMgr,
+		llmFactory:       llmFactory,
+		config:           config,
+		logger:           logger,
+		heartbeat:        sse.NewHeartbeatManager(config.HeartbeatInterval, logger),
+		activeTasks:      make(map[string]*SSETaskInfo),
 		conversationTasks: make(map[uint]string),
-		userTaskCount:     make(map[uint]int),
+		userTaskCount:    make(map[uint]int),
 	}
 }
 

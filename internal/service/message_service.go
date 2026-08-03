@@ -164,8 +164,7 @@ func (s *messageService) DeleteMessage(id, conversationID uint) error {
 	return s.messageRepo.Delete(id)
 }
 
-// ListMessages 获取消息列表
-// 数据库查询倒序（最新在前），内存 Reverse 后返回正序（旧->新）
+// ListMessages 获取消息列表（正序：旧->新）
 func (s *messageService) ListMessages(conversationID uint, req *request.MessageListRequest) (*dto.MessageListResponse, error) {
 	page := req.Page
 	if page < 1 {
@@ -182,7 +181,6 @@ func (s *messageService) ListMessages(conversationID uint, req *request.MessageL
 	var total int64
 	var err error
 
-	// 数据库查询：按 created_at DESC 获取最新消息
 	if req.Role != "" {
 		messages, total, err = s.messageRepo.ListByConversationIDWithRole(conversationID, req.Role, offset, pageSize)
 	} else {
@@ -191,11 +189,6 @@ func (s *messageService) ListMessages(conversationID uint, req *request.MessageL
 
 	if err != nil {
 		return nil, err
-	}
-
-	// 内存 Reverse：将倒序结果翻转为正序（旧->新）
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
 	}
 
 	items := make([]dto.MessageResponse, 0, len(messages))

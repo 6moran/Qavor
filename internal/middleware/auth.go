@@ -28,6 +28,27 @@ func GetTokenFromHeader(c *gin.Context) string {
 	return parts[1]
 }
 
+// GetUsername 从 gin.Context 获取用户名
+// 由 Auth 中间件在解析 Token 后写入
+func GetUsername(c *gin.Context) string {
+	if v, ok := c.Get("username"); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// GetUserID 从 gin.Context 获取用户 ID
+func GetUserID(c *gin.Context) uint {
+	if v, ok := c.Get("user_id"); ok {
+		if id, ok := v.(uint); ok {
+			return id
+		}
+	}
+	return 0
+}
+
 // Auth JWT 认证中间件
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {

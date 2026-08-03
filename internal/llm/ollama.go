@@ -2,6 +2,9 @@ package llm
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"sync"
 	"time"
 
 	einoOllama "github.com/cloudwego/eino-ext/components/model/ollama"
@@ -14,27 +17,59 @@ type ollamaClient struct {
 	model model.BaseChatModel
 }
 
+// ollamaClientCache Ollama 客户端缓存
+// key 格式: "modelName:baseURL"
+var (
+	ollamaClientCache sync.Map
+)
+
+// ollamaCacheKey 生成缓存 key
+func ollamaCacheKey(modelName, baseURL string) string {
+	return modelName + ":" + baseURL
+}
+
 // newOllamaClient 创建 Ollama 客户端
-func newOllamaClient(ctx context.Context, modelName, baseURL string, timeout int) (*ollamaClient, error) {
+// 同一 model + baseURL 组合会复用已有的客户端
+func newOllamaClient(ctx context.Context, provider, modelName, apiKey, baseURL string, timeout int) (Client, error) {
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}
 
-	duration := time.Duration(timeout) * time.Millisecond
-	if duration == 0 {
-		duration = 60 * time.Second
+	// 检查缓存，命中则直接返回
+	key := ollamaCacheKey(modelName, baseURL)
+	if cached, ok := ollamaClientCache.Load(key); ok {
+		return cached.(Client), nil
 	}
 
+	// 缓存未命中，创建新客户端
+	duration := time.Duration(timeout) * time.Millisecond
+	if duration == 0 {
+		duration = 120 * time.Second // Ollama 本地推理可能较慢
+	}
+
+	// 在 ChatModelConfig 内部直接配置 HTTP 客户端连接池
 	m, err := einoOllama.NewChatModel(ctx, &einoOllama.ChatModelConfig{
 		Model:   modelName,
 		BaseURL: baseURL,
-		Timeout: duration,
+		HTTPClient: &http.Client{
+			Timeout: duration,
+			Transport: &http.Transport{
+				MaxIdleConns:        10,
+				MaxIdleConnsPerHost: 5,
+				MaxConnsPerHost:     10,
+				IdleConnTimeout:     90 * time.Second,
+			},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create ollama client: %w", err)
 	}
 
-	return &ollamaClient{model: m}, nil
+	client := &ollamaClient{model: m}
+
+	// 存入缓存
+	actual, _ := ollamaClientCache.LoadOrStore(key, client)
+	return actual.(Client), nil
 }
 
 // Generate 同步生成回复

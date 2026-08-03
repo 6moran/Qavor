@@ -98,6 +98,15 @@ email:
   from: ""                          # 发件人邮箱（通常与 account 相同）
   from_name: "Qavor"                # 发件人名称
 
+# MCP 配置
+mcp:
+  tool_retrieval:
+    enabled: false                  # 是否开启 MCP 工具向量检索
+    threshold: 20                   # 工具数 ≤ 此值时全量注入，超过才启用检索
+    top_k: 10                       # 每次检索选择的工具数量
+    embedding_provider: ""          # embedding 供应商 provider_id（如 openai）
+    embedding_model: ""             # embedding 模型名（如 text-embedding-3-small）
+
 # LLM 配置（统一接口，通过 provider 切换不同厂商）
 llm:
   provider: "openai"                          # 厂商类型：openai | deepseek | moonshot | ollama

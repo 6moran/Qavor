@@ -4,10 +4,11 @@ import (
 	"context"
 
 	"Qavor/internal/mcp"
+	"Qavor/internal/tool"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/components/tool"
+	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 )
@@ -20,10 +21,24 @@ type QavorAgent struct {
 }
 
 // NewQavorAgent 创建智能体
-func NewQavorAgent(ctx context.Context, cfg *AgentConfig, llm model.ToolCallingChatModel, mcpManager *mcp.MCPManager) (*QavorAgent, error) {
-	// 获取并过滤 MCP 工具
-	allTools := mcpManager.GetTools()
-	tools := filterTools(ctx, allTools, cfg)
+func NewQavorAgent(ctx context.Context, cfg *AgentConfig, llm model.ToolCallingChatModel, mcpManager *mcp.MCPManager, toolRegistry *tool.Registry, query string, vectorizer *mcp.ToolVectorizer) (*QavorAgent, error) {
+	// 获取 MCP 工具
+	mcpTools := mcpManager.GetTools()
+
+	// 获取内置工具（根据白名单过滤）
+	var builtinTools []einotool.BaseTool
+	if len(cfg.Tools) > 0 {
+		builtinTools = toolRegistry.ToEinoToolsByNames(cfg.Tools)
+	} else {
+		builtinTools = toolRegistry.ToEinoTools()
+	}
+
+	// 合并工具：内置工具 + MCP 工具
+	allTools := append(builtinTools, mcpTools...)
+
+	// 过滤工具（静态过滤 + 向量检索）
+	// 注意：内置工具不参与向量检索
+	tools := filterTools(ctx, allTools, cfg, query, vectorizer)
 
 	// 创建 adk Agent
 	agentConfig := &adk.ChatModelAgentConfig{
@@ -113,23 +128,19 @@ func (a *QavorAgent) GetConfig() *AgentConfig {
 	return a.config
 }
 
-// filterTools 根据配置过滤工具
-func filterTools(ctx context.Context, allTools []tool.BaseTool, cfg *AgentConfig) []tool.BaseTool {
-	if len(cfg.Tools) == 0 && len(cfg.DisabledTools) == 0 {
-		return allTools
-	}
-
+// filterTools 过滤工具：静态过滤（白名单/黑名单）+ 向量检索
+func filterTools(ctx context.Context, allTools []einotool.BaseTool, cfg *AgentConfig, query string, vectorizer *mcp.ToolVectorizer) []einotool.BaseTool {
+	// 1. 静态过滤（白名单/黑名单）
 	disabledSet := make(map[string]bool)
 	for _, name := range cfg.DisabledTools {
 		disabledSet[name] = true
 	}
-
 	enabledSet := make(map[string]bool)
 	for _, name := range cfg.Tools {
 		enabledSet[name] = true
 	}
 
-	var result []tool.BaseTool
+	var staticFiltered []einotool.BaseTool
 	for _, t := range allTools {
 		info, err := t.Info(ctx)
 		if err != nil {
@@ -142,7 +153,30 @@ func filterTools(ctx context.Context, allTools []tool.BaseTool, cfg *AgentConfig
 		if len(enabledSet) > 0 && !enabledSet[name] {
 			continue
 		}
-		result = append(result, t)
+		staticFiltered = append(staticFiltered, t)
 	}
-	return result
+
+	// 2. 向量检索（如果启用且工具数超过阈值）
+	if vectorizer != nil && cfg.ToolRetrievalEnabled && len(staticFiltered) > cfg.ToolRetrievalThreshold && query != "" {
+		names := vectorizer.SelectTools(ctx, query, cfg.ToolRetrievalTopK)
+		if names != nil {
+			nameSet := make(map[string]bool, len(names))
+			for _, n := range names {
+				nameSet[n] = true
+			}
+			var result []einotool.BaseTool
+			for _, t := range staticFiltered {
+				info, err := t.Info(ctx)
+				if err != nil {
+					continue
+				}
+				if nameSet[info.Name] {
+					result = append(result, t)
+				}
+			}
+			return result
+		}
+	}
+
+	return staticFiltered
 }

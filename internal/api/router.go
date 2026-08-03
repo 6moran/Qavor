@@ -11,8 +11,11 @@ import (
 	"Qavor/internal/api/v1/model"
 	processingjob "Qavor/internal/api/v1/processing_job"
 	ragctrl "Qavor/internal/api/v1/rag"
+	ssectrl "Qavor/internal/api/v1/sse"
+	toolctrl "Qavor/internal/api/v1/tool"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
+	"Qavor/internal/tool"
 
 	"github.com/gin-gonic/gin"
 )
@@ -29,6 +32,8 @@ type Router struct {
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
 	ragCtrl           *ragctrl.Controller
+	toolCtrl          *toolctrl.Controller
+	sseCtrl           *ssectrl.Controller
 }
 
 // NewRouter 创建路由
@@ -43,6 +48,8 @@ func NewRouter(
 	agentService service.AgentService,
 	chatCtrl *chatctrl.Controller,
 	ragCtrl *ragctrl.Controller,
+	toolRegistry *tool.Registry,
+	sseCtrl *ssectrl.Controller,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -55,6 +62,8 @@ func NewRouter(
 		agentCtrl:         agentctrl.NewController(agentService),
 		chatCtrl:          chatCtrl,
 		ragCtrl:           ragCtrl,
+		toolCtrl:          toolctrl.NewController(toolRegistry),
+		sseCtrl:           sseCtrl,
 	}
 }
 
@@ -103,5 +112,11 @@ func (r *Router) Setup(engine *gin.Engine) {
 		if r.ragCtrl != nil {
 			r.ragCtrl.RegisterRoutes(v1)
 		}
+
+		// 工具路由
+		r.toolCtrl.RegisterRoutes(v1)
+
+		// SSE 流式服务路由
+		ssectrl.RegisterRoutes(v1, r.sseCtrl)
 	}
 }

@@ -14,9 +14,9 @@ import (
 
 // Controller SSE 控制器
 type Controller struct {
-	sseSvc service.SSEService
-	config *sse.SSEConfig
-	logger *zap.Logger
+	sseSvc  service.SSEService
+	config  *sse.SSEConfig
+	logger  *zap.Logger
 }
 
 // NewController 创建 SSE 控制器
