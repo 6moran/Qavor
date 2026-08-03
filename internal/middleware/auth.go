@@ -28,17 +28,6 @@ func GetTokenFromHeader(c *gin.Context) string {
 	return parts[1]
 }
 
-// GetUsername 从 gin.Context 获取用户名
-// 由 Auth 中间件在解析 Token 后写入
-func GetUsername(c *gin.Context) string {
-	if v, ok := c.Get("username"); ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
 // GetUserID 从 gin.Context 获取用户 ID
 func GetUserID(c *gin.Context) uint {
 	if v, ok := c.Get("user_id"); ok {
@@ -87,43 +76,4 @@ func Auth() gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-// OptionalAuth 可选的 JWT 认证中间件
-func OptionalAuth() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.Next()
-			return
-		}
-
-		token := GetTokenFromHeader(c)
-		if token == "" {
-			c.Next()
-			return
-		}
-
-		claims, err := parseAuthToken(token)
-		if err == nil && claims != nil {
-			if claims.Subject != "" {
-				c.Set("username", claims.Subject)
-			}
-		}
-
-		c.Next()
-	}
-}
-
-// GetUsername 从 gin.Context 获取当前登录用户名。
-func GetUsername(c *gin.Context) string {
-	if c == nil {
-		return ""
-	}
-	v, exists := c.Get("username")
-	if !exists {
-		return ""
-	}
-	name, _ := v.(string)
-	return name
 }

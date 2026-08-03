@@ -1,7 +1,6 @@
 package mcp_server
 
 import (
-	"Qavor/internal/middleware"
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
@@ -23,19 +22,13 @@ func NewController(mcpServerService service.MCPServerService) *Controller {
 
 // Create 创建MCP服务器
 func (ctrl *Controller) Create(c *gin.Context) {
-	username := middleware.GetUsername(c)
-	if username == "" {
-		response.Unauthorized(c, "用户未登录")
-		return
-	}
-
 	var req request.CreateMCPServerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
 	}
 
-	resp, err := ctrl.mcpServerService.CreateMCPServer(username, &req)
+	resp, err := ctrl.mcpServerService.CreateMCPServer(&req)
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -59,12 +52,6 @@ func (ctrl *Controller) Get(c *gin.Context) {
 
 // Update 更新MCP服务器
 func (ctrl *Controller) Update(c *gin.Context) {
-	username := middleware.GetUsername(c)
-	if username == "" {
-		response.Unauthorized(c, "用户未登录")
-		return
-	}
-
 	name := c.Param("name")
 
 	var req request.UpdateMCPServerRequest
@@ -73,7 +60,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 		return
 	}
 
-	resp, err := ctrl.mcpServerService.UpdateMCPServer(name, username, &req)
+	resp, err := ctrl.mcpServerService.UpdateMCPServer(name, &req)
 	if err != nil {
 		response.BizError(c, err)
 		return

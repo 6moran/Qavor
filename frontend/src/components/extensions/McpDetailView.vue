@@ -294,10 +294,6 @@
                     <label>更新时间</label>
                     <span>{{ formatTime(server.updated_at) }}</span>
                   </div>
-                  <div class="info-item">
-                    <label>创建人</label>
-                    <span>{{ server.created_by }}</span>
-                  </div>
                 </div>
               </div>
             </a-tab-pane>
@@ -459,7 +455,7 @@ const editForm = reactive({
 
 const actionLabel = computed(() => {
   if (server.value?.enabled === false) return '添加'
-  return server.value?.created_by === 'system' ? '移除' : '删除'
+  return '删除'
 })
 
 const filteredTools = computed(() => {
@@ -680,10 +676,6 @@ const handleDangerAction = async () => {
   if (!server.value) return
   if (server.value.enabled === false) {
     await handleSetServerEnabled(server.value, true)
-    return
-  }
-  if (server.value.created_by === 'system') {
-    await handleSetServerEnabled(server.value, false)
     return
   }
   confirmDeleteServer(server.value)
