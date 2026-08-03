@@ -17,7 +17,6 @@ import (
 	"Qavor/internal/service"
 	"Qavor/internal/sse"
 	"Qavor/internal/store"
-	"Qavor/internal/worker"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
 	"Qavor/internal/worker"
@@ -307,7 +306,7 @@ func (a *App) initDependencies() {
 	sseAPICtrl := ssectrl.NewController(sseSvc, sseConfig, logger.GetLogger())
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc,processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl, toolRegistry, sseAPICtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl, toolRegistry, sseAPICtrl)
 }
 
 // initRouter 初始化路由
