@@ -5,7 +5,7 @@ import (
 
 	"Qavor/internal/agent"
 	"Qavor/internal/model/dto/request"
-	"Qavor/internal/model/entit
+	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
