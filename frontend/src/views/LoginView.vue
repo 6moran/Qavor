@@ -6,33 +6,24 @@
         <div class="brand-section">
           <div class="brand-header">
             <div class="brand-logo">
-              <!-- Logo 占位，后续替换 -->
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2"/>
-                <path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
+              <img src="/qavor-logo.png" alt="QAVOR Logo" />
             </div>
-            <span class="brand-name">Qavor</span>
+            <span class="brand-name">QAVOR</span>
           </div>
 
           <div class="brand-content">
-            <h1>欢迎使用 Qavor</h1>
+            <h1>欢迎使用 QAVOR</h1>
             <p>你的专属智能助手，随时为你思考、回答与执行。</p>
           </div>
 
-          <div class="brand-illustration">
-            <div class="illustration-placeholder">
-              <div class="main-icon-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2"/>
-                  <path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
+            <div class="brand-illustration">
+              <div class="illustration-placeholder">
+                <div class="main-brand-slogan">连接知识，激发智能</div>
               </div>
             </div>
-          </div>
 
           <div class="brand-footer">
-            <p>© 2025 Qavor · All rights reserved</p>
+            <p>© 2025 QAVOR · All rights reserved</p>
           </div>
         </div>
 
@@ -40,11 +31,7 @@
         <div class="form-section">
           <div class="form-wrapper">
             <div class="form-logo">
-              <!-- Logo 占位，后续替换 -->
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2"/>
-                <path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
+              <img src="/qavor-logo.png" alt="QAVOR Logo" />
             </div>
 
             <h2>登录</h2>
@@ -182,14 +169,15 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #6366f1;
-  border-radius: 10px;
-  color: #fff;
+  border-radius: 50%;
+  overflow: hidden;
 }
 
-.brand-logo svg {
-  width: 24px;
-  height: 24px;
+.brand-logo img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .brand-name {
@@ -231,25 +219,20 @@ const submit = async () => {
   height: 280px;
 }
 
-.main-icon-placeholder {
+.main-brand-slogan {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 150px;
-  height: 150px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-  border-radius: 36px;
-  box-shadow: 0 24px 48px rgba(99, 102, 241, 0.4);
-  color: #fff;
-}
-
-.main-icon-placeholder svg {
-  width: 75px;
-  height: 75px;
+  width: 280px;
+  color: #4f46e5;
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.6;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 10px 30px rgba(99, 102, 241, 0.22);
 }
 
 .brand-footer {
@@ -283,15 +266,16 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-  border-radius: 16px;
-  color: #fff;
+  border-radius: 50%;
+  overflow: hidden;
   margin: 0 auto 24px;
 }
 
-.form-logo svg {
-  width: 36px;
-  height: 36px;
+.form-logo img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 h2 {
