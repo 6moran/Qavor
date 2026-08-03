@@ -13,6 +13,7 @@ import (
 	toolctrl "Qavor/internal/api/v1/tool"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
+	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/tool"
 
 	"github.com/gin-gonic/gin"
@@ -30,6 +31,7 @@ type Router struct {
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
 	toolCtrl          *toolctrl.Controller
+	skillCtrl         *skillapi.Controller
 }
 
 // NewRouter 创建路由
@@ -44,6 +46,7 @@ func NewRouter(
 	agentService service.AgentService,
 	chatCtrl *chatctrl.Controller,
 	toolRegistry *tool.Registry,
+	skillCtrl *skillapi.Controller,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -56,6 +59,7 @@ func NewRouter(
 		agentCtrl:         agentctrl.NewController(agentService),
 		chatCtrl:          chatCtrl,
 		toolCtrl:          toolctrl.NewController(toolRegistry),
+		skillCtrl:         skillCtrl,
 	}
 }
 
@@ -102,5 +106,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// 工具路由
 		r.toolCtrl.RegisterRoutes(v1)
+
+		// Skill 路由
+		r.skillCtrl.RegisterRoutes(v1)
 	}
 }

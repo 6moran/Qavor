@@ -16,8 +16,8 @@ type Config struct {
 	Log           LogConfig           `mapstructure:"log"`
 	CORS          CORSConfig          `mapstructure:"cors"`
 	Email         EmailConfig         `mapstructure:"email"`
-	Ollama   OllamaConfig   `mapstructure:"ollama"` // Ollama 配置（可选）
-	MCP      MCPConfig      `mapstructure:"mcp"`
+	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
+	MCP           MCPConfig           `mapstructure:"mcp"`
 }
 
 // MCPConfig MCP 配置
@@ -99,10 +99,11 @@ func (c *Config) ValidateAuth() error {
 
 // AppConfig 应用配置
 type AppConfig struct {
-	Name    string `mapstructure:"name"`
-	Version string `mapstructure:"version"`
-	Mode    string `mapstructure:"mode"` // debug, release, test
-	Port    int    `mapstructure:"port"`
+	Name      string `mapstructure:"name"`
+	Version   string `mapstructure:"version"`
+	Mode      string `mapstructure:"mode"` // debug, release, test
+	Port      int    `mapstructure:"port"`
+	SkillsDir string `mapstructure:"skills_dir"` // Skill 文件目录
 }
 
 // DatabaseConfig 数据库配置

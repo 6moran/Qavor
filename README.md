@@ -221,3 +221,51 @@ make help         # 显示帮助
 - ✅ 优雅关闭（Graceful Shutdown）
 - ✅ CORS 支持
 - ✅ 中间件系统（Logger/Recovery/CORS/Auth）
+- ✅ Skill 系统（渐进式展示 + 动态激活）
+
+## Skill 系统
+
+### 功能特性
+
+- 基于eino的渐进式展示（Progressive Disclosure）
+- 动态激活和工具门控
+- 依赖校验和循环依赖检测
+- 版本管理和回滚
+- 导入导出功能
+
+### 使用方法
+
+1. 创建skill目录：`skills/my-skill/`
+2. 创建SKILL.md文件
+3. 通过API或文件系统添加skill
+4. Agent创建时选择skill
+5. 运行时自动激活和使用
+
+### SKILL.md 格式
+
+```markdown
+---
+name: 知识库检索
+description: 检索知识库文档，支持语义搜索和关键词匹配
+tool_dependencies:
+  - list_kbs
+  - query_kb
+mcp_dependencies: []
+skill_dependencies: []
+version: "1.0.0"
+author: "Qavor Team"
+---
+
+你是一个知识库检索专家。当用户需要查找信息时...
+```
+
+### API 接口
+
+- `GET /api/v1/system/skills` - 获取skill列表
+- `POST /api/v1/system/skills` - 创建skill
+- `PUT /api/v1/system/skills/:slug` - 更新skill
+- `DELETE /api/v1/system/skills/:slug` - 删除skill
+- `POST /api/v1/system/skills/batch` - 批量创建
+- `DELETE /api/v1/system/skills/batch` - 批量删除
+- `POST /api/v1/system/skills/import` - 导入skill
+- `GET /api/v1/system/skills/:slug/export` - 导出skill

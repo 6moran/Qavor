@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"Qavor/internal/model/entity"
+	"Qavor/internal/store"
 
 	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
 	"github.com/cloudwego/eino/components/tool"
@@ -14,209 +16,240 @@ import (
 	"Qavor/pkg/logger"
 )
 
-// MCPManager MCP 管理器
-type MCPManager struct {
-	mu      sync.RWMutex
-	clients map[string]*client.Client
-	tools   []tool.BaseTool
-	status  map[string]string // "pending" | "ready" | "failed"
-}
+// ConnectStatus MCP 服务器连接状态
+type ConnectStatus int
 
-// NewMCPManager 创建 MCP 管理器
-func NewMCPManager() *MCPManager {
-	return &MCPManager{
-		clients: make(map[string]*client.Client),
-		status:  make(map[string]string),
+const (
+	StatusUnknown    ConnectStatus = iota // 从未尝试连接
+	StatusConnecting                      // 正在连接
+	StatusConnected                       // 已连接
+	StatusFailed                          // 连接失败
+)
+
+func (s ConnectStatus) String() string {
+	switch s {
+	case StatusUnknown:
+		return "unknown"
+	case StatusConnecting:
+		return "connecting"
+	case StatusConnected:
+		return "connected"
+	case StatusFailed:
+		return "failed"
+	default:
+		return "unknown"
 	}
 }
 
-// StartAll 启动所有启用的 MCP 服务器
-func (m *MCPManager) StartAll(configs map[string]*entity.MCPServerConfig) {
+// MCPManager MCP 管理器
+// 所有 Agent 共用同一个实例，连接池全局共享
+type MCPManager struct {
+	mu          sync.RWMutex
+	clients     map[string]*client.Client
+	serverTools map[string][]tool.BaseTool // name → 该服务器的工具（nil = 未获取）
+	status      map[string]ConnectStatus
+	fileStore   store.MCPServerFileStore
+}
+
+// NewMCPManager 创建 MCP 管理器（不建立任何连接）
+func NewMCPManager(fileStore store.MCPServerFileStore) *MCPManager {
+	return &MCPManager{
+		clients:     make(map[string]*client.Client),
+		serverTools: make(map[string][]tool.BaseTool),
+		status:      make(map[string]ConnectStatus),
+		fileStore:   fileStore,
+	}
+}
+
+// Preheat 后台异步预热白名单内的 MCP 服务器
+// 只建连接，不获取工具列表
+func (m *MCPManager) Preheat(whitelist []string) {
+	if len(whitelist) == 0 {
+		return
+	}
+
+	configs, err := m.fileStore.GetAll()
+	if err != nil {
+		logger.Warn("MCP 配置加载失败，跳过预热", zap.Error(err))
+		return
+	}
+
+	allowSet := make(map[string]bool, len(whitelist))
+	for _, name := range whitelist {
+		allowSet[name] = true
+	}
+
+	count := 0
 	for name, config := range configs {
-		if !config.Enabled {
+		if !config.Enabled || !allowSet[name] {
 			continue
 		}
-		m.status[name] = "pending"
-		go m.startServer(name, config)
+		m.mu.Lock()
+		m.status[name] = StatusConnecting
+		m.mu.Unlock()
+
+		go m.connect(name, config)
+		count++
+	}
+
+	if count > 0 {
+		logger.Info("MCP 预热已启动", zap.Int("servers", count), zap.Strings("whitelist", whitelist))
 	}
 }
 
-// startServer 启动单个 MCP 服务器
-func (m *MCPManager) startServer(name string, config *entity.MCPServerConfig) {
-	logger.Info("启动 MCP 服务器", zap.String("name", name))
+// EnsureConnected 确保指定的 MCP 服务器已连接
+// 已连接 → 跳过；未连接 → 懒加载；预热失败 → 重试
+func (m *MCPManager) EnsureConnected(names []string) {
+	for _, name := range names {
+		m.mu.RLock()
+		s := m.status[name]
+		m.mu.RUnlock()
 
-	ctx := context.Background()
+		if s == StatusConnected {
+			continue
+		}
 
-	// 创建 MCP 客户端
+		config, err := m.fileStore.GetByName(name)
+		if err != nil || config == nil || !config.Enabled {
+			continue
+		}
+
+		if err := m.connect(name, config); err != nil {
+			logger.Warn("MCP 服务器连接失败（懒加载）",
+				zap.String("name", name), zap.Error(err))
+		}
+	}
+}
+
+// connect 连接单个 MCP 服务器（只建连接，不获取工具）
+func (m *MCPManager) connect(name string, config *entity.MCPServerConfig) error {
+	m.mu.RLock()
+	if m.status[name] == StatusConnected {
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
+
+	logger.Info("连接 MCP 服务器", zap.String("name", name))
+
 	var c *client.Client
 	var err error
 
 	switch config.Transport {
 	case "stdio":
 		if config.Command == "" {
-			logger.Error("stdio 模式需要 command 参数", zap.String("name", name))
-			m.mu.Lock()
-			m.status[name] = "failed"
-			m.mu.Unlock()
-			return
+			err = fmt.Errorf("stdio 模式需要 command 参数")
+			break
 		}
-
-		// 构建环境变量
 		var env []string
 		for k, v := range config.Env {
 			env = append(env, k+"="+v)
 		}
-
 		c, err = client.NewStdioMCPClient(config.Command, env, config.Args...)
 	case "sse":
 		c, err = client.NewSSEMCPClient(config.URL)
 	case "streamable-http":
 		c, err = client.NewStreamableHttpClient(config.URL)
 	default:
-		logger.Error("不支持的传输类型", zap.String("name", name), zap.String("transport", config.Transport))
-		m.mu.Lock()
-		m.status[name] = "failed"
-		m.mu.Unlock()
-		return
+		err = fmt.Errorf("不支持的传输类型: %s", config.Transport)
 	}
 
 	if err != nil {
-		logger.Error("MCP 客户端创建失败", zap.String("name", name), zap.Error(err))
 		m.mu.Lock()
-		m.status[name] = "failed"
+		m.status[name] = StatusFailed
 		m.mu.Unlock()
-		return
+		return err
 	}
 
-	// 获取工具
-	tools, err := einomcp.GetTools(ctx, &einomcp.Config{
-		Cli: c,
-	})
-	if err != nil {
-		logger.Error("获取 MCP 工具失败", zap.String("name", name), zap.Error(err))
-		m.mu.Lock()
-		m.status[name] = "failed"
-		m.mu.Unlock()
-		return
-	}
-
-	// 注册工具
+	// 只建连接，不获取工具列表
 	m.mu.Lock()
 	m.clients[name] = c
-	m.tools = append(m.tools, tools...)
-	m.status[name] = "ready"
+	m.status[name] = StatusConnected
 	m.mu.Unlock()
 
-	logger.Info("MCP 服务器启动成功", zap.String("name", name), zap.Int("tools", len(tools)))
+	logger.Info("MCP 服务器连接成功", zap.String("name", name))
+	return nil
 }
 
-// StopServer 停止单个 MCP 服务器
-func (m *MCPManager) StopServer(name string) error {
+// GetToolsByServers 获取指定 MCP 服务器的工具
+// 只获取指定服务器的工具，不涉及其他服务器
+func (m *MCPManager) GetToolsByServers(names []string) []tool.BaseTool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	c, ok := m.clients[name]
-	if !ok {
-		return nil
-	}
-
-	// 关闭连接
-	delete(m.clients, name)
-	delete(m.status, name)
-
-	// 重新构建工具列表
-	m.tools = nil
-	for n, client := range m.clients {
-		if m.status[n] != "ready" {
+	var all []tool.BaseTool
+	for _, name := range names {
+		// 已有缓存，直接用
+		if cached, ok := m.serverTools[name]; ok && cached != nil {
+			all = append(all, cached...)
 			continue
 		}
-		tools, err := einomcp.GetTools(context.Background(), &einomcp.Config{
-			Cli: client,
-		})
+
+		// 未缓存，从客户端获取
+		c, ok := m.clients[name]
+		if !ok || m.status[name] != StatusConnected {
+			continue
+		}
+
+		fetched, err := einomcp.GetTools(context.Background(), &einomcp.Config{Cli: c})
 		if err != nil {
+			logger.Warn("获取 MCP 工具失败", zap.String("name", name), zap.Error(err))
 			continue
 		}
-		m.tools = append(m.tools, tools...)
+		m.serverTools[name] = fetched
+		all = append(all, fetched...)
+		logger.Info("MCP 工具已获取", zap.String("name", name), zap.Int("count", len(fetched)))
 	}
 
-	return c.Close()
+	return all
 }
 
-// GetTools 获取所有工具
+// GetTools 获取所有已连接服务器的工具（兼容旧接口）
 func (m *MCPManager) GetTools() []tool.BaseTool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	result := make([]tool.BaseTool, len(m.tools))
-	copy(result, m.tools)
-	return result
+	for name, c := range m.clients {
+		if m.status[name] == StatusConnected && m.serverTools[name] == nil {
+			fetched, err := einomcp.GetTools(context.Background(), &einomcp.Config{Cli: c})
+			if err != nil {
+				logger.Warn("获取 MCP 工具失败", zap.String("name", name), zap.Error(err))
+				continue
+			}
+			m.serverTools[name] = fetched
+		}
+	}
+
+	var all []tool.BaseTool
+	for _, tools := range m.serverTools {
+		all = append(all, tools...)
+	}
+	return all
 }
 
-// GetStatus 获取服务器状态
-func (m *MCPManager) GetStatus(name string) string {
+// GetStatus 获取指定服务器的连接状态
+func (m *MCPManager) GetStatus(name string) ConnectStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	return m.status[name]
 }
 
-// GetAllStatus 获取所有状态
+// GetAllStatus 获取所有服务器的连接状态
 func (m *MCPManager) GetAllStatus() map[string]string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	result := make(map[string]string, len(m.status))
 	for k, v := range m.status {
-		result[k] = v
+		result[k] = v.String()
 	}
 	return result
 }
 
-// Refresh 刷新配置
-func (m *MCPManager) Refresh(configs map[string]*entity.MCPServerConfig) {
-	// 停止已删除或禁用的服务器
+// Has 检查 MCP 服务器是否存在
+func (m *MCPManager) Has(name string) bool {
 	m.mu.RLock()
-	currentServers := make(map[string]bool)
-	for name := range m.clients {
-		currentServers[name] = true
-	}
-	m.mu.RUnlock()
-
-	// 停止不再需要的服务器
-	for name := range currentServers {
-		config, ok := configs[name]
-		if !ok || !config.Enabled {
-			m.StopServer(name)
-		}
-	}
-
-	// 启动新的服务器
-	for name, config := range configs {
-		if !config.Enabled {
-			continue
-		}
-
-		m.mu.RLock()
-		_, exists := m.clients[name]
-		m.mu.RUnlock()
-
-		if !exists {
-			m.status[name] = "pending"
-			go m.startServer(name, config)
-		}
-	}
-}
-
-// Close 关闭所有连接
-func (m *MCPManager) Close() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for name, c := range m.clients {
-		c.Close()
-		delete(m.clients, name)
-	}
-
-	m.tools = nil
-	m.status = make(map[string]string)
+	defer m.mu.RUnlock()
+	_, exists := m.status[name]
+	return exists
 }

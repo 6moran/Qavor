@@ -10,6 +10,8 @@ import (
 	documentqueue "Qavor/internal/queue"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
+	"Qavor/internal/skill"
+	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
@@ -19,6 +21,7 @@ import (
 	"Qavor/pkg/logger"
 	"Qavor/pkg/minio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -233,14 +236,16 @@ func (a *App) initDependencies() {
 	}
 
 	// 初始化 MCPManager
-	mcpManager := mcp.NewMCPManager()
 	fileStore, err := store.NewMCPServerFileStore(".")
 	if err != nil {
 		logger.Warn("MCP 配置文件加载失败", zap.Error(err))
 		fileStore = store.NewEmptyMCPServerFileStore()
 	}
-	mcpConfigs, _ := fileStore.GetAll()
-	mcpManager.StartAll(mcpConfigs)
+	mcpManager := mcp.NewMCPManager(fileStore)
+
+	// 收集预热白名单：从所有 Agent 配置中提取 MCP server name
+	whitelist := a.buildMCPWhitelist(agentRepo)
+	go mcpManager.Preheat(whitelist)
 
 	// 创建 ToolVectorizer（预留，embedder 为 nil 时不启用向量检索）
 	vectorizer := mcp.NewToolVectorizer(mcpManager, nil)
@@ -250,16 +255,31 @@ func (a *App) initDependencies() {
 	toolProvider := builtin.NewBuiltinToolProvider()
 	toolRegistry.RegisterFromProvider(toolProvider)
 
-	// 创建 AgentManager
-	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry)
+	// 初始化 Skill 相关组件
+	skillsDir := "skills"
+	if a.cfg.App.SkillsDir != "" {
+		skillsDir = a.cfg.App.SkillsDir
+	}
+	skillLoader := skill.NewLoader(skillsDir)
+	skillResolver := skill.NewResolver(skillLoader, toolRegistry, mcpManager)
+	activation := skill.NewActivationState()
+	skillsMiddleware := skill.NewSkillsMiddleware(skillLoader, skillResolver, activation)
+	skillRepo := skill.NewSkillRepository(a.postgresDB)
+	skillSvc := skill.NewSkillService(skillRepo, skillLoader)
+	skillCtrl := skillapi.NewController(skillSvc, skillLoader)
 
-	// 创建 Chat Controller
-	chatCtrl := chatctrl.NewController(agentMgr, agentSvc, modelSvc)
+	// 创建 AgentManager
+	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, skillResolver, agentSvc)
+
+	// 创建 Service
 	conversationSvc := service.NewConversationService(conversationRepo)
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
+	// 创建 Chat Controller
+	chatCtrl := chatctrl.NewController(agentMgr, modelSvc, messageRepo, conversationSvc, messageSvc)
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, toolRegistry)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, toolRegistry, skillCtrl)
 }
 
 // initRouter 初始化路由
@@ -283,6 +303,37 @@ func (a *App) initServer() {
 		WriteTimeout:   60 * time.Second,
 		MaxHeaderBytes: 1 << 20, // 1 MB
 	}
+}
+
+// buildMCPWhitelist 从所有 Agent 配置中提取需要的 MCP server name
+func (a *App) buildMCPWhitelist(agentRepo repository.AgentRepository) []string {
+	agents, _, err := agentRepo.List(0, 1000, "")
+	if err != nil {
+		logger.Warn("获取 Agent 列表失败，跳过 MCP 预热", zap.Error(err))
+		return nil
+	}
+
+	seen := make(map[string]bool)
+	var whitelist []string
+	for _, ag := range agents {
+		data, err := json.Marshal(ag.ConfigJSON)
+		if err != nil {
+			continue
+		}
+		var cfg struct {
+			MCPServers []string `json:"mcp_servers"`
+		}
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			continue
+		}
+		for _, name := range cfg.MCPServers {
+			if !seen[name] {
+				seen[name] = true
+				whitelist = append(whitelist, name)
+			}
+		}
+	}
+	return whitelist
 }
 
 // Run 运行应用
