@@ -55,11 +55,6 @@ var (
 	ErrInvalidCredentials = NewDefault(CodeInvalidCredentials)
 	ErrInvalidToken       = NewDefault(CodeInvalidToken)
 	ErrTokenExpired       = NewDefault(CodeTokenExpired)
-	ErrInvalidResetCode   = NewDefault(CodeInvalidResetCode)
-	ErrResetCodeExpired   = NewDefault(CodeResetCodeExpired)
-	ErrResetCodeSent      = NewDefault(CodeResetCodeSent)
-	ErrEmailNotExists     = NewDefault(CodeEmailNotExists)
-	ErrResetTokenInvalid  = NewDefault(CodeResetTokenInvalid)
 	ErrInvalidParam       = NewDefault(CodeInvalidParam)
 	ErrMissingParam       = NewDefault(CodeMissingParam)
 

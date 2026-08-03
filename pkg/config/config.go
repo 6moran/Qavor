@@ -15,7 +15,6 @@ type Config struct {
 	JWT           JWTConfig           `mapstructure:"jwt"`
 	Log           LogConfig           `mapstructure:"log"`
 	CORS          CORSConfig          `mapstructure:"cors"`
-	Email         EmailConfig         `mapstructure:"email"`
 	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
 	RAG           RAGConfig           `mapstructure:"rag"`
 	MCP           MCPConfig           `mapstructure:"mcp"`
@@ -104,19 +103,19 @@ type EmbeddingConfig struct {
 
 // RerankerConfig 重排器配置。
 type RerankerConfig struct {
-	Model          string `mapstructure:"model"`
-	BaseURL        string `mapstructure:"base_url"`
-	APIKey         string `mapstructure:"api_key"`
-	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
-	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
-	MCP           MCPConfig           `mapstructure:"mcp"`
-	SSE           SSEConfig           `mapstructure:"sse"` // SSE 流式服务配置
+	Model          string       `mapstructure:"model"`
+	BaseURL        string       `mapstructure:"base_url"`
+	APIKey         string       `mapstructure:"api_key"`
+	TimeoutSeconds int          `mapstructure:"timeout_seconds"`
+	Ollama         OllamaConfig `mapstructure:"ollama"` // Ollama 配置（可选）
+	MCP            MCPConfig    `mapstructure:"mcp"`
+	SSE            SSEConfig    `mapstructure:"sse"` // SSE 流式服务配置
 }
 
 // SSEConfig SSE 流式服务配置
 type SSEConfig struct {
 	MaxStreamTime      int `mapstructure:"max_stream_time"`      // 单次流式最大时长（秒）
-	HeartbeatInterval  int `mapstructure:"heartbeat_interval"`  // 心跳间隔（秒）
+	HeartbeatInterval  int `mapstructure:"heartbeat_interval"`   // 心跳间隔（秒）
 	MaxConcurrentTasks int `mapstructure:"max_concurrent_tasks"` // 单用户最大并发任务数
 }
 
@@ -285,19 +284,4 @@ type CORSConfig struct {
 	ExposeHeaders    []string `mapstructure:"expose_headers"`
 	AllowCredentials bool     `mapstructure:"allow_credentials"`
 	MaxAge           int      `mapstructure:"max_age"`
-}
-
-// EmailConfig 邮件配置
-type EmailConfig struct {
-	SMTP     SMTPConfig `mapstructure:"smtp"`
-	From     string     `mapstructure:"from"`      // 发件人邮箱
-	FromName string     `mapstructure:"from_name"` // 发件人名称
-}
-
-// SMTPConfig SMTP 配置
-type SMTPConfig struct {
-	Host     string `mapstructure:"host"`      // SMTP 服务器地址
-	Port     int    `mapstructure:"port"`      // SMTP 端口
-	Account  string `mapstructure:"account"`   // 邮箱账号
-	AuthCode string `mapstructure:"auth_code"` // 邮箱授权码（非登录密码）
 }

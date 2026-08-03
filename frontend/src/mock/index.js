@@ -167,7 +167,7 @@ export const mockBuiltinSkills = [
 // ==================== 用户 ====================
 export const mockCurrentUser = {
   id: 1, uid: 'user-001', username: 'zhangsan', display_name: '张三',
-  email: 'zhangsan@example.com', role: 'superadmin', avatar: null,
+  role: 'superadmin', avatar: null,
   department_id: null, department_name: null, phone_number: null
 }
 export const mockUsers = [

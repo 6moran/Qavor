@@ -27,14 +27,6 @@ const (
 	CodeInvalidToken       = 1005
 	CodeTokenExpired       = 1006
 
-	// 密码重置相关错误 1007-1012
-	CodeInvalidResetCode  = 1007
-	CodeResetCodeExpired  = 1008
-	CodeResetCodeSent     = 1009
-	CodeEmailNotVerified  = 1010
-	CodeEmailNotExists    = 1011
-	CodeResetTokenInvalid = 1012
-
 	// 参数错误 2xxx
 	CodeInvalidParam     = 2001
 	CodeMissingParam     = 2002
@@ -104,12 +96,6 @@ var codeMessages = map[int]string{
 	CodeUserDisabled:          "用户已被禁用",
 	CodeInvalidToken:          "无效的令牌",
 	CodeTokenExpired:          "令牌已过期",
-	CodeInvalidResetCode:      "验证码错误",
-	CodeResetCodeExpired:      "验证码已过期",
-	CodeResetCodeSent:         "验证码已发送",
-	CodeEmailNotVerified:      "邮箱未验证",
-	CodeEmailNotExists:        "邮箱不存在",
-	CodeResetTokenInvalid:     "重置令牌无效",
 	CodeInvalidParam:          "参数错误",
 	CodeMissingParam:          "缺少必要参数",
 	CodeParamFormatError:      "参数格式错误",
