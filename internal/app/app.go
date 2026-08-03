@@ -15,7 +15,6 @@ import (
 	"Qavor/internal/rag"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
-	"Qavor/internal/sse"
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
@@ -298,12 +297,11 @@ func (a *App) initDependencies() {
 	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, logger.GetLogger())
 
 	// 创建 SSE Service（从配置文件读取）
-	sseConfig := sse.NewSSEConfig(&a.cfg.SSE)
 	llmFactory := llm.NewClient
-	sseSvc := service.NewSSEService(contextMgr, llmFactory, sseConfig, logger.GetLogger())
+	sseSvc := service.NewSSEService(contextMgr, llmFactory, &a.cfg.SSE, logger.GetLogger())
 
 	// 创建 SSE API Controller (HTTP 处理)
-	sseAPICtrl := ssectrl.NewController(sseSvc, sseConfig, logger.GetLogger())
+	sseAPICtrl := ssectrl.NewController(sseSvc, &a.cfg.SSE, logger.GetLogger())
 
 	// 创建 Router
 	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl, toolRegistry, sseAPICtrl)
