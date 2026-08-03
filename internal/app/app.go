@@ -324,7 +324,7 @@ func (a *App) initDependencies() {
 	chatCtrl := chatctrl.NewController(agentMgr, modelSvc, messageRepo, conversationSvc, messageSvc)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl, toolRegistry, sseAPICtrl, skillCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl)
 }
 
 // initRouter 初始化路由
