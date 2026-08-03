@@ -11,9 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// defaultKnowledgeBaseType 是未显式指定 kb_type 时使用的向量存储后端。
-const defaultKnowledgeBaseType = "pgvector"
-
 // knowledgeBaseService 知识库服务实现
 type knowledgeBaseService struct {
 	repo      repository.KnowledgeBaseRepository
@@ -50,7 +47,7 @@ func (s *knowledgeBaseService) List(req *request.KnowledgeBaseListRequest) (*res
 	}
 
 	// 查询知识库列表
-	bases, total, err := s.repo.List((page-1)*pageSize, pageSize, req.Keyword, req.KBType)
+	bases, total, err := s.repo.List((page-1)*pageSize, pageSize, req.Keyword)
 	if err != nil {
 		return nil, err
 	}
@@ -130,10 +127,6 @@ func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository, modelRepo 
 
 // Create 创建知识库
 func (s *knowledgeBaseService) Create(req *request.CreateKnowledgeBaseRequest) (*response.KnowledgeBaseResponse, error) {
-	kbType := req.KBType
-	if kbType == "" {
-		kbType = defaultKnowledgeBaseType
-	}
 	if err := validateKnowledgeBaseModel(s.modelRepo, req.EmbeddingModelID, "embedding"); err != nil {
 		return nil, err
 	}
@@ -145,7 +138,6 @@ func (s *knowledgeBaseService) Create(req *request.CreateKnowledgeBaseRequest) (
 		KBID:               uuid.NewString(), // 生成唯一标识
 		Name:               req.DatabaseName,
 		Description:        req.Description,
-		KBType:             kbType,
 		EmbeddingModelID:   req.EmbeddingModelID,
 		ChatModelID:        req.ChatModelID,
 		EmbeddingModelSpec: req.EmbeddingModelSpec,
@@ -168,7 +160,6 @@ func knowledgeBaseResponse(base *entity.KnowledgeBase) *response.KnowledgeBaseRe
 		KBID:               base.KBID,
 		Name:               base.Name,
 		Description:        base.Description,
-		KBType:             base.KBType,
 		EmbeddingModelID:   base.EmbeddingModelID,
 		ChatModelID:        base.ChatModelID,
 		EmbeddingModelSpec: base.EmbeddingModelSpec,

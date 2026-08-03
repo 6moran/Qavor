@@ -6,7 +6,6 @@ import "Qavor/internal/model/entity"
 type CreateKnowledgeBaseRequest struct {
 	DatabaseName       string           `json:"database_name" binding:"required,max=255"`         // 知识库名称
 	Description        string           `json:"description" binding:"required"`                   // 知识库用途和内容说明
-	KBType             string           `json:"kb_type" binding:"omitempty,max=32"`               // 向量存储后端类型；未传时默认使用 pgvector
 	EmbeddingModelID   uint             `json:"embedding_model_id" binding:"required,min=1"`      // 必须绑定 Embedding 模型
 	ChatModelID        uint             `json:"chat_model_id" binding:"required,min=1"`           // 必须绑定 Chat 模型
 	EmbeddingModelSpec string           `json:"embedding_model_spec" binding:"omitempty,max=512"` // 向量化模型
@@ -31,7 +30,6 @@ type KnowledgeBaseListRequest struct {
 	Page     int    `form:"page" binding:"omitempty,min=1"`              // 页码，从 1 开始
 	PageSize int    `form:"page_size" binding:"omitempty,min=1,max=100"` // 每页记录数
 	Keyword  string `form:"keyword" binding:"omitempty"`                 // 名称或描述的模糊搜索关键词
-	KBType   string `form:"kb_type" binding:"omitempty"`                 // 知识库类型过滤条件
 }
 
 // KnowledgeFileListRequest 知识库文件列表请求

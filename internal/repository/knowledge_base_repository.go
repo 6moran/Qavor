@@ -39,18 +39,13 @@ func (r *knowledgeBaseRepository) FindByKBID(kbID string) (*entity.KnowledgeBase
 }
 
 // List 分页查询知识库列表
-func (r *knowledgeBaseRepository) List(offset, limit int, keyword, kbType string) ([]*entity.KnowledgeBase, int64, error) {
+func (r *knowledgeBaseRepository) List(offset, limit int, keyword string) ([]*entity.KnowledgeBase, int64, error) {
 	// 构建查询条件
 	query := r.db.Model(&entity.KnowledgeBase{})
 	// 关键词搜索（模糊匹配名称和描述）
 	if keyword = strings.TrimSpace(keyword); keyword != "" {
 		query = query.Where("name ILIKE ? OR description ILIKE ?", "%"+keyword+"%", "%"+keyword+"%")
 	}
-	// 按类型过滤
-	if kbType = strings.TrimSpace(kbType); kbType != "" {
-		query = query.Where("kb_type = ?", kbType)
-	}
-
 	// 查询总数
 	var total int64
 	if err := query.Count(&total).Error; err != nil {

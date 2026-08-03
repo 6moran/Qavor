@@ -9,7 +9,7 @@ type KnowledgeBaseRepository interface {
 	// FindByKBID 根据知识库ID查询
 	FindByKBID(kbID string) (*entity.KnowledgeBase, error)
 	// List 分页查询知识库列表
-	List(offset, limit int, keyword, kbType string) ([]*entity.KnowledgeBase, int64, error)
+	List(offset, limit int, keyword string) ([]*entity.KnowledgeBase, int64, error)
 	// Update 更新知识库记录
 	Update(base *entity.KnowledgeBase) error
 	// DeleteByKBID 根据知识库ID删除

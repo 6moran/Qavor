@@ -9,7 +9,7 @@ import {
   // MCP
   mockMcpServers, mockMcpTools,
   // 知识库
-  mockDatabases, mockAccessibleDatabases, mockDocuments, mockKnowledgeTypes, mockChunkPresets, mockKnowledgeStats,
+  mockDatabases, mockAccessibleDatabases, mockDocuments, mockChunkPresets, mockKnowledgeStats,
   // 技能
   mockSkills, mockAccessibleSkills, mockBuiltinSkills,
   // 用户
@@ -125,7 +125,6 @@ function getMockData(url, method) {
   if (url.includes('/query') && method === 'POST') return mockResponse({ results: [], answer: '模拟查询结果' })
   if (url.includes('/mindmap')) return mockResponse({ mindmap: { nodes: [], edges: [] } })
   if (url.includes('/graph-build')) return mockResponse({ status: 'idle' })
-  if (url.startsWith('/api/knowledge/types')) return mockResponse({ types: mockKnowledgeTypes })
   if (url.startsWith('/api/knowledge/chunk-presets')) return mockResponse({ presets: mockChunkPresets })
   if (url.startsWith('/api/knowledge/stats')) return mockResponse(mockKnowledgeStats)
   if (url.includes('/evaluation/')) return mockResponse({ datasets: [], runs: [] })

@@ -11,7 +11,6 @@ type KnowledgeBaseResponse struct {
 	KBID               string           `json:"kb_id"`                          // 对外使用的知识库唯一标识
 	Name               string           `json:"name"`                           // 知识库名称
 	Description        string           `json:"description,omitempty"`          // 知识库描述
-	KBType             string           `json:"kb_type"`                        // 知识库类型
 	EmbeddingModelID   uint             `json:"embedding_model_id"`             // 绑定的 Embedding 模型 ID
 	ChatModelID        uint             `json:"chat_model_id"`                  // 绑定的 Chat 模型 ID
 	EmbeddingModelSpec string           `json:"embedding_model_spec,omitempty"` // 向量化模型标识

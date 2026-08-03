@@ -288,9 +288,6 @@ export const mockDocuments = [
     updated_at: '2024-07-26T16:30:00Z'
   }
 ]
-export const mockKnowledgeTypes = [
-  { id: 'document', name: '文档知识库', description: '支持PDF、Word等文档' }
-]
 export const mockChunkPresets = [
   { id: 'default', name: '默认分块', description: '按段落分块', chunk_size: 500 }
 ]

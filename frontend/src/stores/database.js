@@ -114,11 +114,6 @@ export const useDatabaseStore = defineStore('database', () => {
       return false
     }
 
-    if (!formData.kb_type) {
-      message.error('请选择知识库类型')
-      return false
-    }
-
     state.creating = true
     try {
       const data = await databaseApi.createDatabase(formData)
