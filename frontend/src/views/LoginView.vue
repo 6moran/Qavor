@@ -6,33 +6,24 @@
         <div class="brand-section">
           <div class="brand-header">
             <div class="brand-logo">
-              <!-- Logo 占位，后续替换 -->
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2"/>
-                <path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
+              <img src="/qavor-logo.png" alt="QAVOR Logo" />
             </div>
-            <span class="brand-name">Qavor</span>
+            <span class="brand-name">QAVOR</span>
           </div>
 
           <div class="brand-content">
-            <h1>欢迎使用 Qavor</h1>
+            <h1>欢迎使用 QAVOR</h1>
             <p>你的专属智能助手，随时为你思考、回答与执行。</p>
           </div>
 
-          <div class="brand-illustration">
-            <div class="illustration-placeholder">
-              <div class="main-icon-placeholder">
-                <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2"/>
-                  <path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
+            <div class="brand-illustration">
+              <div class="illustration-placeholder">
+                <div class="main-brand-slogan">连接知识，激发智能</div>
               </div>
             </div>
-          </div>
 
           <div class="brand-footer">
-            <p>© 2025 Qavor · All rights reserved</p>
+            <p>© 2025 QAVOR · All rights reserved</p>
           </div>
         </div>
 
@@ -40,11 +31,7 @@
         <div class="form-section">
           <div class="form-wrapper">
             <div class="form-logo">
-              <!-- Logo 占位，后续替换 -->
-              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" stroke-width="2"/>
-                <path d="M8 12h8M12 8v8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-              </svg>
+              <img src="/qavor-logo.png" alt="QAVOR Logo" />
             </div>
 
             <h2>登录</h2>
@@ -143,7 +130,10 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e8edf4;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(147, 197, 253, 0.34), transparent 30%),
+    radial-gradient(circle at 88% 82%, rgba(191, 219, 254, 0.42), transparent 32%),
+    linear-gradient(135deg, #f4f8ff 0%, #e2edfc 100%);
   padding: 40px;
 }
 
@@ -166,8 +156,40 @@ const submit = async () => {
   display: flex;
   flex-direction: column;
   padding: 56px 72px;
-  background: linear-gradient(135deg, #2563b0 0%, #1a4a8a 100%);
+  background:
+    radial-gradient(circle at 76% 18%, rgba(147, 197, 253, 0.92) 0 8%, transparent 25%),
+    radial-gradient(circle at 22% 88%, rgba(96, 165, 250, 0.28), transparent 30%),
+    linear-gradient(145deg, #2563b0 0%, #1d4ed8 56%, #172554 100%);
   position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.brand-section::before,
+.brand-section::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.brand-section::before {
+  width: 360px;
+  height: 360px;
+  right: -190px;
+  top: 120px;
+  border: 1px solid rgba(191, 219, 254, 0.28);
+  box-shadow:
+    0 0 0 32px rgba(191, 219, 254, 0.08),
+    0 0 0 76px rgba(191, 219, 254, 0.05);
+}
+
+.brand-section::after {
+  width: 220px;
+  height: 220px;
+  left: -110px;
+  bottom: -125px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .brand-header {
@@ -182,14 +204,15 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 10px;
-  color: #fff;
+  border-radius: 50%;
+  overflow: hidden;
 }
 
-.brand-logo svg {
-  width: 24px;
-  height: 24px;
+.brand-logo img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .brand-name {
@@ -231,26 +254,50 @@ const submit = async () => {
   height: 280px;
 }
 
-.main-icon-placeholder {
+.illustration-placeholder::before,
+.illustration-placeholder::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.illustration-placeholder::before {
+  width: 170px;
+  height: 170px;
+  left: 54px;
+  top: 54px;
+  border: 1px solid rgba(219, 234, 254, 0.4);
+  box-shadow:
+    0 0 0 18px rgba(219, 234, 254, 0.1),
+    0 0 0 42px rgba(219, 234, 254, 0.06);
+}
+
+.illustration-placeholder::after {
+  width: 12px;
+  height: 12px;
+  right: 22px;
+  top: 28px;
+  background: #bfdbfe;
+  box-shadow:
+    -196px 188px 0 4px rgba(191, 219, 254, 0.68),
+    -72px 226px 0 2px rgba(147, 197, 253, 0.7);
+}
+
+.main-brand-slogan {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 160px;
-  height: 160px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 40px;
-  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
+  width: 280px;
   color: #fff;
-  backdrop-filter: blur(10px);
-}
-
-.main-icon-placeholder svg {
-  width: 80px;
-  height: 80px;
+  font-size: 27px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.6;
+  text-align: center;
+  white-space: nowrap;
+  text-shadow: 0 10px 30px rgba(15, 23, 42, 0.32);
 }
 
 .brand-footer {
@@ -284,15 +331,16 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #3b82d6 0%, #2563b0 100%);
-  border-radius: 18px;
-  color: #fff;
-  margin: 0 auto 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 0 auto 24px;
 }
 
-.form-logo svg {
-  width: 40px;
-  height: 40px;
+.form-logo img {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 h2 {
