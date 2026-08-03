@@ -28,6 +28,16 @@ func GetTokenFromHeader(c *gin.Context) string {
 	return parts[1]
 }
 
+// GetUserID 从 gin.Context 获取用户 ID
+func GetUserID(c *gin.Context) uint {
+	if v, ok := c.Get("user_id"); ok {
+		if id, ok := v.(uint); ok {
+			return id
+		}
+	}
+	return 0
+}
+
 // Auth JWT 认证中间件
 func Auth() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -63,27 +73,6 @@ func Auth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-
-		c.Next()
-	}
-}
-
-// OptionalAuth 可选的 JWT 认证中间件
-func OptionalAuth() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.Next()
-			return
-		}
-
-		token := GetTokenFromHeader(c)
-		if token == "" {
-			c.Next()
-			return
-		}
-
-		_, _ = parseAuthToken(token)
 
 		c.Next()
 	}

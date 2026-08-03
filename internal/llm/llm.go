@@ -17,14 +17,43 @@ type Client interface {
 	Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error)
 }
 
+// ClientFactory 客户端工厂函数类型
+type ClientFactory func(ctx context.Context, provider, model, apiKey, baseURL string, timeout int) (Client, error)
+
+// providerRegistry provider 注册表，存储不同 provider 的工厂函数
+var providerRegistry = map[string]ClientFactory{}
+
+// RegisterProvider 注册 provider 工厂函数
+func RegisterProvider(provider string, factory ClientFactory) {
+	providerRegistry[provider] = factory
+}
+
+// GetProvider 获取 provider 的工厂函数
+func GetProvider(provider string) (ClientFactory, bool) {
+	factory, ok := providerRegistry[provider]
+	return factory, ok
+}
+
+func init() {
+	// 注册所有支持的 provider
+	RegisterProvider("openai", newOpenAIClient)
+	RegisterProvider("deepseek", newOpenAIClient)
+	RegisterProvider("moonshot", newOpenAIClient)
+	RegisterProvider("ollama", newOllamaClient)
+}
+
 // NewClient 根据 provider 类型创建对应的 LLM 客户端
+// 缓存由各 provider 实现内部管理（openai.go / ollama.go）
 func NewClient(ctx context.Context, provider, model, apiKey, baseURL string, timeout int) (Client, error) {
-	switch provider {
-	case "openai", "deepseek", "moonshot", "": // 默认使用 OpenAI
-		return newOpenAIClient(ctx, provider, model, apiKey, baseURL, timeout)
-	case "ollama":
-		return newOllamaClient(ctx, model, baseURL, timeout)
-	default:
+	// 默认使用 openai
+	if provider == "" {
+		provider = "openai"
+	}
+
+	factory, ok := GetProvider(provider)
+	if !ok {
 		return nil, fmt.Errorf("unsupported provider: %s", provider)
 	}
+
+	return factory(ctx, provider, model, apiKey, baseURL, timeout)
 }

@@ -27,14 +27,6 @@ const (
 	CodeInvalidToken       = 1005
 	CodeTokenExpired       = 1006
 
-	// 密码重置相关错误 1007-1012
-	CodeInvalidResetCode  = 1007
-	CodeResetCodeExpired  = 1008
-	CodeResetCodeSent     = 1009
-	CodeEmailNotVerified  = 1010
-	CodeEmailNotExists    = 1011
-	CodeResetTokenInvalid = 1012
-
 	// 参数错误 2xxx
 	CodeInvalidParam     = 2001
 	CodeMissingParam     = 2002
@@ -68,6 +60,21 @@ const (
 	CodeMessageNotFound     = 40011
 	CodeMessageAccessDenied = 40012
 	CodeMessageRoleInvalid  = 40013
+
+	// SSE 流式服务错误 6xxx
+	CodeSSEInvalidRequest      = 6001 // 请求参数无效
+	CodeSSETooManyRequests     = 6002 // 请求过多（并发限制）
+	CodeSSEContextBuildFailed  = 6003 // 上下文构建失败
+	CodeSSELLMInitFailed       = 6004 // LLM初始化失败
+	CodeSSELLMStreamFailed     = 6005 // LLM流式调用失败
+	CodeSSEStreamReadFailed    = 6006 // 流式读取失败
+	CodeSSEPersistFailed       = 6007 // 持久化失败
+	CodeSSETaskNotFound        = 6008 // 任务不存在
+	CodeSSETaskCancelled       = 6009 // 任务已取消
+	CodeSSETimeout             = 6010 // 超时
+	CodeSSEFileTooLarge        = 6011 // 文件大小超限
+	CodeSSEUnsupportedFileType = 6012 // 不支持的文件类型
+	CodeSSEFileProcessFailed   = 6013 // 文件处理失败
 )
 
 // 错误码对应的文本消息
@@ -89,12 +96,6 @@ var codeMessages = map[int]string{
 	CodeUserDisabled:          "用户已被禁用",
 	CodeInvalidToken:          "无效的令牌",
 	CodeTokenExpired:          "令牌已过期",
-	CodeInvalidResetCode:      "验证码错误",
-	CodeResetCodeExpired:      "验证码已过期",
-	CodeResetCodeSent:         "验证码已发送",
-	CodeEmailNotVerified:      "邮箱未验证",
-	CodeEmailNotExists:        "邮箱不存在",
-	CodeResetTokenInvalid:     "重置令牌无效",
 	CodeInvalidParam:          "参数错误",
 	CodeMissingParam:          "缺少必要参数",
 	CodeParamFormatError:      "参数格式错误",
@@ -125,6 +126,21 @@ var codeMessages = map[int]string{
 	CodeMessageNotFound:     "消息不存在",
 	CodeMessageAccessDenied: "无权访问消息",
 	CodeMessageRoleInvalid:  "消息角色无效",
+
+	// SSE 流式服务错误消息
+	CodeSSEInvalidRequest:      "请求参数无效",
+	CodeSSETooManyRequests:     "请求过多，请稍后再试",
+	CodeSSEContextBuildFailed:  "构建上下文失败",
+	CodeSSELLMInitFailed:       "LLM初始化失败",
+	CodeSSELLMStreamFailed:     "LLM流式调用失败",
+	CodeSSEStreamReadFailed:    "读取流式输出失败",
+	CodeSSEPersistFailed:       "持久化失败",
+	CodeSSETaskNotFound:        "任务不存在或已完成",
+	CodeSSETaskCancelled:       "任务已取消",
+	CodeSSETimeout:             "请求超时",
+	CodeSSEFileTooLarge:        "文件大小超过限制",
+	CodeSSEUnsupportedFileType: "不支持的文件类型",
+	CodeSSEFileProcessFailed:   "文件处理失败",
 }
 
 // GetMessage 获取错误码对应的文本消息

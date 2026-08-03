@@ -18,8 +18,6 @@ type MCPServerConfig struct {
 	Icon           string            `json:"icon,omitempty"`
 	Enabled        bool              `json:"enabled"`
 	DisabledTools  []string          `json:"disabledTools,omitempty"`
-	CreatedBy      string            `json:"createdBy"`
-	UpdatedBy      string            `json:"updatedBy"`
 	CreatedAt      time.Time         `json:"createdAt"`
 	UpdatedAt      time.Time         `json:"updatedAt"`
 }

@@ -58,6 +58,8 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 	config.DocumentQueue.ApplyDefaults()
+	config.RAG.ApplyDefaults()
+	config.SSE.ApplyDefaults()
 
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -142,6 +144,22 @@ func Load(configPath string) (*Config, error) {
 	if val := os.Getenv("APP_PORT"); val != "" {
 		config.App.Port = atoiOrDefault(val, config.App.Port)
 	}
+	// RAG 环境变量覆盖
+	if val := os.Getenv("RAG_CHUNK_TOKENS"); val != "" {
+		config.RAG.ChunkTokens = atoiOrDefault(val, config.RAG.ChunkTokens)
+	}
+	if val := os.Getenv("RAG_CHUNK_OVERLAP_TOKENS"); val != "" {
+		config.RAG.ChunkOverlapTokens = atoiOrDefault(val, config.RAG.ChunkOverlapTokens)
+	}
+	if val := os.Getenv("RAG_TOP_K"); val != "" {
+		config.RAG.TopK = atoiOrDefault(val, config.RAG.TopK)
+	}
+	if val := os.Getenv("RAG_REQUEST_TIMEOUT_SECONDS"); val != "" {
+		config.RAG.RequestTimeoutSeconds = atoiOrDefault(val, config.RAG.RequestTimeoutSeconds)
+	}
+	if val := os.Getenv("RAG_EMBEDDING_BATCH_SIZE"); val != "" {
+		config.RAG.Embedding.BatchSize = atoiOrDefault(val, config.RAG.Embedding.BatchSize)
+	}
 
 	globalConfig = config
 	return config, nil
@@ -155,11 +173,15 @@ func Get() *Config {
 	return globalConfig
 }
 
-// MustLoad 加载配置，失败时 panic
-func MustLoad(configPath string) *Config {
-	config, err := Load(configPath)
-	if err != nil {
-		panic(err)
+// ApplyDefaults 为未显式配置的 SSE 参数设置默认值
+func (c *SSEConfig) ApplyDefaults() {
+	if c.MaxStreamTime <= 0 {
+		c.MaxStreamTime = 300 // 5分钟
 	}
-	return config
+	if c.HeartbeatInterval <= 0 {
+		c.HeartbeatInterval = 15 // 15秒
+	}
+	if c.MaxConcurrentTasks <= 0 {
+		c.MaxConcurrentTasks = 5 // 5个并发任务
+	}
 }

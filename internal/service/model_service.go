@@ -12,6 +12,9 @@ import (
 	"Qavor/pkg/crypto"
 	"Qavor/pkg/database/types"
 	"Qavor/pkg/errors"
+
+	einoEmbedding "github.com/cloudwego/eino/components/embedding"
+	einoModel "github.com/cloudwego/eino/components/model"
 )
 
 // ModelService 模型服务接口
@@ -28,6 +31,12 @@ type ModelService interface {
 	ListModels(req *request.ModelListRequest) (*dto.ModelListResponse, error)
 	// GetModelWithDecryptedKey 获取模型（解密 API Key，用于内部使用）
 	GetModelWithDecryptedKey(id uint) (*entity.Model, error)
+	// CreateLLMClient 根据模型 ID 创建 LLM 客户端。
+	CreateLLMClient(ctx context.Context, modelID uint) (llm.Client, error)
+	// ResolveEmbedding 根据模型管理中的 ID 创建原生 Eino Embedder。
+	ResolveEmbedding(ctx context.Context, modelID uint) (einoEmbedding.Embedder, error)
+	// ResolveChatModel 根据模型管理中的 ID 创建原生 Eino ChatModel。
+	ResolveChatModel(ctx context.Context, modelID uint) (einoModel.BaseChatModel, error)
 }
 
 // modelService 模型服务实现
@@ -254,8 +263,43 @@ func (s *modelService) CreateEmbeddingClient(ctx context.Context, modelID uint) 
 	if model.ModelType != "embedding" {
 		return nil, errors.New(errors.CodeInvalidParam, "模型类型不是 embedding")
 	}
+	if !model.Enabled {
+		return nil, errors.New(errors.CodeInvalidParam, "模型未启用")
+	}
 
 	return embedding.NewOpenAIClient(ctx, model.APIKey, model.Name, model.BaseURL, model.Timeout)
+}
+
+// ResolveEmbedding 根据模型管理中的配置创建 Eino Embedding 组件。
+func (s *modelService) ResolveEmbedding(ctx context.Context, modelID uint) (einoEmbedding.Embedder, error) {
+	client, err := s.CreateEmbeddingClient(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	return embedding.AsEinoEmbedder(client), nil
+}
+
+// ResolveChatModel 根据模型管理中的配置创建原生 Eino ChatModel。
+func (s *modelService) ResolveChatModel(ctx context.Context, modelID uint) (einoModel.BaseChatModel, error) {
+	model, err := s.GetModelWithDecryptedKey(modelID)
+	if err != nil {
+		return nil, err
+	}
+	if !model.Enabled {
+		return nil, errors.New(errors.CodeInvalidParam, "模型未启用")
+	}
+	if model.ModelType != "chat" {
+		return nil, errors.New(errors.CodeInvalidParam, "模型类型不是 chat")
+	}
+	client, err := llm.NewClient(ctx, model.Protocol, model.Name, model.APIKey, model.BaseURL, model.Timeout)
+	if err != nil {
+		return nil, err
+	}
+	chatModel, ok := client.(einoModel.BaseChatModel)
+	if !ok {
+		return nil, errors.New(errors.CodeInternalError, "LLM client 不支持 Eino ChatModel")
+	}
+	return chatModel, nil
 }
 
 // toResponse 将实体转换为响应 DTO

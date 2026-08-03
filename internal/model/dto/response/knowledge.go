@@ -12,6 +12,8 @@ type KnowledgeBaseResponse struct {
 	Name               string           `json:"name"`                           // 知识库名称
 	Description        string           `json:"description,omitempty"`          // 知识库描述
 	KBType             string           `json:"kb_type"`                        // 知识库类型
+	EmbeddingModelID   uint             `json:"embedding_model_id"`             // 绑定的 Embedding 模型 ID
+	ChatModelID        uint             `json:"chat_model_id"`                  // 绑定的 Chat 模型 ID
 	EmbeddingModelSpec string           `json:"embedding_model_spec,omitempty"` // 向量化模型标识
 	LLMModelSpec       string           `json:"llm_model_spec,omitempty"`       // 大模型表示
 	QueryParams        entity.JSON      `json:"query_params,omitempty"`         // 检索参数
