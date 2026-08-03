@@ -83,8 +83,26 @@ func OptionalAuth() gin.HandlerFunc {
 			return
 		}
 
-		_, _ = parseAuthToken(token)
+		claims, err := parseAuthToken(token)
+		if err == nil && claims != nil {
+			if claims.Subject != "" {
+				c.Set("username", claims.Subject)
+			}
+		}
 
 		c.Next()
 	}
+}
+
+// GetUsername 从 gin.Context 获取当前登录用户名。
+func GetUsername(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	v, exists := c.Get("username")
+	if !exists {
+		return ""
+	}
+	name, _ := v.(string)
+	return name
 }

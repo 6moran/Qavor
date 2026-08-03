@@ -16,7 +16,96 @@ type Config struct {
 	Log           LogConfig           `mapstructure:"log"`
 	CORS          CORSConfig          `mapstructure:"cors"`
 	Email         EmailConfig         `mapstructure:"email"`
-	Ollama   OllamaConfig   `mapstructure:"ollama"` // Ollama 配置（可选）
+	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
+	RAG           RAGConfig           `mapstructure:"rag"`
+}
+
+// RAGConfig RAG 功能配置。第一版仅支持文档索引和问答同步接口。
+type RAGConfig struct {
+	HistoryLimit          int `mapstructure:"history_limit"`
+	ChunkTokens           int `mapstructure:"chunk_tokens"`
+	ChunkOverlapTokens    int `mapstructure:"chunk_overlap_tokens"`
+	VectorTopK            int `mapstructure:"vector_top_k"`
+	KeywordTopK           int `mapstructure:"keyword_top_k"`
+	FusedTopK             int `mapstructure:"fused_top_k"`
+	RerankTopK            int `mapstructure:"rerank_top_k"`
+	RRFK                  int `mapstructure:"rrf_k"`
+	TopK                  int `mapstructure:"top_k"` // 兼容字段：未启用融合/重排时使用
+	RequestTimeoutSeconds int `mapstructure:"request_timeout_seconds"`
+	// Chat/Embedding 模型由知识库绑定的模型 ID 决定，不从这里读取。
+	// Embedding 仅保留批处理参数，旧字段保留用于兼容已有 Go 调用方。
+	Embedding EmbeddingConfig `mapstructure:"embedding"`
+	Reranker  RerankerConfig  `mapstructure:"reranker"`
+}
+
+// ApplyDefaults 为 RAG 参数设置安全默认值。
+// 模型不在配置文件中判断；每个知识库绑定模型后，运行时按 KBID 解析。
+func (c *RAGConfig) ApplyDefaults() {
+	if c.HistoryLimit <= 0 {
+		c.HistoryLimit = 10
+	}
+	if c.ChunkTokens <= 0 {
+		c.ChunkTokens = 800
+	}
+	if c.ChunkOverlapTokens <= 0 {
+		c.ChunkOverlapTokens = 100
+	}
+	if c.VectorTopK <= 0 {
+		c.VectorTopK = 20
+	}
+	if c.KeywordTopK <= 0 {
+		c.KeywordTopK = 20
+	}
+	if c.FusedTopK <= 0 {
+		c.FusedTopK = 20
+	}
+	if c.RerankTopK <= 0 {
+		c.RerankTopK = 5
+	}
+	if c.RRFK <= 0 {
+		c.RRFK = 60
+	}
+	if c.TopK <= 0 {
+		c.TopK = 5
+	}
+	if c.RequestTimeoutSeconds <= 0 {
+		c.RequestTimeoutSeconds = 60
+	}
+	if c.Embedding.BatchSize <= 0 {
+		c.Embedding.BatchSize = 32
+	}
+	if c.Reranker.TimeoutSeconds <= 0 {
+		c.Reranker.TimeoutSeconds = 20
+	}
+}
+
+// IsConfigured 当 Embedding 关键字段齐全时认为 RAG 已配置可用。
+// MVP 不要求 Reranker；问答是否可用还取决于 ChatModelID 是否配置。
+func (c *RAGConfig) IsConfigured() bool {
+	return c.ChunkTokens > 0 && c.RequestTimeoutSeconds > 0
+}
+
+// IsAnswerReady 当 Embedding 与 ChatModel 均配置时问答可用。
+func (c *RAGConfig) IsAnswerReady() bool {
+	return c.IsConfigured()
+}
+
+// EmbeddingConfig Embedding 模型配置。
+type EmbeddingConfig struct {
+	// 以下连接字段仅用于兼容旧调用方，生产 RAG 不再读取它们。
+	Model     string `mapstructure:"model"`
+	BaseURL   string `mapstructure:"base_url"`
+	APIKey    string `mapstructure:"api_key"`
+	Dimension int    `mapstructure:"dimension"`
+	BatchSize int    `mapstructure:"batch_size"`
+}
+
+// RerankerConfig 重排器配置。
+type RerankerConfig struct {
+	Model          string `mapstructure:"model"`
+	BaseURL        string `mapstructure:"base_url"`
+	APIKey         string `mapstructure:"api_key"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
 }
 
 // OllamaConfig Ollama 配置

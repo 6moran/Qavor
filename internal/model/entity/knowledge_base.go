@@ -7,6 +7,8 @@ type KnowledgeBase struct {
 	Name               string    `gorm:"type:varchar(255);not null;index;comment:知识库名称" json:"name"`
 	Description        string    `gorm:"type:text;comment:描述" json:"description,omitempty"`
 	KBType             string    `gorm:"type:varchar(32);not null;index;comment:知识库类型" json:"kb_type"`
+	EmbeddingModelID   uint      `gorm:"not null;index;comment:Embedding模型ID" json:"embedding_model_id"`
+	ChatModelID        uint      `gorm:"not null;index;comment:Chat模型ID" json:"chat_model_id"`
 	EmbeddingModelSpec string    `gorm:"type:varchar(512);comment:Embedding模型规格" json:"embedding_model_spec,omitempty"`
 	LLMModelSpec       string    `gorm:"type:varchar(512);comment:LLM模型规格" json:"llm_model_spec,omitempty"`
 	QueryParams        JSON      `gorm:"type:json;comment:查询参数" json:"query_params,omitempty"`

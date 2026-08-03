@@ -130,3 +130,12 @@ embedding:
 ollama:
   base_url: "http://localhost:11434"          # Ollama 服务地址
   model: "llama3"                             # 默认模型
+
+# RAG 算法默认配置；模型必须在创建知识库时通过模型 ID 绑定。
+rag:
+  chunk_tokens: 800
+  chunk_overlap_tokens: 100
+  top_k: 5
+  request_timeout_seconds: 60
+  embedding:
+    batch_size: 32

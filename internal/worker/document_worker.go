@@ -12,7 +12,7 @@ import (
 	"Qavor/internal/model/entity"
 	documentqueue "Qavor/internal/queue"
 	"Qavor/internal/rag"
-	"Qavor/internal/reposito
+	"Qavor/internal/repository"
 	"Qavor/internal/service"
 	"Qavor/pkg/logger"
 
