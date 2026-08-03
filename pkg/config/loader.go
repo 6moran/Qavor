@@ -156,11 +156,15 @@ func Get() *Config {
 	return globalConfig
 }
 
-// MustLoad 加载配置，失败时 panic
-func MustLoad(configPath string) *Config {
-	config, err := Load(configPath)
-	if err != nil {
-		panic(err)
+// ApplyDefaults 为未显式配置的 SSE 参数设置默认值
+func (c *SSEConfig) ApplyDefaults() {
+	if c.MaxStreamTime <= 0 {
+		c.MaxStreamTime = 300 // 5分钟
 	}
-	return config
+	if c.HeartbeatInterval <= 0 {
+		c.HeartbeatInterval = 15 // 15秒
+	}
+	if c.MaxConcurrentTasks <= 0 {
+		c.MaxConcurrentTasks = 5 // 5个并发任务
+	}
 }

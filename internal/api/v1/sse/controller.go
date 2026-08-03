@@ -1,28 +1,32 @@
 package sse
 
 import (
+	"fmt"
 	"net/http"
+	"time"
 
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 	"Qavor/internal/sse"
+	"Qavor/pkg/config"
 	pkgerrors "Qavor/pkg/errors"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
 // Controller SSE 控制器
 type Controller struct {
-	sseSvc  service.SSEService
-	config  *sse.SSEConfig
-	logger  *zap.Logger
+	sseSvc service.SSEService
+	config *config.SSEConfig
+	logger *zap.Logger
 }
 
 // NewController 创建 SSE 控制器
 func NewController(
 	sseSvc service.SSEService,
-	config *sse.SSEConfig,
+	config *config.SSEConfig,
 	logger *zap.Logger,
 ) *Controller {
 	return &Controller{
@@ -53,7 +57,7 @@ func (ctrl *Controller) Stream(c *gin.Context) {
 	}
 
 	userID := middleware.GetUserID(c)
-	taskID := sse.GenerateTaskID()
+	taskID := generateTaskID()
 
 	// 2. 设置 SSE 响应头（必须在第一次写入前）
 	c.Header("Content-Type", "text/event-stream")
@@ -151,4 +155,11 @@ func (ctrl *Controller) ProcessFile(c *gin.Context) {
 		"success": true,
 		"message": "文件处理请求已接受",
 	})
+}
+
+// generateTaskID 生成任务ID
+func generateTaskID() string {
+	id := uuid.New().String()[:8]
+	timestamp := time.Now().Unix() % 1000000
+	return fmt.Sprintf("task_%s_%06d", id, timestamp)
 }

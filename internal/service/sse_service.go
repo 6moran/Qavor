@@ -9,6 +9,7 @@ import (
 	contextmgr "Qavor/internal/context"
 	"Qavor/internal/llm"
 	"Qavor/internal/sse"
+	"Qavor/pkg/config"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
@@ -19,7 +20,7 @@ import (
 type SSEServiceImpl struct {
 	contextMgr contextmgr.ContextManager
 	llmFactory llm.ClientFactory
-	config     *sse.SSEConfig
+	config     *config.SSEConfig
 	logger     *zap.Logger
 	heartbeat  *sse.HeartbeatManager
 
@@ -46,18 +47,18 @@ type SSETaskInfo struct {
 func NewSSEService(
 	contextMgr contextmgr.ContextManager,
 	llmFactory llm.ClientFactory,
-	config *sse.SSEConfig,
+	config *config.SSEConfig,
 	logger *zap.Logger,
 ) *SSEServiceImpl {
 	return &SSEServiceImpl{
-		contextMgr:       contextMgr,
-		llmFactory:       llmFactory,
-		config:           config,
-		logger:           logger,
-		heartbeat:        sse.NewHeartbeatManager(config.HeartbeatInterval, logger),
-		activeTasks:      make(map[string]*SSETaskInfo),
+		contextMgr:        contextMgr,
+		llmFactory:        llmFactory,
+		config:            config,
+		logger:            logger,
+		heartbeat:         sse.NewHeartbeatManager(time.Duration(config.HeartbeatInterval)*time.Second, logger),
+		activeTasks:       make(map[string]*SSETaskInfo),
 		conversationTasks: make(map[uint]string),
-		userTaskCount:    make(map[uint]int),
+		userTaskCount:     make(map[uint]int),
 	}
 }
 
@@ -77,7 +78,7 @@ func (s *SSEServiceImpl) Stream(ctx context.Context, req *StreamRequest) error {
 	s.cancelConversationTask(conversationID)
 
 	// 3. 创建任务上下文（支持取消和超时）
-	taskCtx, cancel := context.WithTimeout(ctx, s.config.MaxStreamTime)
+	taskCtx, cancel := context.WithTimeout(ctx, time.Duration(s.config.MaxStreamTime)*time.Second)
 	defer cancel()
 
 	// 注册任务（支持外部取消）
@@ -434,6 +435,8 @@ func (s *SSEServiceImpl) getLLMClient(agentSlug, modelName string) (llm.Client, 
 	provider := "openai"
 	apiKey := ""  // 从配置中获取
 	baseURL := "" // 从配置中获取
+
+	s.logger.Debug("获取 LLM 客户端", zap.String("agent_slug", agentSlug), zap.String("model", modelName))
 
 	return s.llmFactory(context.Background(), provider, modelName, apiKey, baseURL, 60)
 }
