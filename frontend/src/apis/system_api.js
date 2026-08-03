@@ -1,4 +1,4 @@
-import { apiGet, apiAdminGet, apiAdminPost, apiAdminPut, apiAdminDelete } from './base'
+import { apiGet, apiAdminGet, apiAdminPost, apiAdminPut } from './base'
 import { USE_MOCK, mockResponse, mockHealth, mockInfo, mockConfig } from '@/mock'
 
 /**
@@ -105,43 +105,3 @@ export const ocrApi = {
 // =============================================================================
 
 export const chatModelApi = {}
-
-// =============================================================================
-// === 独立模型供应商配置分组 ===
-// =============================================================================
-
-export const modelProviderApi = {
-  getProviders: async () => {
-    return apiAdminGet('/api/system/model-providers')
-  },
-
-  getV2Models: async (modelType = 'chat') => {
-    return apiGet(`/api/system/model-providers/models/v2?model_type=${modelType}`)
-  },
-
-  refreshModelCache: async () => {
-    return apiAdminPost('/api/system/model-providers/models/cache/refresh')
-  },
-
-  getModelStatusBySpec: async (spec) => {
-    return apiAdminGet(`/api/system/model-providers/models/status?spec=${encodeURIComponent(spec)}`)
-  },
-
-  createProvider: async (payload) => {
-    return apiAdminPost('/api/system/model-providers', payload)
-  },
-
-  updateProvider: async (providerId, payload) => {
-    return apiAdminPut(`/api/system/model-providers/${encodeURIComponent(providerId)}`, payload)
-  },
-
-  deleteProvider: async (providerId) => {
-    return apiAdminDelete(`/api/system/model-providers/${encodeURIComponent(providerId)}`)
-  },
-
-  fetchRemoteModels: async (providerId) => {
-    return apiAdminGet(
-      `/api/system/model-providers/${encodeURIComponent(providerId)}/remote-models`
-    )
-  }
-}

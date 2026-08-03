@@ -24,8 +24,6 @@ import {
   mockTools, mockToolOptions,
   // 工作区
   mockWorkspaceTree,
-  // 模型
-  mockModelProviders
 } from '@/mock'
 
 /**
@@ -61,9 +59,6 @@ function getMockData(url, method) {
   if (url.startsWith('/api/system/tools/options')) return mockResponse({ options: mockToolOptions })
   if (url.startsWith('/api/system/ocr/options')) return mockResponse({ enabled: true })
   if (url.startsWith('/api/system/ocr/health')) return mockResponse({ status: 'ok' })
-  if (url.startsWith('/api/system/model-providers')) return mockResponse({ providers: mockModelProviders })
-  if (url.includes('/api/system/model-providers/')) return mockResponse({ success: true })
-
   // ==================== 认证 ====================
   if (url.startsWith('/api/auth/me')) return mockResponse(mockCurrentUser)
   if (url.startsWith('/api/auth/check-first-run')) return mockResponse({ first_run: false })
