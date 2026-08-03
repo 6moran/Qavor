@@ -1,28 +1,27 @@
 /* color palette from <https://github.com/vuejs/theme> */
 /* https://material-foundation.github.io/material-theme-builder/ */
 :root {
-  --main-1000: #01151f;
-  --main-900: #023944;
-  --main-800: #035065;
-  --main-700: #046a82;
-  --main-600: #24839a;
-  --main-500: #3996ae;
-  --main-400: #5faec2;
-  --main-300: #82c3d6;
-  --main-200: #a3d8e8;
-  --main-100: #c4eaf5;
-  --main-50: #e1f6fb;
-  --main-40: #eaf3f5;
-  --main-30: #f7fbfd;
-  --main-20: #f6f9fa;
-  --main-10: #fafcfd;
-  --main-5: #fcfefe;
-  --main-1: #fefefe;
+  --main-1000: #0a1628;
+  --main-900: #0c2d5e;
+  --main-800: #1a4a8a;
+  --main-700: #2563b0;
+  --main-600: #3b82d6;
+  --main-500: #5b9dea;
+  --main-400: #7eb4f0;
+  --main-300: #a1cff5;
+  --main-200: #c4e2fa;
+  --main-100: #e0f0fd;
+  --main-50: #edf5fe;
+  --main-40: #f2f7fe;
+  --main-30: #f7fbff;
+  --main-20: #f9fcff;
+  --main-10: #fcfdff;
+  --main-5: #feffff;
+  --main-1: #ffffff;
   --main-0: #ffffff;
 
-  /* 保留原有的 main 变量 */
   --main-color: var(--main-700);
-  --main-bright: #0188a6;
+  --main-bright: #2563b0;
 
   --gray-10000: #000000; /* 保持纯黑 */
   --gray-2000: #0c0d0d; /* 更精致的暗灰，用于极深背景 */
@@ -103,7 +102,7 @@
   --chart-palette-9: #e885ba;
   --chart-palette-10: #8c8c8c;
 
-  --bg-sider: var(--main-5);
+  --bg-sider: #f5f7fa;
 
   --light-98: rgba(255, 255, 255, 0.98);
   --light-95: rgba(255, 255, 255, 0.95);

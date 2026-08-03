@@ -211,6 +211,18 @@ func (s *agentService) GetDefaultAgent() (*dto.AgentResponse, error) {
 	return s.toResponse(a), nil
 }
 
+func (s *agentService) GetDefaultAgentConfig() (*agent.AgentConfig, string, error) {
+	a, err := s.agentRepo.GetDefault()
+	if err != nil {
+		return nil, "", err
+	}
+	if a == nil {
+		return nil, "", bizerrors.New(bizerrors.CodeResourceNotFound, "未设置默认 Agent")
+	}
+	cfg := s.parseConfig(a.ConfigJSON)
+	return &cfg, a.Slug, nil
+}
+
 func (s *agentService) GetAgentConfig(slug string) (*agent.AgentConfig, error) {
 	a, err := s.agentRepo.GetBySlug(slug)
 	if err != nil {

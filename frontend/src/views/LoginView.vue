@@ -143,7 +143,7 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fff;
+  background: #e8edf4;
   padding: 40px;
 }
 
@@ -155,9 +155,9 @@ const submit = async () => {
 .login-card {
   display: flex;
   min-height: 640px;
-  border-radius: 20px;
+  border-radius: 24px;
   overflow: hidden;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15);
 }
 
 /* 左侧品牌展示区 */
@@ -165,8 +165,8 @@ const submit = async () => {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 56px 64px;
-  background: #f1f5f9;
+  padding: 56px 72px;
+  background: linear-gradient(135deg, #2563b0 0%, #1a4a8a 100%);
   position: relative;
 }
 
@@ -182,7 +182,7 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #6366f1;
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 10px;
   color: #fff;
 }
@@ -193,9 +193,9 @@ const submit = async () => {
 }
 
 .brand-name {
-  font-size: 20px;
-  font-weight: 600;
-  color: #1e293b;
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
 }
 
 .brand-content {
@@ -205,16 +205,16 @@ const submit = async () => {
 
 .brand-content h1 {
   margin: 0 0 14px;
-  font-size: 38px;
+  font-size: 44px;
   font-weight: 700;
-  color: #0f172a;
+  color: #fff;
   line-height: 1.2;
 }
 
 .brand-content p {
   margin: 0;
-  font-size: 16px;
-  color: #64748b;
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.85);
   line-height: 1.6;
 }
 
@@ -236,20 +236,21 @@ const submit = async () => {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 150px;
-  height: 150px;
+  width: 160px;
+  height: 160px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-  border-radius: 36px;
-  box-shadow: 0 24px 48px rgba(99, 102, 241, 0.4);
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 40px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
   color: #fff;
+  backdrop-filter: blur(10px);
 }
 
 .main-icon-placeholder svg {
-  width: 75px;
-  height: 75px;
+  width: 80px;
+  height: 80px;
 }
 
 .brand-footer {
@@ -258,45 +259,45 @@ const submit = async () => {
 
 .brand-footer p {
   margin: 0;
-  font-size: 13px;
-  color: #94a3b8;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 /* 右侧登录表单区 */
 .form-section {
-  width: 480px;
+  width: 520px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 56px 64px;
+  padding: 56px 72px;
   background: #fff;
 }
 
 .form-wrapper {
   width: 100%;
-  max-width: 360px;
+  max-width: 400px;
 }
 
 .form-logo {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
-  border-radius: 16px;
+  background: linear-gradient(135deg, #3b82d6 0%, #2563b0 100%);
+  border-radius: 18px;
   color: #fff;
-  margin: 0 auto 24px;
+  margin: 0 auto 28px;
 }
 
 .form-logo svg {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
 }
 
 h2 {
   margin: 0 0 8px;
-  font-size: 26px;
+  font-size: 30px;
   font-weight: 600;
   color: #0f172a;
   text-align: center;
@@ -304,7 +305,7 @@ h2 {
 
 .subtitle {
   margin: 0 0 36px;
-  font-size: 14px;
+  font-size: 16px;
   color: #64748b;
   text-align: center;
 }
@@ -318,10 +319,10 @@ h2 {
 }
 
 :deep(.ant-form-item-label > label) {
-  font-weight: 500;
-  color: #334155 !important;
-  font-size: 14px !important;
-  height: 22px !important;
+  font-weight: 600;
+  color: #1e293b !important;
+  font-size: 16px !important;
+  height: 24px !important;
 }
 
 :deep(.ant-form-item-label) {
@@ -329,11 +330,12 @@ h2 {
 }
 
 :deep(.ant-input-affix-wrapper) {
-  border-radius: 8px !important;
+  border-radius: 10px !important;
   border: 1px solid #e2e8f0 !important;
-  padding: 10px 14px !important;
-  height: 44px !important;
+  padding: 12px 16px !important;
+  height: 48px !important;
   background: #fff !important;
+  font-size: 16px !important;
 }
 
 :deep(.ant-input-affix-wrapper:hover) {
@@ -341,43 +343,44 @@ h2 {
 }
 
 :deep(.ant-input-affix-wrapper-focused) {
-  border-color: #6366f1 !important;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+  border-color: #2563b0 !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 176, 0.1) !important;
 }
 
 :deep(.ant-input-prefix) {
   color: #94a3b8 !important;
-  margin-right: 10px !important;
-  font-size: 16px !important;
+  margin-right: 12px !important;
+  font-size: 18px !important;
 }
 
 :deep(.ant-input) {
-  font-size: 14px !important;
+  font-size: 16px !important;
   color: #1e293b !important;
 }
 
 :deep(.ant-input::placeholder) {
-  color: #cbd5e1 !important;
+  color: #94a3b8 !important;
 }
 
 .login-btn {
-  height: 44px !important;
-  border-radius: 8px !important;
-  font-size: 15px !important;
-  font-weight: 500 !important;
-  background: #6366f1 !important;
-  border-color: #6366f1 !important;
+  height: 50px !important;
+  border-radius: 10px !important;
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  background: linear-gradient(135deg, #3b82d6 0%, #2563b0 100%) !important;
+  border: none !important;
   margin-top: 8px !important;
+  box-shadow: 0 4px 12px rgba(37, 99, 176, 0.3);
 }
 
 .login-btn:hover {
-  background: #4f46e5 !important;
-  border-color: #4f46e5 !important;
+  background: linear-gradient(135deg, #2563b0 0%, #1a4a8a 100%) !important;
+  box-shadow: 0 6px 16px rgba(37, 99, 176, 0.4);
 }
 
 .hint {
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   color: #94a3b8;
   text-align: center;
 }

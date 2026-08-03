@@ -16,6 +16,8 @@ type AgentService interface {
 	ListAgents(req *request.AgentListRequest) (*response.PageResponse, error)
 	SetDefault(slug string) error
 	GetDefaultAgent() (*dto.AgentResponse, error)
+	// GetDefaultAgentConfig 获取默认 Agent 的运行时配置和 slug
+	GetDefaultAgentConfig() (*agent.AgentConfig, string, error)
 	// GetAgentConfig 获取运行时配置（供 AgentManager 使用）
 	GetAgentConfig(slug string) (*agent.AgentConfig, error)
 }

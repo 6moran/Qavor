@@ -23,15 +23,20 @@ body {
   display: flow-root;
   min-height: 100vh;
   color: var(--gray-900);
-  background: var(--gray-0);
-  line-height: 1.6;
+  background: #e8edf4;
+  line-height: 1.7;
   font-family:
     -apple-system, BlinkMacSystemFont, 'Noto Sans SC', 'Roboto', 'HarmonyOS Sans SC', 'Segoe UI',
     'Helvetica Neue', Arial, sans-serif;
-  font-size: 15px;
+  font-size: 18px;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root.dark body,
+:root.dark {
+  background: #0a1020;
 }
 
 /* layout */
@@ -89,9 +94,9 @@ body {
 .card-tag {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
-  padding: 0 8px;
-  font-size: 11px;
+  min-height: 24px;
+  padding: 0 10px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1;
   background: var(--gray-100);

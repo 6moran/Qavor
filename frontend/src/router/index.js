@@ -97,10 +97,28 @@ const router = createRouter({
                 requiresAuth: true,
                 requiresAdmin: true
               }
-            },
+            }
+          ]
+        }
+      ]
+    },
+    {
+      path: '/tools',
+      name: 'tools',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'ToolsComp',
+          component: () => import('../views/ExtensionsView.vue'),
+          meta: {
+            keepAlive: false,
+            requiresAuth: true
+          },
+          children: [
             {
               path: 'mcp/:slug',
-              name: 'ExtensionMcpDetail',
+              name: 'ToolMcpDetail',
               component: () => import('../components/extensions/McpDetailView.vue'),
               meta: {
                 keepAlive: false,
@@ -110,7 +128,7 @@ const router = createRouter({
             },
             {
               path: 'skill/:slug',
-              name: 'ExtensionSkillDetail',
+              name: 'ToolSkillDetail',
               component: () => import('../components/extensions/SkillDetailView.vue'),
               meta: {
                 keepAlive: false,

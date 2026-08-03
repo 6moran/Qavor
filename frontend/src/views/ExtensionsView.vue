@@ -3,24 +3,24 @@
     <PageHeader
       v-if="!isDetailPage"
       v-model:active-key="activeTab"
-      title="智能体扩展"
+      :title="pageTitle"
       :tabs="extensionTabs"
       :loading="activeChildLoading"
       :show-border="true"
-      aria-label="智能体扩展视图切换"
+      aria-label="扩展视图切换"
     />
 
     <div v-if="!isDetailPage" class="extensions-content">
-      <div v-if="userStore.isAdmin && activeTab === 'knowledge'" class="tab-panel">
+      <div v-if="isKnowledgeRoute && userStore.isAdmin && activeTab === 'knowledge'" class="tab-panel">
         <DataBaseView ref="knowledgeRef" embedded />
       </div>
-      <div v-if="userStore.isAdmin && activeTab === 'tools'" class="tab-panel">
+      <div v-if="isToolsRoute && userStore.isAdmin && activeTab === 'tools'" class="tab-panel">
         <ToolsCardList ref="toolsRef" />
       </div>
-      <div v-if="activeTab === 'skills'" class="tab-panel">
+      <div v-if="isToolsRoute && activeTab === 'skills'" class="tab-panel">
         <SkillCardList ref="skillsRef" />
       </div>
-      <div v-if="userStore.isAdmin && activeTab === 'mcp'" class="tab-panel">
+      <div v-if="isToolsRoute && userStore.isAdmin && activeTab === 'mcp'" class="tab-panel">
         <McpCardList ref="mcpRef" />
       </div>
     </div>
@@ -48,14 +48,27 @@ const skillsRef = ref(null)
 const mcpRef = ref(null)
 const toolsRef = ref(null)
 
-const adminExtensionTabs = [
-  { key: 'knowledge', label: '知识库' },
-  { key: 'skills', label: '技能' },
+const isKnowledgeRoute = computed(() => route.path.startsWith('/extensions'))
+const isToolsRoute = computed(() => route.path.startsWith('/tools'))
+
+const pageTitle = computed(() => isToolsRoute.value ? '工具配置' : '知识库')
+
+const knowledgeTabs = [
+  { key: 'knowledge', label: '知识库' }
+]
+const toolsTabs = [
   { key: 'tools', label: '工具' },
+  { key: 'skills', label: '技能' },
   { key: 'mcp', label: 'MCP' }
 ]
-const userExtensionTabs = [{ key: 'skills', label: '技能' }]
-const extensionTabs = computed(() => (userStore.isAdmin ? adminExtensionTabs : userExtensionTabs))
+const userToolsTabs = [{ key: 'skills', label: '技能' }]
+
+const extensionTabs = computed(() => {
+  if (isKnowledgeRoute.value) return knowledgeTabs
+  if (userStore.isAdmin) return toolsTabs
+  return userToolsTabs
+})
+
 const allowedTabKeys = computed(() => extensionTabs.value.map((tab) => tab.key))
 const defaultTabKey = computed(() => extensionTabs.value[0]?.key || 'skills')
 
@@ -76,9 +89,9 @@ const replaceTabQuery = (tab) => {
 
 const isDetailPage = computed(() => {
   return (
-    route.path.startsWith('/extensions/knowledgebase/') ||
-    route.path.startsWith('/extensions/mcp/') ||
-    route.path.startsWith('/extensions/skill/')
+    route.path.includes('/knowledgebase/') ||
+    route.path.includes('/mcp/') ||
+    route.path.includes('/skill/')
   )
 })
 
@@ -94,7 +107,7 @@ const activeChildLoading = computed(() => {
 })
 
 watch(
-  () => [route.query.tab, userStore.isAdmin],
+  () => [route.query.tab, userStore.isAdmin, route.path],
   ([tab]) => {
     const nextTab = normalizeTab(tab)
     if (activeTab.value !== nextTab) activeTab.value = nextTab

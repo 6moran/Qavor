@@ -190,11 +190,11 @@ const renameChat = async (chatId) => {
     margin-top: 18px;
 
     .ant-btn {
-      min-width: 68px;
-      height: 34px;
+      min-width: 72px;
+      height: 36px;
       margin-inline-start: 0;
       border-radius: 8px;
-      font-size: 14px;
+      font-size: 15px;
     }
   }
 }
@@ -202,18 +202,19 @@ const renameChat = async (chatId) => {
 .rename-conversation-description {
   margin: 0 0 14px;
   color: var(--gray-500);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .rename-conversation-input {
   width: 100%;
-  height: 38px;
+  height: 40px;
   padding: 0 12px;
   color: var(--gray-900);
   background: var(--gray-0);
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   outline: none;
+  font-size: 15px;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -256,10 +257,9 @@ const renameChat = async (chatId) => {
   padding: 4px 8px;
   color: var(--gray-800);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  border-radius: 4px;
-  transition: background-color 0.2s ease;
+  border-radius: 6px;
   gap: 4px;
 
   span {
@@ -281,6 +281,9 @@ const renameChat = async (chatId) => {
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .conversation-item {
@@ -288,7 +291,7 @@ const renameChat = async (chatId) => {
   display: flex;
   align-items: center;
   width: 100%;
-  height: 36px;
+  height: 40px;
   padding: 0 8px;
   overflow: hidden;
   border: 1px solid transparent;
@@ -296,22 +299,19 @@ const renameChat = async (chatId) => {
   background: transparent;
   color: var(--gray-700);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   transition:
     background-color 0.2s ease,
     color 0.2s ease;
 
   &:hover {
-    background: var(--gray-50);
+    background: rgba(100, 116, 139, 0.1);
+    color: #2563b0;
 
     .actions-mask,
     .conversation-actions {
       opacity: 1;
-    }
-
-    .actions-mask {
-      background: linear-gradient(to right, transparent, var(--gray-50));
     }
 
     .more-btn {
@@ -324,20 +324,15 @@ const renameChat = async (chatId) => {
   }
 
   &.active {
-    background-color: color-mix(in srgb, var(--main-color) 8%, var(--gray-0));
-    color: var(--main-color);
+    background-color: rgba(37, 99, 176, 0.14);
+    color: #2563b0;
 
     .conversation-title {
       font-weight: 600;
     }
 
-    .actions-mask {
-      opacity: 1;
-      background: linear-gradient(
-        to right,
-        transparent,
-        color-mix(in srgb, var(--main-color) 8%, var(--gray-0)) 20px
-      );
+    &:hover {
+      background-color: rgba(37, 99, 176, 0.14);
     }
   }
 
@@ -355,7 +350,6 @@ const renameChat = async (chatId) => {
   right: 0;
   bottom: 0;
   width: 56px;
-  background: linear-gradient(to right, transparent, var(--main-5) 20px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -401,8 +395,9 @@ const renameChat = async (chatId) => {
 .empty-list {
   margin-top: 16px;
   color: var(--gray-500);
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
+  padding: 8px;
 }
 
 .load-more-wrapper {
@@ -412,6 +407,6 @@ const renameChat = async (chatId) => {
 
 .load-more-btn {
   color: var(--main-color);
-  font-size: 12px;
+  font-size: 14px;
 }
 </style>
