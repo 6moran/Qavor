@@ -12,14 +12,16 @@ import (
 	agentpkg "Qavor/internal/agent"
 	"Qavor/internal/api"
 	chatctrl "Qavor/internal/api/v1/chat"
-	"Qavor/internal/mcp"
+	ragctrl "Qavor/internal/api/v1/rag"
 	"Qavor/internal/ingestion"
+	"Qavor/internal/mcp"
 	"Qavor/internal/model/entity"
 	documentqueue "Qavor/internal/queue"
+	"Qavor/internal/rag"
 	"Qavor/internal/repository"
 	"Qavor/internal/service"
-	"Qavor/internal/worker"
 	"Qavor/internal/store"
+	"Qavor/internal/worker"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
 	"Qavor/pkg/logger"
@@ -174,14 +176,15 @@ func (a *App) initDependencies() {
 	// 创建 Repository
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
+	knowledgeChunkRepo := repository.NewKnowledgeChunkRepository(a.postgresDB)
 	processingJobRepo := repository.NewDocumentProcessingJobRepository(a.postgresDB)
-	providerRepo := repository.NewModelProviderRepository(a.postgresDB)
 	modelRepo := repository.NewModelRepository(a.postgresDB)
 	conversationRepo := repository.NewConversationRepository(a.postgresDB)
 	messageRepo := repository.NewMessageRepository(a.postgresDB)
 	agentRepo := repository.NewAgentRepository(a.postgresDB)
 
 	var queue documentqueue.DocumentQueue
+	// 由于需要依赖redis,所以没写在pkg
 	if a.redis != nil {
 		candidate, err := documentqueue.NewRedisDocumentQueue(
 			a.redis,
@@ -204,18 +207,41 @@ func (a *App) initDependencies() {
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
-	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo)
+	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo)
 	storage := service.NewMinIOObjectStorage()
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo)
+
+	// 构造按知识库绑定模型解析的 RAG 依赖,由于需要依赖其他模块,所以在这里初始化
+	// 模型连接信息来自模型管理表；RAG 配置文件只提供分块、TopK、超时等算法默认值。
+	var (
+		indexer rag.DocumentIndexer = rag.NewDynamicDocumentIndexer(
+			knowledgeBaseRepo,
+			modelSvc,
+			knowledgeChunkRepo,
+			a.cfg.RAG.ChunkTokens,
+			a.cfg.RAG.ChunkOverlapTokens,
+			a.cfg.RAG.Embedding.BatchSize,
+			a.cfg.RAG.Embedding.Dimension,
+		)
+		answerer rag.AnswerChain = rag.NewDynamicAnswerEngine(
+			knowledgeBaseRepo,
+			modelSvc,
+			knowledgeChunkRepo,
+			a.cfg.RAG,
+		)
+		ragCtrl *ragctrl.Controller
+	)
+	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, answerer)
+	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
 
 	if queue != nil {
 		workerCtx, cancelWorker := context.WithCancel(context.Background())
 		a.workerStop = cancelWorker
 		a.workerDone = make(chan struct{})
 		parser := ingestion.NewParser(ingestion.NewPythonParser("python", "pkg/documentparser/python/parse_document.py"))
-		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser)
+		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser, indexer)
 		hostname, _ := os.Hostname()
 		workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
 		options := worker.DocumentWorkerOptions{
@@ -231,7 +257,6 @@ func (a *App) initDependencies() {
 	} else {
 		logger.Warn("Redis 不可用，文档异步处理 Worker 未启动")
 	}
-
 
 	// 初始化 MCPManager
 	mcpManager := mcp.NewMCPManager()
@@ -252,7 +277,7 @@ func (a *App) initDependencies() {
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc,processingJobSvc, providerSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl)
 }
 
 // initRouter 初始化路由

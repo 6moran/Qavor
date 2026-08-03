@@ -16,7 +16,8 @@ const defaultKnowledgeBaseType = "pgvector"
 
 // knowledgeBaseService 知识库服务实现
 type knowledgeBaseService struct {
-	repo repository.KnowledgeBaseRepository
+	repo      repository.KnowledgeBaseRepository
+	modelRepo repository.ModelRepository
 }
 
 // Get 根据知识库ID获取知识库详情
@@ -78,6 +79,18 @@ func (s *knowledgeBaseService) Update(kbID string, req *request.UpdateKnowledgeB
 	if req.Description != "" {
 		base.Description = req.Description
 	}
+	if req.EmbeddingModelID > 0 {
+		if err := validateKnowledgeBaseModel(s.modelRepo, req.EmbeddingModelID, "embedding"); err != nil {
+			return nil, err
+		}
+		base.EmbeddingModelID = req.EmbeddingModelID
+	}
+	if req.ChatModelID > 0 {
+		if err := validateKnowledgeBaseModel(s.modelRepo, req.ChatModelID, "chat"); err != nil {
+			return nil, err
+		}
+		base.ChatModelID = req.ChatModelID
+	}
 	if req.LLMModelSpec != "" {
 		base.LLMModelSpec = req.LLMModelSpec
 	}
@@ -111,8 +124,8 @@ func knowledgeBaseNotFoundError() error {
 }
 
 // NewKnowledgeBaseService 创建知识库服务实例
-func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository) KnowledgeBaseService {
-	return &knowledgeBaseService{repo: repo}
+func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository, modelRepo repository.ModelRepository) KnowledgeBaseService {
+	return &knowledgeBaseService{repo: repo, modelRepo: modelRepo}
 }
 
 // Create 创建知识库
@@ -121,12 +134,20 @@ func (s *knowledgeBaseService) Create(req *request.CreateKnowledgeBaseRequest) (
 	if kbType == "" {
 		kbType = defaultKnowledgeBaseType
 	}
+	if err := validateKnowledgeBaseModel(s.modelRepo, req.EmbeddingModelID, "embedding"); err != nil {
+		return nil, err
+	}
+	if err := validateKnowledgeBaseModel(s.modelRepo, req.ChatModelID, "chat"); err != nil {
+		return nil, err
+	}
 	// 构建知识库实体
 	base := &entity.KnowledgeBase{
 		KBID:               uuid.NewString(), // 生成唯一标识
 		Name:               req.DatabaseName,
 		Description:        req.Description,
 		KBType:             kbType,
+		EmbeddingModelID:   req.EmbeddingModelID,
+		ChatModelID:        req.ChatModelID,
 		EmbeddingModelSpec: req.EmbeddingModelSpec,
 		LLMModelSpec:       req.LLMModelSpec,
 		QueryParams:        req.QueryParams,
@@ -148,6 +169,8 @@ func knowledgeBaseResponse(base *entity.KnowledgeBase) *response.KnowledgeBaseRe
 		Name:               base.Name,
 		Description:        base.Description,
 		KBType:             base.KBType,
+		EmbeddingModelID:   base.EmbeddingModelID,
+		ChatModelID:        base.ChatModelID,
 		EmbeddingModelSpec: base.EmbeddingModelSpec,
 		LLMModelSpec:       base.LLMModelSpec,
 		QueryParams:        base.QueryParams,
@@ -156,4 +179,27 @@ func knowledgeBaseResponse(base *entity.KnowledgeBase) *response.KnowledgeBaseRe
 		CreatedAt:          base.CreatedAt,
 		UpdatedAt:          base.UpdatedAt,
 	}
+}
+
+func validateKnowledgeBaseModel(modelRepo repository.ModelRepository, modelID uint, expectedType string) error {
+	if modelID == 0 {
+		return bizerrors.New(bizerrors.CodeInvalidParam, expectedType+" 模型不能为空")
+	}
+	if modelRepo == nil {
+		return bizerrors.New(bizerrors.CodeInternalError, "模型服务未配置")
+	}
+	model, err := modelRepo.FindByID(modelID)
+	if err != nil {
+		return err
+	}
+	if model == nil {
+		return bizerrors.New(bizerrors.CodeResourceNotFound, "模型不存在")
+	}
+	if !model.Enabled {
+		return bizerrors.New(bizerrors.CodeInvalidParam, "模型未启用")
+	}
+	if model.ModelType != expectedType {
+		return bizerrors.New(bizerrors.CodeInvalidParam, "模型类型不匹配")
+	}
+	return nil
 }
