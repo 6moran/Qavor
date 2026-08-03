@@ -12,11 +12,11 @@ type Model struct {
 	BaseURL        string            `gorm:"type:varchar(500);not null;comment:API基础URL" json:"base_url"`
 	APIKey         string            `gorm:"type:varchar(500);comment:密钥（加密存储）" json:"api_key,omitempty"`
 	OrganizationID string            `gorm:"type:varchar(128);comment:组织ID（OpenAI专属）" json:"org_id,omitempty"`
-	Headers        types.StringMap   `gorm:"type:json;default:{};comment:自定义请求头" json:"headers,omitempty"`
+	Headers        types.StringMap   `gorm:"type:json;default:'{}';comment:自定义请求头" json:"headers,omitempty"`
 	Timeout        int               `gorm:"not null;default:60000;comment:超时时间(ms)" json:"timeout"`
 	Enabled        bool              `gorm:"not null;default:true;index;comment:是否启用" json:"enabled"`
 	ModelType      string            `gorm:"type:varchar(32);not null;default:chat;comment:模型类型(chat/embedding/rerank)" json:"model_type"`
-	Params         types.ModelParams `gorm:"type:json;default:{};comment:模型推理参数" json:"params"`
+	Params         types.ModelParams `gorm:"type:json;default:'{}';comment:模型推理参数" json:"params"`
 }
 
 // TableName 指定表名
