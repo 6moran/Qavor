@@ -43,22 +43,48 @@
             <h3 class="section-title">嵌入模型</h3>
             <a-select
               v-model:value="newDatabase.embedding_model_id"
-              :options="embeddingModelOptions"
               :loading="modelsLoading"
               class="full-width"
               placeholder="请选择嵌入模型"
-            />
+            >
+              <a-select-option
+                v-for="option in embeddingModelOptions"
+                :key="option.id"
+                :value="option.value"
+              >
+                <div class="model-option">
+                  <div class="model-option-title">
+                    <span>{{ option.label }}</span>
+                    <span class="model-option-id">#{{ option.id }}</span>
+                  </div>
+                  <div class="model-option-remark" :title="option.remark">
+                    {{ option.remark }}
+                  </div>
+                </div>
+              </a-select-option>
+            </a-select>
           </div>
 
           <div class="form-section compact-section">
             <h3 class="section-title">问答模型<span class="required-mark">*</span></h3>
             <a-select
               v-model:value="newDatabase.chat_model_id"
-              :options="chatModelOptions"
               :loading="modelsLoading"
               class="full-width"
               placeholder="请选择问答模型"
-            />
+            >
+              <a-select-option v-for="option in chatModelOptions" :key="option.id" :value="option.value">
+                <div class="model-option">
+                  <div class="model-option-title">
+                    <span>{{ option.label }}</span>
+                    <span class="model-option-id">#{{ option.id }}</span>
+                  </div>
+                  <div class="model-option-remark" :title="option.remark">
+                    {{ option.remark }}
+                  </div>
+                </div>
+              </a-select-option>
+            </a-select>
           </div>
 
           <div class="form-section compact-section">
@@ -192,6 +218,7 @@ import AiTextarea from '@/components/AiTextarea.vue'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
 import { buildKnowledgeBaseCreateRequest } from '@/utils/knowledge_base_create'
+import { buildModelSelectOptions } from '@/utils/model_options'
 
 const route = useRoute()
 const router = useRouter()
@@ -238,10 +265,10 @@ const embeddingModels = ref([])
 const chatModels = ref([])
 const modelsLoading = ref(false)
 const embeddingModelOptions = computed(() =>
-  embeddingModels.value.map((model) => ({ label: `${model.name} (#${model.id})`, value: model.id }))
+  buildModelSelectOptions(embeddingModels.value)
 )
 const chatModelOptions = computed(() =>
-  chatModels.value.map((model) => ({ label: `${model.name} (#${model.id})`, value: model.id }))
+  buildModelSelectOptions(chatModels.value)
 )
 
 const createEmptyDatabaseForm = () => ({
@@ -487,6 +514,44 @@ defineExpose({
 
   .compact-model-selector {
     height: 40px;
+  }
+
+  .model-option {
+    min-width: 0;
+    padding: 2px 0;
+    line-height: 1.35;
+  }
+
+  .model-option-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--gray-800);
+    font-weight: 500;
+  }
+
+  .model-option-title > span:first-child,
+  .model-option-remark {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .model-option-title > span:first-child {
+    min-width: 0;
+  }
+
+  .model-option-id {
+    flex: 0 0 auto;
+    color: var(--gray-400);
+    font-size: 11px;
+    font-weight: 400;
+  }
+
+  .model-option-remark {
+    color: var(--gray-500);
+    font-size: 12px;
   }
 
   .section-title {
