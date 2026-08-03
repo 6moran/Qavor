@@ -33,7 +33,6 @@ func ErrorHandler(err error) (int, string) {
 // getFieldName 将字段名转换为友好的中文名称
 func getFieldName(field string) string {
 	fieldMap := map[string]string{
-		"Email":           "邮箱",
 		"Password":        "密码",
 		"Username":        "用户名",
 		"ConfirmPassword": "确认密码",
@@ -59,8 +58,6 @@ func getErrorMessage(field, tag string) string {
 	switch tag {
 	case "required":
 		return fmt.Sprintf("%s不能为空", field)
-	case "email":
-		return fmt.Sprintf("%s格式不正确", field)
 	case "min":
 		return fmt.Sprintf("%s长度不足", field)
 	case "max":

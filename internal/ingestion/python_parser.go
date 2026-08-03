@@ -10,7 +10,7 @@ import (
 
 var ErrPythonParserFailed = errors.New("document parser failed")
 
-// PythonParser executes the configured Python parser without going through a shell.
+// PythonParser 执行配置的 Python 解析器，无需通过 shell 调用。
 type PythonParser struct {
 	pythonPath string
 	scriptPath string

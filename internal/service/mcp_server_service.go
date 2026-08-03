@@ -24,7 +24,7 @@ func NewMCPServerService(fileStore store.MCPServerFileStore) MCPServerService {
 }
 
 // CreateMCPServer 创建MCP服务器
-func (s *mcpServerService) CreateMCPServer(username string, req *request.CreateMCPServerRequest) (*dto.MCPServerResponse, error) {
+func (s *mcpServerService) CreateMCPServer(req *request.CreateMCPServerRequest) (*dto.MCPServerResponse, error) {
 	// name 唯一性检查
 	existing, _ := s.fileStore.GetByName(req.Name)
 	if existing != nil {
@@ -98,8 +98,6 @@ func (s *mcpServerService) CreateMCPServer(username string, req *request.CreateM
 		Icon:           req.Icon,
 		Enabled:        true,
 		DisabledTools:  disabledTools,
-		CreatedBy:      username,
-		UpdatedBy:      username,
 	}
 
 	if err := s.fileStore.Create(req.Name, config); err != nil {
@@ -126,7 +124,7 @@ func (s *mcpServerService) GetMCPServer(name string) (*dto.MCPServerResponse, er
 }
 
 // UpdateMCPServer 更新MCP服务器
-func (s *mcpServerService) UpdateMCPServer(name string, username string, req *request.UpdateMCPServerRequest) (*dto.MCPServerResponse, error) {
+func (s *mcpServerService) UpdateMCPServer(name string, req *request.UpdateMCPServerRequest) (*dto.MCPServerResponse, error) {
 	existing, err := s.fileStore.GetByName(name)
 	if err != nil {
 		return nil, err
@@ -136,9 +134,7 @@ func (s *mcpServerService) UpdateMCPServer(name string, username string, req *re
 	}
 
 	// 构建更新配置
-	updates := &entity.MCPServerConfig{
-		UpdatedBy: username,
-	}
+	updates := &entity.MCPServerConfig{}
 
 	if req.Name != "" {
 		updates.Name = req.Name

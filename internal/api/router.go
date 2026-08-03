@@ -10,6 +10,7 @@ import (
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
 	processingjob "Qavor/internal/api/v1/processing_job"
+	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
 	toolctrl "Qavor/internal/api/v1/tool"
 	"Qavor/internal/middleware"
@@ -30,6 +31,7 @@ type Router struct {
 	messageCtrl       *message.Controller
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
+	ragCtrl           *ragctrl.Controller
 	toolCtrl          *toolctrl.Controller
 	sseCtrl           *ssectrl.Controller
 }
@@ -45,6 +47,7 @@ func NewRouter(
 	messageService service.MessageService,
 	agentService service.AgentService,
 	chatCtrl *chatctrl.Controller,
+	ragCtrl *ragctrl.Controller,
 	toolRegistry *tool.Registry,
 	sseCtrl *ssectrl.Controller,
 ) *Router {
@@ -58,6 +61,7 @@ func NewRouter(
 		messageCtrl:       message.NewController(messageService),
 		agentCtrl:         agentctrl.NewController(agentService),
 		chatCtrl:          chatCtrl,
+		ragCtrl:           ragCtrl,
 		toolCtrl:          toolctrl.NewController(toolRegistry),
 		sseCtrl:           sseCtrl,
 	}
@@ -103,6 +107,11 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// 消息路由
 		r.messageCtrl.RegisterRoutes(v1)
+
+		// RAG 路由
+		if r.ragCtrl != nil {
+			r.ragCtrl.RegisterRoutes(v1)
+		}
 
 		// 工具路由
 		r.toolCtrl.RegisterRoutes(v1)

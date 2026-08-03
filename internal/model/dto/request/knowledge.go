@@ -7,6 +7,8 @@ type CreateKnowledgeBaseRequest struct {
 	DatabaseName       string           `json:"database_name" binding:"required,max=255"`         // 知识库名称
 	Description        string           `json:"description" binding:"required"`                   // 知识库用途和内容说明
 	KBType             string           `json:"kb_type" binding:"omitempty,max=32"`               // 向量存储后端类型；未传时默认使用 pgvector
+	EmbeddingModelID   uint             `json:"embedding_model_id" binding:"required,min=1"`      // 必须绑定 Embedding 模型
+	ChatModelID        uint             `json:"chat_model_id" binding:"required,min=1"`           // 必须绑定 Chat 模型
 	EmbeddingModelSpec string           `json:"embedding_model_spec" binding:"omitempty,max=512"` // 向量化模型
 	LLMModelSpec       string           `json:"llm_model_spec" binding:"omitempty,max=512"`       // 知识库关联的大模型
 	QueryParams        entity.JSON      `json:"query_params" binding:"omitempty"`                 // 检索参数配置
@@ -16,10 +18,12 @@ type CreateKnowledgeBaseRequest struct {
 
 // UpdateKnowledgeBaseRequest 更新知识库请求
 type UpdateKnowledgeBaseRequest struct {
-	Name             string      `json:"name" binding:"required,max=255"`            // 更新后的知识库名称
-	Description      string      `json:"description" binding:"required"`             // 更新后的知识库描述
-	LLMModelSpec     string      `json:"llm_model_spec" binding:"omitempty,max=512"` // 更新后的大模型规格
-	AdditionalParams entity.JSON `json:"additional_params" binding:"omitempty"`      // 更新扩展参数
+	Name             string      `json:"name" binding:"required,max=255"`              // 更新后的知识库名称
+	Description      string      `json:"description" binding:"required"`               // 更新后的知识库描述
+	EmbeddingModelID uint        `json:"embedding_model_id" binding:"omitempty,min=1"` // 更新后的 Embedding 模型
+	ChatModelID      uint        `json:"chat_model_id" binding:"omitempty,min=1"`      // 更新后的 Chat 模型
+	LLMModelSpec     string      `json:"llm_model_spec" binding:"omitempty,max=512"`   // 更新后的大模型规格
+	AdditionalParams entity.JSON `json:"additional_params" binding:"omitempty"`        // 更新扩展参数
 }
 
 // KnowledgeBaseListRequest 知识库列表请求

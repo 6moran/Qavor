@@ -1,24 +1,23 @@
--- Qavor 数据库迁移脚本
+-- Qavor PostgreSQL 迁移脚本
+-- 注意：第一版不创建 HNSW / IVFFlat 索引，仅启用 pgvector 扩展并补齐字段。
 
--- 创建数据库
-CREATE DATABASE IF NOT EXISTS qavor DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- 启用 pgvector 扩展（需先在 PostgreSQL 实例安装 pgvector）
+CREATE EXTENSION IF NOT EXISTS vector;
 
-USE qavor;
+-- 知识库必须绑定 Embedding 与 Chat 模型；模型配置存放在 models 表。
+ALTER TABLE knowledge_bases
+    ADD COLUMN IF NOT EXISTS embedding_model_id bigint NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS chat_model_id bigint NOT NULL DEFAULT 0;
 
--- 用户表
-CREATE TABLE IF NOT EXISTS `users` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `username` varchar(50) NOT NULL COMMENT '用户名',
-  `password` varchar(255) NOT NULL COMMENT '密码',
-  `email` varchar(100) DEFAULT NULL COMMENT '邮箱',
-  `nickname` varchar(50) DEFAULT NULL COMMENT '昵称',
-  `avatar` varchar(255) DEFAULT NULL COMMENT '头像',
-  `status` tinyint NOT NULL DEFAULT '1' COMMENT '状态:1正常,2禁用',
-  `created_at` datetime(3) DEFAULT NULL,
-  `updated_at` datetime(3) DEFAULT NULL,
-  `deleted_at` datetime(3) DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `idx_username` (`username`),
-  UNIQUE KEY `idx_email` (`email`),
-  KEY `idx_deleted_at` (`deleted_at`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
+-- knowledge_chunks 增加 RAG 所需字段
+ALTER TABLE knowledge_chunks
+    ADD COLUMN IF NOT EXISTS token_count integer NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS embedding vector;
+
+-- 文件 + 分块序号 唯一约束，保证同一文件不会重复生成 Chunk
+CREATE UNIQUE INDEX IF NOT EXISTS uk_knowledge_chunks_file_index
+    ON knowledge_chunks(file_id, chunk_index);
+
+-- 知识库 / 文件联合查询索引
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_kb_file
+    ON knowledge_chunks(kb_id, file_id);

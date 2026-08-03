@@ -43,7 +43,7 @@
               type="button"
               class="mcp-card-action mcp-card-action-danger"
               :disabled="isActionLoading(server)"
-              :aria-label="server.created_by === 'system' ? '移除 MCP' : '删除 MCP'"
+              aria-label="删除 MCP"
               @click.stop="handleRemoveServer(server)"
             >
               <Check :size="15" class="action-icon action-icon-check" />
@@ -100,9 +100,6 @@
             </div>
             <div class="mcp-basic-info-meta">
               <span>{{ previewServer.transport || '未知传输类型' }}</span>
-              <span v-if="previewServer.created_by === 'system'" class="mcp-basic-info-tag">
-                内置
-              </span>
             </div>
           </div>
         </div>
@@ -124,10 +121,6 @@
             <span class="mcp-basic-info-tags">
               <a-tag v-for="tag in previewServer.tags" :key="tag">{{ tag }}</a-tag>
             </span>
-          </div>
-          <div class="mcp-basic-info-row">
-            <label>创建人</label>
-            <span>{{ previewServer.created_by || '-' }}</span>
           </div>
         </div>
 
@@ -249,10 +242,6 @@ const handleSetServerEnabled = async (server, enabled) => {
 }
 
 const handleRemoveServer = (server) => {
-  if (server.created_by === 'system') {
-    handleSetServerEnabled(server, false)
-    return
-  }
   confirmDeleteServer(server)
 }
 

@@ -76,10 +76,23 @@
         <div v-if="selectedKbTypeInfo?.requires_embedding_model" class="form-grid two-columns">
           <div class="form-section compact-section">
             <h3 class="section-title">嵌入模型</h3>
-            <EmbeddingModelSelector
-              v-model:value="newDatabase.embedding_model_spec"
+            <a-select
+              v-model:value="newDatabase.embedding_model_id"
+              :options="embeddingModelOptions"
+              :loading="modelsLoading"
               class="full-width"
               placeholder="请选择嵌入模型"
+            />
+          </div>
+
+          <div class="form-section compact-section">
+            <h3 class="section-title">问答模型<span class="required-mark">*</span></h3>
+            <a-select
+              v-model:value="newDatabase.chat_model_id"
+              :options="chatModelOptions"
+              :loading="modelsLoading"
+              class="full-width"
+              placeholder="请选择问答模型"
             />
           </div>
 
@@ -243,16 +256,14 @@
 import { ref, onMounted, reactive, watch, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { Copy, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import { message, Modal } from 'ant-design-vue'
-import { databaseApi, typeApi } from '@/apis/knowledge_api'
+import { databaseApi, modelApi, typeApi } from '@/apis/knowledge_api'
 import PageHeader from '@/components/shared/PageHeader.vue'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
-import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
 import ExtensionCardGrid from '@/components/extensions/ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import dayjs, { parseToShanghai } from '@/utils/time'
@@ -263,7 +274,6 @@ import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
 
 const route = useRoute()
 const router = useRouter()
-const configStore = useConfigStore()
 const databaseStore = useDatabaseStore()
 const {
   chunkPresetSelectOptions: chunkPresetOptions,
@@ -308,10 +318,21 @@ const state = reactive({
   openNewDatabaseModel: false
 })
 
+const embeddingModels = ref([])
+const chatModels = ref([])
+const modelsLoading = ref(false)
+const embeddingModelOptions = computed(() =>
+  embeddingModels.value.map((model) => ({ label: `${model.name} (#${model.id})`, value: model.id }))
+)
+const chatModelOptions = computed(() =>
+  chatModels.value.map((model) => ({ label: `${model.name} (#${model.id})`, value: model.id }))
+)
+
 const createEmptyDatabaseForm = () => ({
   name: '',
   description: '',
-  embedding_model_spec: configStore.config?.embed_model,
+  embedding_model_id: undefined,
+  chat_model_id: undefined,
   kb_type: '',
   storage: '',
   chunk_preset_id: DEFAULT_CHUNK_PRESET_ID,
@@ -376,6 +397,19 @@ const loadSupportedKbTypes = async () => {
   }
 }
 
+const loadModels = async () => {
+  modelsLoading.value = true
+  try {
+    const [embedding, chat] = await Promise.all([modelApi.list('embedding'), modelApi.list('chat')])
+    embeddingModels.value = embedding.filter((model) => model.enabled !== false)
+    chatModels.value = chat.filter((model) => model.enabled !== false)
+  } catch (error) {
+    console.error('加载模型列表失败:', error)
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
 const resetNewDatabase = () => {
   Object.assign(newDatabase, createEmptyDatabaseForm())
   newDatabase.kb_type = kbTypes.value[0] || ''
@@ -432,12 +466,12 @@ const buildRequestData = () => {
     database_name: newDatabase.name.trim(),
     description: newDatabase.description?.trim() || '',
     kb_type: newDatabase.kb_type,
+    embedding_model_id: newDatabase.embedding_model_id,
+    chat_model_id: newDatabase.chat_model_id,
     additional_params: {}
   }
 
   if (selectedKbTypeInfo.value?.requires_embedding_model) {
-    requestData.embedding_model_spec =
-      newDatabase.embedding_model_spec || configStore.config.embed_model
     requestData.additional_params.chunk_preset_id =
       newDatabase.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
   }
@@ -461,6 +495,15 @@ const buildRequestData = () => {
 const handleCreateDatabase = async () => {
   if (!selectedKbTypeInfo.value) {
     message.error('知识库类型加载失败，无法创建知识库')
+    return
+  }
+
+  if (!newDatabase.embedding_model_id) {
+    message.error('请选择嵌入模型')
+    return
+  }
+  if (!newDatabase.chat_model_id) {
+    message.error('请选择问答模型')
     return
   }
 
@@ -501,9 +544,12 @@ const cardTags = (database) => {
       color: getKbTypeColor(database.kb_type || 'milvus')
     }
   ]
-  if (database.embedding_model_spec) {
+  const embeddingModel = embeddingModels.value.find(
+    (model) => model.id === database.embedding_model_id
+  )
+  if (embeddingModel) {
     tags.push({
-      name: database.embedding_model_spec.split('/').slice(-1)[0],
+      name: embeddingModel.name,
       color: 'blue'
     })
   }
@@ -577,6 +623,7 @@ watch(
 onMounted(() => {
   loadChunkPresetOptions()
   loadSupportedKbTypes()
+  loadModels()
   databaseStore.loadDatabases()
 })
 

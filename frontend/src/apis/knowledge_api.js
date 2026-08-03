@@ -352,6 +352,14 @@ export const documentApi = {
   }
 }
 
+// 模型管理 API：知识库创建时使用数据库中的模型 ID 绑定模型。
+export const modelApi = {
+  list: async (modelType) => {
+    const response = await apiGet(`/api/v1/models?model_type=${encodeURIComponent(modelType)}`)
+    return response?.data?.items || response?.items || []
+  }
+}
+
 // =============================================================================
 // === 文档异步处理任务分组 ===
 // =============================================================================
