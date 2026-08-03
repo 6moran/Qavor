@@ -130,7 +130,10 @@ const submit = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #e8edf4;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(147, 197, 253, 0.34), transparent 30%),
+    radial-gradient(circle at 88% 82%, rgba(191, 219, 254, 0.42), transparent 32%),
+    linear-gradient(135deg, #f4f8ff 0%, #e2edfc 100%);
   padding: 40px;
 }
 
@@ -153,8 +156,40 @@ const submit = async () => {
   display: flex;
   flex-direction: column;
   padding: 56px 72px;
-  background: linear-gradient(135deg, #2563b0 0%, #1a4a8a 100%);
+  background:
+    radial-gradient(circle at 76% 18%, rgba(147, 197, 253, 0.92) 0 8%, transparent 25%),
+    radial-gradient(circle at 22% 88%, rgba(96, 165, 250, 0.28), transparent 30%),
+    linear-gradient(145deg, #2563b0 0%, #1d4ed8 56%, #172554 100%);
   position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.brand-section::before,
+.brand-section::after {
+  content: '';
+  position: absolute;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.brand-section::before {
+  width: 360px;
+  height: 360px;
+  right: -190px;
+  top: 120px;
+  border: 1px solid rgba(191, 219, 254, 0.28);
+  box-shadow:
+    0 0 0 32px rgba(191, 219, 254, 0.08),
+    0 0 0 76px rgba(191, 219, 254, 0.05);
+}
+
+.brand-section::after {
+  width: 220px;
+  height: 220px;
+  left: -110px;
+  bottom: -125px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .brand-header {
@@ -219,20 +254,50 @@ const submit = async () => {
   height: 280px;
 }
 
+.illustration-placeholder::before,
+.illustration-placeholder::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.illustration-placeholder::before {
+  width: 170px;
+  height: 170px;
+  left: 54px;
+  top: 54px;
+  border: 1px solid rgba(219, 234, 254, 0.4);
+  box-shadow:
+    0 0 0 18px rgba(219, 234, 254, 0.1),
+    0 0 0 42px rgba(219, 234, 254, 0.06);
+}
+
+.illustration-placeholder::after {
+  width: 12px;
+  height: 12px;
+  right: 22px;
+  top: 28px;
+  background: #bfdbfe;
+  box-shadow:
+    -196px 188px 0 4px rgba(191, 219, 254, 0.68),
+    -72px 226px 0 2px rgba(147, 197, 253, 0.7);
+}
+
 .main-brand-slogan {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   width: 280px;
-  color: #4f46e5;
+  color: #fff;
   font-size: 27px;
   font-weight: 600;
   letter-spacing: 0.14em;
   line-height: 1.6;
   text-align: center;
   white-space: nowrap;
-  text-shadow: 0 10px 30px rgba(99, 102, 241, 0.22);
+  text-shadow: 0 10px 30px rgba(15, 23, 42, 0.32);
 }
 
 .brand-footer {
