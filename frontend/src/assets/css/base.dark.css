@@ -1,27 +1,27 @@
 /* 深色模式 */
 :root.dark {
-  --main-1000: #e1f6fb;
-  --main-900: #c4eaf5;
-  --main-800: #a3d8e8;
-  --main-700: #82c3d6;
-  --main-600: #5faec2;
-  --main-500: #4a9fb8;
-  --main-400: #3996ae;
-  --main-300: #24839a;
-  --main-200: #046a82;
-  --main-100: #035065;
-  --main-50: #023944;
-  --main-40: #01151f;
-  --main-30: #010d14;
-  --main-20: #010a0f;
-  --main-10: #00070a;
-  --main-5: #000405;
+  --main-1000: #e0f0fd;
+  --main-900: #c4e2fa;
+  --main-800: #a1cff5;
+  --main-700: #7eb4f0;
+  --main-600: #5b9dea;
+  --main-500: #3b82d6;
+  --main-400: #2563b0;
+  --main-300: #1a4a8a;
+  --main-200: #0c2d5e;
+  --main-100: #0a1628;
+  --main-50: #070f1c;
+  --main-40: #050b14;
+  --main-30: #03080d;
+  --main-20: #02060a;
+  --main-10: #010305;
+  --main-5: #010203;
   --main-1: #000102;
   --main-0: #000000;
 
   /* 保留原有的 main 变量 */
-  --main-color: #4a9fb8;
-  --main-bright: #5faec2;
+  --main-color: #5b9dea;
+  --main-bright: #7eb4f0;
 
   --gray-10000: #fafafa;
   --gray-2000: #f8fafa;
@@ -87,7 +87,7 @@
   --chart-palette-9: #c46e9e;
   --chart-palette-10: #7a7a7a;
 
-  --bg-sider: #141414;
+  --bg-sider: #0f1724;
   --color-text: #ffffff;
 
   --dark-98: rgba(255, 255, 255, 0.98);
@@ -117,8 +117,8 @@
   --light-0: rgba(0, 0, 0, 0);
 
   /* Ant Design 兼容变量 - 深色模式 */
-  --color-bg-container: #1f1f1f;
-  --color-bg-elevated: #262626;
+  --color-bg-container: #141c2e;
+  --color-bg-elevated: #1a2540;
   --color-text-secondary: rgba(255, 255, 255, 0.65);
   --color-text-tertiary: rgba(255, 255, 255, 0.45);
 

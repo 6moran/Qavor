@@ -46,9 +46,14 @@
             <ScanText class="icon" :size="18" />
             <span>OCR 配置</span>
           </div>
-          </div>
+        </div>
 
-        
+        <div class="settings-sider-footer">
+          <div class="sider-item logout-item" @click="handleLogout">
+            <LogOut class="icon" :size="18" />
+            <span>退出登录</span>
+          </div>
+        </div>
       </div>
 
       <!-- 顶部导航 (Mobile) -->
@@ -105,12 +110,14 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import {
   Settings,
   Key,
   ScanText,
-  X
+  X,
+  LogOut
 } from 'lucide-vue-next'
 import BasicSettingsSection from '@/components/BasicSettingsSection.vue'
 import OCRSettingsSection from '@/components/OCRSettingsSection.vue'
@@ -130,7 +137,14 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'close'])
 
 const userStore = useUserStore()
+const router = useRouter()
 const activeTab = ref('apiKeys')
+
+const handleLogout = async () => {
+  await userStore.logout()
+  visible.value = false
+  router.push('/login')
+}
 
 const visible = computed({
   get: () => props.visible,
@@ -242,16 +256,16 @@ watch(
 
   .sider-item {
     width: 100%;
-    padding: 6px 12px; /* Matches SettingView .sider > * */
+    padding: 8px 14px; /* Matches SettingView .sider > * */
     cursor: pointer;
     transition: all 0.1s; /* Matches SettingView */
     text-align: left;
-    font-size: 15px; /* Matches SettingView */
+    font-size: 16px; /* Matches SettingView */
     border-radius: 8px;
     color: var(--gray-700);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
 
     .icon {
       font-size: 14px; /* Slightly adjusted to align better, SettingView uses h() icon defaults */
@@ -322,7 +336,7 @@ watch(
   .star-card-title {
     margin: 10px 0 6px;
     color: var(--gray-900);
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
     line-height: 1.35;
   }
@@ -330,7 +344,7 @@ watch(
   .star-card-description {
     margin: 0;
     color: var(--gray-600);
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
   }
 
@@ -347,6 +361,21 @@ watch(
   .star-card-link-image {
     display: block;
     height: 20px;
+  }
+
+  .settings-sider-footer {
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--gray-150);
+
+    .logout-item {
+      color: var(--gray-600);
+
+      &:hover {
+        background: var(--gray-100);
+        color: var(--color-error-500);
+      }
+    }
   }
 }
 
@@ -395,7 +424,7 @@ watch(
     }
 
     .section-title {
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 500;
       color: var(--gray-900);
       line-height: 1.4;
@@ -403,7 +432,7 @@ watch(
     }
 
     .section-description {
-      font-size: 14px;
+      font-size: 15px;
       color: var(--gray-600);
       line-height: 1.4;
       margin: 0;
@@ -411,7 +440,7 @@ watch(
 
     .section-subtitle {
       margin: 0;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 500;
       color: var(--gray-900);
     }
