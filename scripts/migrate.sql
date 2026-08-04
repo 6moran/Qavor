@@ -9,6 +9,10 @@ ALTER TABLE knowledge_bases
     ADD COLUMN IF NOT EXISTS embedding_model_id bigint NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS chat_model_id bigint NOT NULL DEFAULT 0;
 
+-- 知识库类型固定为 pgvector，不再保存类型字段。
+ALTER TABLE knowledge_bases
+    DROP COLUMN IF EXISTS kb_type;
+
 -- knowledge_chunks 增加 RAG 所需字段
 ALTER TABLE knowledge_chunks
     ADD COLUMN IF NOT EXISTS token_count integer NOT NULL DEFAULT 0,

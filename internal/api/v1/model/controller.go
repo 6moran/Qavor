@@ -219,3 +219,27 @@ func (ctrl *Controller) GetProviderByName(c *gin.Context) {
 
 	response.Success(c, provider)
 }
+
+// TestConnection 测试模型连接
+// @Summary 测试模型连接
+// @Description 在不保存配置的情况下验证 Chat/Embedding 模型是否可用
+// @Tags 模型
+// @Accept json
+// @Produce json
+// @Param request body request.ModelConnectionTestRequest true "连接测试请求"
+// @Success 200 {object} response.Response{data=response.ModelConnectionTestResponse}
+// @Router /api/v1/models/test [post]
+func (ctrl *Controller) TestConnection(c *gin.Context) {
+	var req request.ModelConnectionTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		code, message := validator.ErrorHandler(err)
+		response.Error(c, code, message)
+		return
+	}
+	result, err := ctrl.modelService.TestConnection(c.Request.Context(), &req)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	response.Success(c, result)
+}

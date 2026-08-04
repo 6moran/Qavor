@@ -42,8 +42,7 @@ func (ctrl *Controller) Upload(c *gin.Context) {
 		response.BadRequest(c, "缺少上传文件")
 		return
 	}
-	autoIndex := strings.EqualFold(c.Query("auto_index"), "true")
-	result, err := ctrl.service.Upload(c.Query("kb_id"), c.Query("parent_id"), autoIndex, file)
+	result, err := ctrl.service.Upload(c.Query("kb_id"), c.Query("parent_id"), file)
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -143,4 +142,64 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 		return
 	}
 	response.Success(c, nil)
+}
+
+// RetryParse 重试解析失败的单个文件。
+func (ctrl *Controller) RetryParse(c *gin.Context) {
+	result, err := ctrl.service.RetryParse(c.Request.Context(), c.Param("kb_id"), c.Param("doc_id"))
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入解析队列", Data: result})
+}
+
+// IndexOne 对单个文件执行手动入库。
+func (ctrl *Controller) IndexOne(c *gin.Context) {
+	var req request.IndexOneKnowledgeFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.IndexFiles(c.Request.Context(), c.Param("kb_id"), &request.IndexKnowledgeFilesRequest{
+		FileIDs: []string{c.Param("doc_id")},
+		Params:  req.Params,
+	})
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})
+}
+
+// IndexMany 对多个文件执行手动入库。
+func (ctrl *Controller) IndexMany(c *gin.Context) {
+	var req request.IndexKnowledgeFilesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.IndexFiles(c.Request.Context(), c.Param("kb_id"), &req)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})
+}
+
+// IndexPending 将所有待入库文件批量入库。
+func (ctrl *Controller) IndexPending(c *gin.Context) {
+	var req struct {
+		Params request.ChunkParams `json:"params" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.IndexPending(c.Request.Context(), c.Param("kb_id"), req.Params)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})
 }

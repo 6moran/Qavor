@@ -30,15 +30,13 @@
             class="custom-segmented"
           />
         </div>
-        <div class="auto-index-toggle">
-          <a-checkbox v-model:checked="autoIndex">上传后自动入库</a-checkbox>
-        </div>
+
       </div>
 
       <!-- 2. 配置面板 -->
       <div
         class="settings-panel"
-        v-if="folderTreeData.length > 0 || shouldShowOcrSelector || autoIndex"
+        v-if="folderTreeData.length > 0 || shouldShowOcrSelector"
       >
         <!-- 第一行：存储位置 + OCR 引擎 -->
         <div
@@ -86,24 +84,6 @@
           </div>
         </div>
 
-        <!-- 第二行：自动入库配置 (仅在开启时显示) -->
-        <div class="setting-row" v-if="autoIndex">
-          <div class="col-item">
-            <div class="setting-label">入库参数配置</div>
-            <div class="setting-content">
-              <ChunkParamsConfig
-                :temp-chunk-params="indexParams"
-                :show-qa-split="true"
-                :show-chunk-size-overlap="true"
-                :show-preset="true"
-                :allow-preset-follow-default="true"
-                :database-preset-id="
-                  store.database?.additional_params?.chunk_preset_id || 'general'
-                "
-              />
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- PDF/图片OCR提醒 (Alert样式优化) -->
@@ -375,9 +355,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-vue-next'
-import { buildChunkParamsPayload } from '@/utils/chunkUtils'
 import { pollDocumentProcessingJobs } from '@/utils/document_processing_jobs'
-import ChunkParamsConfig from '@/components/ChunkParamsConfig.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import OCRSelector from '@/components/OCRSelector.vue'
 
@@ -647,7 +625,7 @@ watch(fileList, (newFileList) => {
 })
 
 // URL 列表
-// Item structure: { url: string, status: 'fetching'|'success'|'error', data: object|null, error: string }
+// 项目结构：{ url: string, status: 'fetching'|'success'|'error', data: object|null, error: string }
 const urlList = ref([])
 const newUrl = ref('')
 const fetchingUrls = ref(false)
@@ -808,20 +786,6 @@ const ocrEngineTouched = ref(false)
 const processingParams = ref({
   ocr_engine: DEFAULT_OCR_ENGINE
 })
-
-// 自动入库相关
-const autoIndex = ref(false)
-const indexParams = ref({
-  chunk_preset_id: '',
-  chunk_parser_config: {}
-})
-
-const buildAutoIndexParams = () => {
-  return buildChunkParamsPayload(indexParams.value, {
-    includeSizeOverlap: true
-  })
-}
-
 const isFolderUpload = ref(false)
 
 // 计算属性：是否启用了OCR
@@ -1140,9 +1104,6 @@ const runUploadTask = (task) => {
     if (selectedFolderId.value) {
       uploadParams.set('parent_id', selectedFolderId.value)
     }
-    if (autoIndex.value) {
-      uploadParams.set('auto_index', 'true')
-    }
 
     const xhr = new XMLHttpRequest()
     task.xhr = xhr
@@ -1392,10 +1353,6 @@ const chunkData = async () => {
       }
 
       const params = { ...buildCurrentProcessingParams(), content_hashes, file_sizes }
-      if (autoIndex.value) {
-        params.auto_index = true
-        Object.assign(params, buildAutoIndexParams())
-      }
 
       await store.addFiles({
         items,
@@ -1451,10 +1408,6 @@ const chunkData = async () => {
     try {
       store.state.chunkLoading = true
       const params = buildCurrentProcessingParams()
-      if (autoIndex.value) {
-        params.auto_index = true
-        Object.assign(params, buildAutoIndexParams())
-      }
 
       // 构造 _preprocessed_map 和 items (minio urls)
       const items = []
@@ -1523,10 +1476,6 @@ const chunkData = async () => {
   try {
     store.state.chunkLoading = true
     const params = { ...buildCurrentProcessingParams(), content_hashes, file_sizes }
-    if (autoIndex.value) {
-      params.auto_index = true
-      Object.assign(params, buildAutoIndexParams())
-    }
 
     await store.addFiles({
       items,
@@ -1573,18 +1522,6 @@ const chunkData = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.auto-index-toggle {
-  display: flex;
-  align-items: center;
-  padding-right: 4px;
-
-  :deep(.ant-checkbox-wrapper) {
-    font-size: 13px;
-    color: var(--gray-600);
-    font-weight: 500;
-  }
 }
 
 .help-link-btn {
@@ -2326,14 +2263,6 @@ const chunkData = async () => {
   }
 }
 
-.auto-index-params {
-  margin-top: 8px;
-  padding: 12px;
-  background: var(--gray-0);
-  border: 1px solid var(--gray-200);
-  border-radius: 6px;
-}
-
 .setting-label .ant-checkbox {
   margin-right: 8px;
 }
@@ -2343,10 +2272,6 @@ const chunkData = async () => {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
-  }
-
-  .auto-index-toggle {
-    padding-right: 0;
   }
 
   .progress-header {

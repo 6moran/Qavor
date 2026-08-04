@@ -1,14 +1,7 @@
 <template>
   <div class="graph-section" v-if="isGraphSupported">
     <div class="graph-container-compact">
-      <div v-if="!isGraphSupported" class="graph-disabled">
-        <div class="disabled-content">
-          <h4>知识图谱不可用</h4>
-          <p>当前知识库类型 "{{ kbTypeLabel }}" 不支持知识图谱功能。</p>
-          <p>只有 Milvus 类型的知识库支持知识图谱。</p>
-        </div>
-      </div>
-      <div v-else class="graph-wrapper">
+      <div class="graph-wrapper">
         <GraphCanvas
           ref="graphRef"
           :graph-data="graph.graphData"
@@ -420,7 +413,6 @@ import {
 import GraphCanvas from '@/components/GraphCanvas.vue'
 import GraphDetailPanel from '@/components/GraphDetailPanel.vue'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
-import { getKbTypeLabel } from '@/utils/kb_utils'
 import { unifiedApi } from '@/apis/graph_api'
 import { graphBuildApi } from '@/apis/knowledge_api'
 import { Modal, message } from 'ant-design-vue'
@@ -428,8 +420,6 @@ import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { useGraph } from '@/composables/useGraph'
 
 const GRAPH_BUILD_TASK_TYPE = 'knowledge_graph_index'
-const MILVUS_KB_TYPE = 'milvus'
-const GRAPH_SUPPORTED_KB_TYPES = new Set([MILVUS_KB_TYPE])
 
 const props = defineProps({
   active: {
@@ -443,9 +433,7 @@ const taskerStore = useTaskerStore()
 const configStore = useConfigStore()
 
 const kbId = computed(() => store.kbId)
-const kbType = computed(() => store.database.kb_type)
-const kbTypeLabel = computed(() => getKbTypeLabel(kbType.value || 'milvus'))
-const isMilvus = computed(() => kbType.value?.toLowerCase() === MILVUS_KB_TYPE)
+const isMilvus = computed(() => true)
 
 const graphRef = ref(null)
 const showSettings = ref(false)
@@ -582,7 +570,7 @@ const graph = reactive(useGraph(graphRef))
 const graphLoaded = ref(false)
 
 // 计算属性：是否支持知识图谱
-const isGraphSupported = computed(() => GRAPH_SUPPORTED_KB_TYPES.has(kbType.value?.toLowerCase()))
+const isGraphSupported = computed(() => true)
 const hasGraphNodes = computed(() => graph.graphData.nodes.length > 0)
 const showGraphConfigEmpty = computed(
   () => isMilvus.value && !graphBuildStatus.value?.locked && !graphBuildLoading.value

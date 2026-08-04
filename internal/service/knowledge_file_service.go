@@ -38,8 +38,8 @@ func NewKnowledgeFileService(baseRepo repository.KnowledgeBaseRepository, fileRe
 	return &knowledgeFileService{baseRepo: baseRepo, fileRepo: fileRepo, jobRepo: jobRepo, storage: storage, queue: queue}
 }
 
-// Upload 上传文件到知识库
-func (s *knowledgeFileService) Upload(kbID, parentID string, autoIndex bool, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error) {
+// Upload 上传文件到知识库（仅触发解析为markdown，不自动入库）
+func (s *knowledgeFileService) Upload(kbID, parentID string, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error) {
 	// 参数校验
 	if file == nil {
 		return nil, bizerrors.New(bizerrors.CodeMissingParam, "缺少上传文件")
@@ -88,10 +88,9 @@ func (s *knowledgeFileService) Upload(kbID, parentID string, autoIndex bool, fil
 		FileType:         object.ContentType,
 		Path:             object.Path,
 		MinioURL:         object.URL,
-		Status:           "uploaded", // 初始状态为已上传
+		Status:           entity.FileUploaded, // 初始状态为已上传
 		FileSize:         &fileSize,
 		ContentType:      object.ContentType,
-		ProcessingParams: entity.JSON{"auto_index": autoIndex},
 	}
 	// 保存文件记录到数据库
 	if err := s.fileRepo.Create(knowledgeFile); err != nil {
@@ -99,12 +98,30 @@ func (s *knowledgeFileService) Upload(kbID, parentID string, autoIndex bool, fil
 	}
 	result := knowledgeFileResponse(knowledgeFile)
 	if !knowledgeFile.IsFolder && s.jobRepo != nil {
-		job := &entity.DocumentProcessingJob{JobID: uuid.NewString(), KBID: kbID, FileID: knowledgeFile.FileID, Status: entity.JobPending, MaxAttempts: 1, AvailableAt: time.Now()}
-		if err := s.jobRepo.Create(job); err != nil {
+		// 创建仅解析任务，并原子性地将文件状态转换为 parse_queued。
+		job := &entity.DocumentProcessingJob{
+			JobID:       uuid.NewString(),
+			KBID:        kbID,
+			FileID:      knowledgeFile.FileID,
+			JobType:     entity.JobTypeParse,
+			Status:      entity.JobPending,
+			MaxAttempts: 1,
+			AvailableAt: time.Now(),
+		}
+		created, err := s.jobRepo.CreateForFileTransition(context.Background(), job, []string{entity.FileUploaded}, entity.FileParseQueued)
+		if err != nil {
 			_ = s.fileRepo.DeleteByKBIDAndFileID(kbID, knowledgeFile.FileID)
 			_ = s.storage.Delete(object.Path)
 			return nil, err
 		}
+		if !created {
+			// 文件已处于不同状态——这在新上传时不应该发生。
+			_ = s.fileRepo.DeleteByKBIDAndFileID(kbID, knowledgeFile.FileID)
+			_ = s.storage.Delete(object.Path)
+			return nil, bizerrors.New(bizerrors.CodeConflict, "文件状态冲突，无法创建解析任务")
+		}
+		knowledgeFile.Status = entity.FileParseQueued
+		result = knowledgeFileResponse(knowledgeFile)
 		result.ProcessingJobID = job.JobID
 		if err := s.queue.Publish(context.Background(), documentqueue.Message{
 			JobID:     job.JobID,
@@ -113,9 +130,10 @@ func (s *knowledgeFileService) Upload(kbID, parentID string, autoIndex bool, fil
 			CreatedAt: time.Now(),
 			Schema:    1,
 		}); err != nil {
+			// 将任务标记为失败并恢复文件状态。
 			_ = s.jobRepo.MarkFailed(job.JobID, "QUEUE_ENQUEUE_FAILED", "文档处理任务投递失败")
-			_ = s.fileRepo.DeleteByKBIDAndFileID(kbID, knowledgeFile.FileID)
-			_ = s.storage.Delete(object.Path)
+			_, _ = s.fileRepo.TransitionStatus(context.Background(), kbID, knowledgeFile.FileID, []string{entity.FileParseQueued}, entity.FileParseFailed, map[string]any{"error_message": "文档处理任务投递失败"})
+			// 保留 MinIO 对象和文件记录，以便用户可以重试。
 			return nil, bizerrors.NewWithErr(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用", err)
 		}
 	}
@@ -177,14 +195,30 @@ func (s *knowledgeFileService) Delete(kbID, fileID string) error {
 	if file == nil {
 		return bizerrors.New(bizerrors.CodeResourceNotFound, "文件不存在")
 	}
+	// 正在解析或入库的文件不允许删除
+	if file.Status == entity.FileParsing || file.Status == entity.FileIndexing {
+		return bizerrors.New(bizerrors.CodeConflict, "文件正在处理中，无法删除")
+	}
+	// 排队中的文件需要先取消任务
+	if file.Status == entity.FileParseQueued || file.Status == entity.FileIndexQueued {
+		if s.jobRepo != nil {
+			if err := s.jobRepo.CancelPendingByFile(context.Background(), kbID, fileID); err != nil {
+				return err
+			}
+		}
+	}
 	// 删除对象存储中的文件（忽略文件不存在的错误）
 	if file.Path != "" {
 		if err := s.storage.Delete(file.Path); err != nil && !errors.Is(err, ErrObjectNotFound) {
 			return err
 		}
 	}
-	// 删除数据库中的文件记录
-	return s.fileRepo.DeleteByKBIDAndFileID(kbID, fileID)
+	// 删除 Markdown 文件
+	if file.MarkdownFile != "" {
+		_ = s.storage.Delete(file.MarkdownFile)
+	}
+	// 在同一数据库事务中删除向量分块和文件记录。
+	return s.fileRepo.DeleteWithChunks(context.Background(), kbID, fileID)
 }
 
 // BatchDelete 逐个删除文件；单项失败会返回在结果中，不影响其余文件删除。
@@ -339,6 +373,134 @@ func (s *knowledgeFileService) Download(kbID, fileID string) (*FileDownload, err
 		size = *file.FileSize
 	}
 	return &FileDownload{Filename: file.OriginalFilename, ContentType: file.ContentType, Size: size, Reader: reader}, nil
+}
+
+// RetryParse 重试解析失败的单个文件。
+func (s *knowledgeFileService) RetryParse(ctx context.Context, kbID, fileID string) (*response.ProcessingJobEnqueueItem, error) {
+	if s.jobRepo == nil || s.queue == nil {
+		return nil, bizerrors.New(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用")
+	}
+	file, err := s.fileRepo.FindByKBIDAndFileID(kbID, fileID)
+	if err != nil {
+		return nil, err
+	}
+	if file == nil {
+		return nil, bizerrors.New(bizerrors.CodeResourceNotFound, "文件不存在")
+	}
+	if file.Status != entity.FileParseFailed {
+		return nil, bizerrors.New(bizerrors.CodeConflict, "只有解析失败的文件可以重试解析")
+	}
+	job := &entity.DocumentProcessingJob{
+		JobID:       uuid.NewString(),
+		KBID:        kbID,
+		FileID:      fileID,
+		JobType:     entity.JobTypeParse,
+		Status:      entity.JobPending,
+		MaxAttempts: 1,
+		AvailableAt: time.Now(),
+	}
+	created, err := s.jobRepo.CreateForFileTransition(ctx, job, []string{entity.FileParseFailed}, entity.FileParseQueued)
+	if err != nil {
+		return nil, err
+	}
+	if !created {
+		return nil, bizerrors.New(bizerrors.CodeConflict, "文件状态冲突，无法创建解析任务")
+	}
+	if err := s.queue.Publish(ctx, documentqueue.Message{
+		JobID: job.JobID, KBID: job.KBID, FileID: job.FileID, CreatedAt: time.Now(), Schema: 1,
+	}); err != nil {
+		_ = s.jobRepo.MarkFailed(job.JobID, "QUEUE_ENQUEUE_FAILED", "文档处理任务投递失败")
+		_, _ = s.fileRepo.TransitionStatus(ctx, kbID, fileID, []string{entity.FileParseQueued}, entity.FileParseFailed, map[string]any{"error_message": "文档处理任务投递失败"})
+		return nil, bizerrors.NewWithErr(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用", err)
+	}
+	return &response.ProcessingJobEnqueueItem{FileID: fileID, JobID: job.JobID, Status: entity.FileParseQueued}, nil
+}
+
+// IndexFiles 对指定文件执行手动入库。
+func (s *knowledgeFileService) IndexFiles(ctx context.Context, kbID string, req *request.IndexKnowledgeFilesRequest) (*response.ProcessingJobBatchResponse, error) {
+	if s.jobRepo == nil || s.queue == nil {
+		return nil, bizerrors.New(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用")
+	}
+	result := &response.ProcessingJobBatchResponse{}
+	indexableStatuses := []string{entity.FileParsed, entity.FileIndexFailed, entity.FileIndexed}
+	processingParams := entity.JSON{
+		"chunk_preset_id":    req.Params.ChunkPresetID,
+		"chunk_token_num":    req.Params.ChunkParserConfig.ChunkTokenNum,
+		"overlapped_percent": req.Params.ChunkParserConfig.OverlappedPercent,
+	}
+	for _, fileID := range req.FileIDs {
+		file, err := s.fileRepo.FindByKBIDAndFileID(kbID, fileID)
+		if err != nil {
+			result.FailedItems = append(result.FailedItems, response.ProcessingJobEnqueueFailure{FileID: fileID, Code: "INTERNAL_ERROR", Message: err.Error()})
+			continue
+		}
+		if file == nil {
+			result.FailedItems = append(result.FailedItems, response.ProcessingJobEnqueueFailure{FileID: fileID, Code: "NOT_FOUND", Message: "文件不存在"})
+			continue
+		}
+		validStatus := false
+		for _, s := range indexableStatuses {
+			if file.Status == s {
+				validStatus = true
+				break
+			}
+		}
+		if !validStatus {
+			result.FailedItems = append(result.FailedItems, response.ProcessingJobEnqueueFailure{FileID: fileID, Code: "INVALID_STATUS", Message: fmt.Sprintf("文件状态 %s 不允许入库", file.Status)})
+			continue
+		}
+		job := &entity.DocumentProcessingJob{
+			JobID:            uuid.NewString(),
+			KBID:             kbID,
+			FileID:           fileID,
+			JobType:          entity.JobTypeIndex,
+			Status:           entity.JobPending,
+			MaxAttempts:      1,
+			AvailableAt:      time.Now(),
+			ProcessingParams: processingParams,
+		}
+		created, err := s.jobRepo.CreateForFileTransition(ctx, job, indexableStatuses, entity.FileIndexQueued)
+		if err != nil {
+			result.FailedItems = append(result.FailedItems, response.ProcessingJobEnqueueFailure{FileID: fileID, Code: "INTERNAL_ERROR", Message: err.Error()})
+			continue
+		}
+		if !created {
+			result.FailedItems = append(result.FailedItems, response.ProcessingJobEnqueueFailure{FileID: fileID, Code: "CONFLICT", Message: "文件状态冲突或已有入库任务"})
+			continue
+		}
+		if err := s.queue.Publish(ctx, documentqueue.Message{
+			JobID: job.JobID, KBID: job.KBID, FileID: job.FileID, CreatedAt: time.Now(), Schema: 1,
+		}); err != nil {
+			_ = s.jobRepo.MarkFailed(job.JobID, "QUEUE_ENQUEUE_FAILED", "入库任务投递失败")
+			_, _ = s.fileRepo.TransitionStatus(ctx, kbID, fileID, []string{entity.FileIndexQueued}, entity.FileIndexFailed, map[string]any{"error_message": "入库任务投递失败"})
+			result.FailedItems = append(result.FailedItems, response.ProcessingJobEnqueueFailure{FileID: fileID, Code: "QUEUE_ERROR", Message: "入库任务投递失败"})
+			continue
+		}
+		result.QueuedItems = append(result.QueuedItems, response.ProcessingJobEnqueueItem{FileID: fileID, JobID: job.JobID, Status: entity.FileIndexQueued})
+	}
+	return result, nil
+}
+
+// IndexPending 将知识库中所有待入库文件批量入库。
+func (s *knowledgeFileService) IndexPending(ctx context.Context, kbID string, params request.ChunkParams) (*response.ProcessingJobBatchResponse, error) {
+	if s.jobRepo == nil || s.queue == nil {
+		return nil, bizerrors.New(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用")
+	}
+	files, err := s.fileRepo.ListByKBIDAndStatuses(ctx, kbID, []string{entity.FileParsed, entity.FileIndexFailed}, 500)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return &response.ProcessingJobBatchResponse{}, nil
+	}
+	fileIDs := make([]string, 0, len(files))
+	for _, f := range files {
+		fileIDs = append(fileIDs, f.FileID)
+	}
+	return s.IndexFiles(ctx, kbID, &request.IndexKnowledgeFilesRequest{
+		FileIDs: fileIDs,
+		Params:  params,
+	})
 }
 
 func isTextPreviewable(file *entity.KnowledgeFile) bool {

@@ -15,6 +15,8 @@ import {
   adaptKnowledgeBaseList,
   adaptKnowledgeFileList
 } from './knowledge_response'
+import { buildIndexDocumentsRequest } from '@/utils/build_index_request'
+export { buildIndexDocumentsRequest }
 
 /**
  * 知识库管理API模块
@@ -304,48 +306,77 @@ export const documentApi = {
   },
 
   /**
-   * 手动触发文档解析
+   * 重试解析失败的单个文档
    * @param {string} kbId - 知识库ID
-   * @param {Array} fileIds - 文件ID列表
+   * @param {string} docId - 文档ID
    * @returns {Promise} - 解析任务结果
    */
-  parseDocuments: async (kbId, fileIds) => {
-    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/parse`, fileIds)
-  },
-
-  /**
-   * 手动触发全部待解析文档解析
-   * @param {string} kbId - 知识库ID
-   * @returns {Promise} - 解析任务结果
-   */
-  parsePendingDocuments: async (kbId) => {
-    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/parse-pending`, {})
+  retryParseDocument: async (kbId, docId) => {
+    const response = await apiPost(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/parse`,
+      {}
+    )
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
    * 手动触发文档入库
    * @param {string} kbId - 知识库ID
    * @param {Array} fileIds - 文件ID列表
-   * @param {Object} params - 处理参数
+   * @param {Object} params - 分块参数
    * @returns {Promise} - 入库任务结果
    */
   indexDocuments: async (kbId, fileIds, params = {}) => {
-    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/index`, {
-      file_ids: fileIds,
-      params
-    })
+	const { url, body } = buildIndexDocumentsRequest(kbId, fileIds, params)
+	const response = await apiPost(url, body)
+    return unwrapKnowledgeResponse(response)
+  },
+
+  /**
+   * 手动触发单个文档入库
+   * @param {string} kbId - 知识库ID
+   * @param {string} docId - 文档ID
+   * @param {Object} params - 分块参数
+   * @returns {Promise} - 入库任务结果
+   */
+  indexOneDocument: async (kbId, docId, params = {}) => {
+    const body = {
+      params: {
+		chunk_preset_id: params.chunk_preset_id || 'general',
+		chunk_parser_config: {
+		  chunk_token_num: params.chunk_parser_config?.chunk_token_num || 500,
+		  overlapped_percent: params.chunk_parser_config?.overlapped_percent ?? 10
+        }
+      }
+    }
+    const response = await apiPost(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/${encodeURIComponent(docId)}/index`,
+      body
+    )
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
    * 手动触发全部待入库文档入库
    * @param {string} kbId - 知识库ID
-   * @param {Object} params - 处理参数
+   * @param {Object} params - 分块参数
    * @returns {Promise} - 入库任务结果
    */
   indexPendingDocuments: async (kbId, params = {}) => {
-    return apiAdminPost(`/api/knowledge/databases/${kbId}/documents/index-pending`, {
-      params
-    })
+    const body = {
+      params: {
+		chunk_preset_id: params.chunk_preset_id || 'general',
+		chunk_parser_config: {
+		  chunk_token_num: params.chunk_parser_config?.chunk_token_num || 500,
+		  overlapped_percent: params.chunk_parser_config?.overlapped_percent ?? 10
+        }
+      }
+    }
+    const response = await apiPost(
+      `/api/v1/knowledge/databases/${encodeURIComponent(kbId)}/documents/index-pending`,
+      body
+    )
+    return unwrapKnowledgeResponse(response)
   }
 }
 
@@ -615,18 +646,10 @@ export const fileApi = {
 }
 
 // =============================================================================
-// === 知识库类型分组 ===
+// === 知识库配置分组 ===
 // =============================================================================
 
 export const typeApi = {
-  /**
-   * 获取支持的知识库类型
-   * @returns {Promise} - 知识库类型列表
-   */
-  getKnowledgeBaseTypes: async () => {
-    return apiAdminGet('/api/knowledge/types')
-  },
-
   /**
    * 获取支持的知识库分块策略
    * @returns {Promise} - 分块策略列表

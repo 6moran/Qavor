@@ -63,7 +63,15 @@ func (i *DynamicDocumentIndexer) Index(ctx context.Context, in IndexInput) (*Ind
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrEmbeddingUnavailable, err)
 	}
-	transformer := NewDocumentTransformer(i.chunkTokens, i.overlap)
+	chunkTokens := in.ChunkTokens
+	if chunkTokens <= 0 {
+		chunkTokens = i.chunkTokens
+	}
+	overlap := in.OverlapTokens
+	if overlap < 0 {
+		overlap = i.overlap
+	}
+	transformer := NewDocumentTransformer(chunkTokens, overlap)
 	indexer := NewPGVectorIndexer(emb, i.chunkRepo, i.batchSize, i.dimension)
 	pipeline, err := NewDocumentIndexPipeline(transformer, indexer)
 	if err != nil {

@@ -403,7 +403,6 @@ watch(
     flex: 1;
     min-height: 0;
 
-    .model-providers-section,
     .user-management,
     .department-management,
     .apikey-management {

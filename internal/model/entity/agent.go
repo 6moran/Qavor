@@ -9,7 +9,7 @@ type Agent struct {
 	Description string    `gorm:"type:text;comment:描述" json:"description,omitempty"`
 	Icon        string    `gorm:"type:varchar(255);comment:图标URL" json:"icon,omitempty"`
 	Pics        JSONArray `gorm:"type:json;not null;default:'[]';comment:展示图片列表" json:"pics"`
-	ConfigJSON  JSON      `gorm:"type:json;not null;default:{};comment:配置信息" json:"config_json"`
+	ConfigJSON  JSON      `gorm:"type:json;not null;default:'{}';comment:配置信息" json:"config_json"`
 	IsDefault   bool      `gorm:"not null;default:false;index;comment:是否为默认智能体" json:"is_default"`
 	IsSubagent  bool      `gorm:"not null;default:false;index;comment:是否为子智能体" json:"is_subagent"`
 }
