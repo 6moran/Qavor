@@ -60,6 +60,29 @@ type BatchDeleteKnowledgeFileRequest struct {
 	FileIDs []string `json:"file_ids" binding:"required,min=1,max=50,dive,required,max=64"`
 }
 
+// ChunkParserConfig 分块解析配置。
+type ChunkParserConfig struct {
+	ChunkTokenNum     int `json:"chunk_token_num" binding:"required,min=50,max=4000"`
+	OverlappedPercent int `json:"overlapped_percent" binding:"min=0,max=50"`
+}
+
+// ChunkParams 分块参数。
+type ChunkParams struct {
+	ChunkPresetID     string            `json:"chunk_preset_id" binding:"required,max=64"`
+	ChunkParserConfig ChunkParserConfig `json:"chunk_parser_config" binding:"required"`
+}
+
+// IndexKnowledgeFilesRequest 手动入库请求。
+type IndexKnowledgeFilesRequest struct {
+	FileIDs []string    `json:"file_ids" binding:"required,min=1,max=50,dive,required,max=64"`
+	Params  ChunkParams `json:"params" binding:"required"`
+}
+
+// IndexOneKnowledgeFileRequest 单文件手动入库请求，文件 ID 来自路径参数。
+type IndexOneKnowledgeFileRequest struct {
+	Params ChunkParams `json:"params" binding:"required"`
+}
+
 // SearchKnowledgeRequest 知识库搜索请求
 type SearchKnowledgeRequest struct {
 	KBID      string `json:"kb_id" binding:"required"`

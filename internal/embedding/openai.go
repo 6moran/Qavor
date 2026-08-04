@@ -42,7 +42,8 @@ func shouldTryArkMultimodal(err error) bool {
 		return false
 	}
 	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "does not support this api") ||
+	return (strings.Contains(message, "does not support") && strings.Contains(message, "api")) ||
+		(strings.Contains(message, "not support") && strings.Contains(message, "api")) ||
 		strings.Contains(message, "500 internal server error")
 }
 
@@ -89,9 +90,6 @@ func normalizeArkMultimodalBaseURL(baseURL string) string {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	baseURL = strings.TrimSuffix(baseURL, "/embeddings/multimodal")
 	baseURL = strings.TrimSuffix(baseURL, "/embeddings")
-	if strings.HasSuffix(baseURL, "/api/coding/v3") {
-		return strings.TrimSuffix(baseURL, "/api/coding/v3") + "/api/v3"
-	}
 	return baseURL
 }
 

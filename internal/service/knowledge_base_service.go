@@ -77,10 +77,10 @@ func (s *knowledgeBaseService) Update(kbID string, req *request.UpdateKnowledgeB
 		base.Description = req.Description
 	}
 	if req.EmbeddingModelID > 0 {
-		if err := validateKnowledgeBaseModel(s.modelRepo, req.EmbeddingModelID, "embedding"); err != nil {
-			return nil, err
+		if req.EmbeddingModelID != base.EmbeddingModelID {
+			return nil, bizerrors.New(bizerrors.CodeConflict,
+				"知识库的 Embedding 模型创建后不可修改；请新建知识库并重新入库")
 		}
-		base.EmbeddingModelID = req.EmbeddingModelID
 	}
 	if req.ChatModelID > 0 {
 		if err := validateKnowledgeBaseModel(s.modelRepo, req.ChatModelID, "chat"); err != nil {

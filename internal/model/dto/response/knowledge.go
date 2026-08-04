@@ -64,11 +64,12 @@ type KnowledgeFilePreviewResponse struct {
 	Content string `json:"content"`
 }
 
-// DocumentProcessingJobResponse exposes asynchronous document-processing state.
+// DocumentProcessingJobResponse 文档处理任务响应，展示异步文档处理状态。
 type DocumentProcessingJobResponse struct {
 	JobID        string     `json:"job_id"`
 	KBID         string     `json:"kb_id"`
 	FileID       string     `json:"file_id"`
+	JobType      string     `json:"job_type"`
 	Filename     string     `json:"filename,omitempty"` // 源文件名（优先显示 original_filename）
 	Status       string     `json:"status"`
 	Attempt      int        `json:"attempt"`
@@ -80,7 +81,27 @@ type DocumentProcessingJobResponse struct {
 	FinishedAt   *time.Time `json:"finished_at,omitempty"`
 }
 
-// DocumentProcessingJobListResponse is the task-center view of recent parse jobs.
+// ProcessingJobEnqueueItem 单个文件的入库/解析任务结果。
+type ProcessingJobEnqueueItem struct {
+	FileID string `json:"file_id"`
+	JobID  string `json:"job_id"`
+	Status string `json:"status"`
+}
+
+// ProcessingJobEnqueueFailure 入库/解析失败的文件。
+type ProcessingJobEnqueueFailure struct {
+	FileID  string `json:"file_id"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// ProcessingJobBatchResponse 批量入库/解析结果。
+type ProcessingJobBatchResponse struct {
+	QueuedItems []ProcessingJobEnqueueItem    `json:"queued_items"`
+	FailedItems []ProcessingJobEnqueueFailure `json:"failed_items,omitempty"`
+}
+
+// DocumentProcessingJobListResponse 任务中心视图，展示最近的解析任务。
 type DocumentProcessingJobListResponse struct {
 	Total int64                           `json:"total"`
 	Items []DocumentProcessingJobResponse `json:"items"`

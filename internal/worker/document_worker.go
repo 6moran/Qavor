@@ -44,7 +44,7 @@ func NewDocumentWorker(queue documentqueue.DocumentQueue, jobs repository.Docume
 }
 
 // processMessage 处理单条文档处理消息，返回 (是否确认消费, 错误)。
-// 流程：领取/恢复任务 -> 验证任务状态 -> 解析文档 -> 上传 Markdown -> RAG 索引 -> 标记成功。
+// 流程：领取/恢复任务 -> 验证任务状态 -> 按 JobType 分发。
 func (w *DocumentWorker) processMessage(ctx context.Context, message documentqueue.Message, workerID string, reclaimed bool) (bool, error) {
 	if message.InvalidReason != "" || message.JobID == "" {
 		return true, nil
@@ -88,31 +88,49 @@ func (w *DocumentWorker) processMessage(ctx context.Context, message documentque
 		}
 		return true, nil
 	}
-	if err := w.files.UpdateProcessingResult(job.KBID, job.FileID, "processing", "", ""); err != nil {
+
+	switch job.JobType {
+	case entity.JobTypeParse:
+		return w.processParseJob(ctx, job, file)
+	case entity.JobTypeIndex:
+		return w.processIndexJob(ctx, job, file)
+	default:
+		return w.failJob(job, "INVALID_JOB_TYPE", "未知的文档处理任务类型")
+	}
+}
+
+// processParseJob 处理解析任务：parse_queued -> parsing -> 读取原文件 -> 解析 -> 上传 Markdown -> parsed。
+func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.DocumentProcessingJob, file *entity.KnowledgeFile) (bool, error) {
+	ok, err := w.files.TransitionStatus(ctx, job.KBID, job.FileID, []string{entity.FileParseQueued}, entity.FileParsing, nil)
+	if err != nil {
 		return false, err
 	}
+	if !ok {
+		return w.failJob(job, "STATE_CONFLICT", "文件状态冲突，无法开始解析")
+	}
+
 	reader, err := w.storage.Read(file.Path)
 	if err != nil {
-		return w.failJob(job, "STORAGE_READ_FAILED", "读取原文件失败")
+		return w.failParseJob(job, "STORAGE_READ_FAILED", "读取原文件失败")
 	}
 	content, readErr := io.ReadAll(reader)
 	closeErr := reader.Close()
 	if readErr != nil {
-		return w.failJob(job, "STORAGE_READ_FAILED", "读取原文件失败")
+		return w.failParseJob(job, "STORAGE_READ_FAILED", "读取原文件失败")
 	}
 	if closeErr != nil {
-		return w.failJob(job, "STORAGE_READ_FAILED", "关闭原文件失败")
+		return w.failParseJob(job, "STORAGE_READ_FAILED", "关闭原文件失败")
 	}
-	// 步骤 1: 解析文档 - 将上传的文件解析为 Markdown 格式
+
 	parsed, err := w.parser.Parse(ctx, ingestion.ParseInput{
 		Filename: file.OriginalFilename,
 		Content:  content,
 		Path:     file.Path,
 	})
 	if err != nil {
-		return w.failJob(job, "PARSER_FAILED", "文档解析失败")
+		return w.failParseJob(job, "PARSER_FAILED", "文档解析失败")
 	}
-	// 步骤 2: 上传解析后的 Markdown 文件到对象存储
+
 	object, err := w.storage.UploadReader(
 		fmt.Sprintf("knowledge-internal/%s/%s/derived", job.KBID, job.FileID),
 		"normalized.md",
@@ -121,31 +139,15 @@ func (w *DocumentWorker) processMessage(ctx context.Context, message documentque
 		int64(len(parsed.Markdown)),
 	)
 	if err != nil {
-		return w.failJob(job, "STORAGE_WRITE_FAILED", "保存解析结果失败")
-	}
-	// 步骤 3: 更新文件状态为 ready
-	if err := w.files.UpdateProcessingResult(job.KBID, job.FileID, "ready", object.Path, ""); err != nil {
-		return false, err
+		return w.failParseJob(job, "STORAGE_WRITE_FAILED", "保存解析结果失败")
 	}
 
-	// 步骤 4: RAG 索引（可选）
-	// 未配置 Embedding 时 indexer 为 nil，跳过索引直接标记成功。
-	// 配置了 Embedding 时，会将文档分块并生成向量存储到 pgvector。
-	if w.indexer != nil {
-		if _, err := w.indexer.Index(ctx, rag.IndexInput{
-			KBID:     job.KBID,
-			FileID:   job.FileID,
-			Filename: file.OriginalFilename,
-			Markdown: parsed.Markdown,
-		}); err != nil {
-			logger.Warn("RAG 文档索引失败",
-				zap.String("job_id", job.JobID),
-				zap.String("kb_id", job.KBID),
-				zap.String("file_id", job.FileID),
-				zap.Error(err),
-			)
-			return w.failJob(job, "RAG_INDEX_FAILED", fmt.Sprintf("RAG 索引失败: %v", err))
-		}
+	ok, err = w.files.TransitionStatus(ctx, job.KBID, job.FileID, []string{entity.FileParsing}, entity.FileParsed, map[string]any{"markdown_file": object.Path, "error_message": ""})
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return w.failParseJob(job, "STATE_CONFLICT", "文件状态冲突，无法完成解析")
 	}
 
 	if err := w.jobs.MarkSucceeded(job.JobID); err != nil {
@@ -154,10 +156,140 @@ func (w *DocumentWorker) processMessage(ctx context.Context, message documentque
 	return true, nil
 }
 
-// failJob 标记任务失败并更新文件处理状态。
-func (w *DocumentWorker) failJob(job *entity.DocumentProcessingJob, code, message string) (bool, error) {
-	if err := w.files.UpdateProcessingResult(job.KBID, job.FileID, "failed", "", message); err != nil {
+// processIndexJob 处理索引任务：index_queued -> indexing -> 读取 Markdown -> RAG 索引 -> indexed。
+func (w *DocumentWorker) processIndexJob(ctx context.Context, job *entity.DocumentProcessingJob, file *entity.KnowledgeFile) (bool, error) {
+	if w.indexer == nil {
+		return w.failIndexJob(job, "EMBEDDING_NOT_CONFIGURED", "Embedding 模型未配置，无法入库")
+	}
+
+	ok, err := w.files.TransitionStatus(ctx, job.KBID, job.FileID, []string{entity.FileIndexQueued}, entity.FileIndexing, nil)
+	if err != nil {
 		return false, err
+	}
+	if !ok {
+		return w.failIndexJob(job, "STATE_CONFLICT", "文件状态冲突，无法开始入库")
+	}
+
+	if file.MarkdownFile == "" {
+		return w.failIndexJob(job, "MARKDOWN_MISSING", "文件未解析，无法入库")
+	}
+
+	mdReader, err := w.storage.Read(file.MarkdownFile)
+	if err != nil {
+		return w.failIndexJob(job, "STORAGE_READ_FAILED", "读取 Markdown 文件失败")
+	}
+	markdown, readErr := io.ReadAll(mdReader)
+	closeErr := mdReader.Close()
+	if readErr != nil {
+		return w.failIndexJob(job, "STORAGE_READ_FAILED", "读取 Markdown 文件失败")
+	}
+	if closeErr != nil {
+		return w.failIndexJob(job, "STORAGE_READ_FAILED", "关闭 Markdown 文件失败")
+	}
+
+	// 从任务的 ProcessingParams 中提取分块参数。
+	chunkTokens, overlapTokens := w.parseChunkParams(job)
+
+	out, err := w.indexer.Index(ctx, rag.IndexInput{
+		KBID:          job.KBID,
+		FileID:        job.FileID,
+		Filename:      file.OriginalFilename,
+		Markdown:      string(markdown),
+		ChunkTokens:   chunkTokens,
+		OverlapTokens: overlapTokens,
+	})
+	if err != nil {
+		if logger.Initialized() {
+			logger.Warn("RAG 文档索引失败",
+				zap.String("job_id", job.JobID),
+				zap.String("kb_id", job.KBID),
+				zap.String("file_id", job.FileID),
+				zap.Error(err),
+			)
+		}
+		return w.failIndexJob(job, "RAG_INDEX_FAILED", fmt.Sprintf("RAG 索引失败: %v", err))
+	}
+
+	// 从索引输出中更新分块数量和 Token 数量。
+	chunkCount := len(out.Chunks)
+	var tokenCount int64
+	for _, c := range out.Chunks {
+		tokenCount += int64(c.TokenCount)
+	}
+	ok, err = w.files.TransitionStatus(ctx, job.KBID, job.FileID, []string{entity.FileIndexing}, entity.FileIndexed, map[string]any{"chunk_count": chunkCount, "token_count": tokenCount, "error_message": ""})
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return w.failIndexJob(job, "STATE_CONFLICT", "文件状态冲突，无法完成入库")
+	}
+
+	if err := w.jobs.MarkSucceeded(job.JobID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// parseChunkParams 从任务的 ProcessingParams 中提取分块参数。
+func (w *DocumentWorker) parseChunkParams(job *entity.DocumentProcessingJob) (chunkTokens, overlapTokens int) {
+	if job.ProcessingParams == nil {
+		return 0, -1
+	}
+	params := map[string]any(job.ProcessingParams)
+	if v, ok := params["chunk_token_num"]; ok {
+		switch n := v.(type) {
+		case float64:
+			chunkTokens = int(n)
+		case int:
+			chunkTokens = n
+		}
+	}
+	if v, ok := params["overlapped_percent"]; ok {
+		switch p := v.(type) {
+		case float64:
+			if chunkTokens > 0 {
+				overlapTokens = chunkTokens * int(p) / 100
+			}
+		case int:
+			if chunkTokens > 0 {
+				overlapTokens = chunkTokens * p / 100
+			}
+		}
+	}
+	return chunkTokens, overlapTokens
+}
+
+// failJob 标记任务失败但不更新文件状态（用于通用错误）。
+func (w *DocumentWorker) failJob(job *entity.DocumentProcessingJob, code, message string) (bool, error) {
+	if err := w.jobs.MarkFailed(job.JobID, code, message); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// failParseJob 标记解析任务失败并将文件状态转为 parse_failed。
+func (w *DocumentWorker) failParseJob(job *entity.DocumentProcessingJob, code, message string) (bool, error) {
+	transitioned, err := w.files.TransitionStatus(context.Background(), job.KBID, job.FileID, []string{entity.FileParseQueued, entity.FileParsing}, entity.FileParseFailed, map[string]any{"error_message": message})
+	if err != nil {
+		return false, err
+	}
+	if !transitioned {
+		return false, fmt.Errorf("保存解析失败状态：文件状态冲突")
+	}
+	if err := w.jobs.MarkFailed(job.JobID, code, message); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// failIndexJob 标记索引任务失败并将文件状态转为 index_failed。不清理 Markdown。
+func (w *DocumentWorker) failIndexJob(job *entity.DocumentProcessingJob, code, message string) (bool, error) {
+	transitioned, err := w.files.TransitionStatus(context.Background(), job.KBID, job.FileID, []string{entity.FileIndexQueued, entity.FileIndexing}, entity.FileIndexFailed, map[string]any{"error_message": message})
+	if err != nil {
+		return false, err
+	}
+	if !transitioned {
+		return false, fmt.Errorf("保存索引失败状态：文件状态冲突")
 	}
 	if err := w.jobs.MarkFailed(job.JobID, code, message); err != nil {
 		return false, err

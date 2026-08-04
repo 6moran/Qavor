@@ -1,5 +1,39 @@
 package entity
 
+// 标准文件处理状态。
+const (
+	FileUploaded    = "uploaded"
+	FileParseQueued = "parse_queued"
+	FileParsing     = "parsing"
+	FileParsed      = "parsed"
+	FileParseFailed = "parse_failed"
+	FileIndexQueued = "index_queued"
+	FileIndexing    = "indexing"
+	FileIndexed     = "indexed"
+	FileIndexFailed = "index_failed"
+)
+
+// CanTransitionKnowledgeFile 报告知识文件是否可以从一个状态移动到另一个状态。
+func CanTransitionKnowledgeFile(from, to string) bool {
+	allowed := map[string][]string{
+		FileUploaded:    {FileParseQueued},
+		FileParseQueued: {FileParsing, FileParseFailed},
+		FileParsing:     {FileParsed, FileParseFailed},
+		FileParseFailed: {FileParseQueued},
+		FileParsed:      {FileIndexQueued},
+		FileIndexQueued: {FileIndexing, FileIndexFailed},
+		FileIndexing:    {FileIndexed, FileIndexFailed},
+		FileIndexFailed: {FileIndexQueued},
+		FileIndexed:     {FileIndexQueued},
+	}
+	for _, s := range allowed[from] {
+		if s == to {
+			return true
+		}
+	}
+	return false
+}
+
 // KnowledgeFile 知识文件实体
 type KnowledgeFile struct {
 	BaseEntity
