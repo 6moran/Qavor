@@ -36,9 +36,18 @@ func GetProvider(provider string) (ClientFactory, bool) {
 
 func init() {
 	// 注册所有支持的 provider
+	// OpenAI 兼容协议
 	RegisterProvider("openai", newOpenAIClient)
 	RegisterProvider("deepseek", newOpenAIClient)
 	RegisterProvider("moonshot", newOpenAIClient)
+	RegisterProvider("zhipu", newOpenAIClient)
+	RegisterProvider("alibaba", newOpenAIClient)
+	RegisterProvider("tencent", newOpenAIClient)
+	RegisterProvider("minimax", newOpenAIClient)
+	RegisterProvider("groq", newOpenAIClient)
+	RegisterProvider("siliconflow", newOpenAIClient)
+
+	// Ollama 本地部署
 	RegisterProvider("ollama", newOllamaClient)
 }
 

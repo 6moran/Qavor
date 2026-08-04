@@ -28,14 +28,10 @@ func GetTokenFromHeader(c *gin.Context) string {
 	return parts[1]
 }
 
-// GetUserID 从 gin.Context 获取用户 ID
-func GetUserID(c *gin.Context) uint {
-	if v, ok := c.Get("user_id"); ok {
-		if id, ok := v.(uint); ok {
-			return id
-		}
-	}
-	return 0
+// IsAuthenticated 检查是否已认证
+func IsAuthenticated(c *gin.Context) bool {
+	_, exists := c.Get("authenticated")
+	return exists
 }
 
 // Auth JWT 认证中间件
@@ -73,6 +69,9 @@ func Auth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
+		// 标记已认证
+		c.Set("authenticated", true)
 
 		c.Next()
 	}

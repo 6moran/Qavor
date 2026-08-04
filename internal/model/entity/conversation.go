@@ -3,7 +3,6 @@ package entity
 // Conversation 对话实体
 type Conversation struct {
 	BaseEntity
-	UserID        uint   `gorm:"not null;index;comment:用户ID" json:"user_id"`
 	ThreadID      string `gorm:"type:varchar(64);uniqueIndex;not null;comment:对话线程ID（UUID）" json:"thread_id"`
 	AgentID       string `gorm:"type:varchar(64);not null;index;comment:Agent slug" json:"agent_id"`
 	Title         string `gorm:"type:varchar(255);comment:对话标题" json:"title,omitempty"`

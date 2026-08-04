@@ -23,7 +23,7 @@ type SSEWriter struct {
 func NewSSEWriter(c *gin.Context, logger *zap.Logger) *SSEWriter {
 	w := &SSEWriter{
 		c:       c,
-		eventCh: make(chan SSEEvent, 100), // 缓冲 channel
+		eventCh: make(chan SSEEvent, 100),
 		done:    make(chan struct{}),
 		logger:  logger,
 	}
@@ -59,7 +59,8 @@ func (w *SSEWriter) writeEvent(event SSEEvent) {
 		return
 	}
 
-	_, err = fmt.Fprintf(w.c.Writer, "event: %s\ndata: %s\n\n", event.Type, string(jsonData))
+	// SSE 标准格式：id, event, data
+	_, err = fmt.Fprintf(w.c.Writer, "id: %s\nevent: %s\ndata: %s\n\n", event.ID, event.Type, string(jsonData))
 	if err != nil {
 		w.logger.Debug("写入事件失败（连接可能已关闭）", zap.Error(err))
 		return
@@ -69,12 +70,7 @@ func (w *SSEWriter) writeEvent(event SSEEvent) {
 }
 
 // Send 发送事件（线程安全）
-func (w *SSEWriter) Send(eventType EventType, data interface{}) {
-	event := SSEEvent{
-		Type: eventType,
-		Data: data,
-	}
-
+func (w *SSEWriter) Send(event SSEEvent) {
 	select {
 	case w.eventCh <- event:
 	case <-w.done:
@@ -82,7 +78,7 @@ func (w *SSEWriter) Send(eventType EventType, data interface{}) {
 	default:
 		// Channel 满了，丢弃事件（避免阻塞）
 		w.logger.Warn("SSE 事件队列已满，丢弃事件",
-			zap.String("event_type", string(eventType)),
+			zap.String("event_type", string(event.Type)),
 		)
 	}
 }
@@ -95,10 +91,28 @@ func (w *SSEWriter) Close() {
 	})
 }
 
-// SendHeartbeat 发送心跳事件
-func (w *SSEWriter) SendHeartbeat(messageID string) {
-	w.Send(EventHeartbeat, HeartbeatData{
-		MessageID: messageID,
+// IsAlive 检查连接是否存活
+func (w *SSEWriter) IsAlive() bool {
+	select {
+	case <-w.done:
+		return false
+	default:
+		return true
+	}
+}
+
+// SendHeartbeat 发送连接保活心跳
+func (w *SSEWriter) SendHeartbeat() {
+	event := NewSSEEvent(EventHeartbeat, HeartbeatData{
 		Timestamp: time.Now().Unix(),
 	})
+	w.Send(event)
+}
+
+// SendBusinessHeartbeat 发送业务心跳
+func (w *SSEWriter) SendBusinessHeartbeat() {
+	event := NewSSEEvent(EventBusinessHeartbeat, HeartbeatData{
+		Timestamp: time.Now().Unix(),
+	})
+	w.Send(event)
 }

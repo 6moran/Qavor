@@ -117,6 +117,7 @@ type SSEConfig struct {
 	MaxStreamTime      int `mapstructure:"max_stream_time"`      // 单次流式最大时长（秒）
 	HeartbeatInterval  int `mapstructure:"heartbeat_interval"`   // 心跳间隔（秒）
 	MaxConcurrentTasks int `mapstructure:"max_concurrent_tasks"` // 单用户最大并发任务数
+	TaskTTL            int `mapstructure:"task_ttl"`             // 任务过期时间（秒），默认3600
 }
 
 // MCPConfig MCP 配置

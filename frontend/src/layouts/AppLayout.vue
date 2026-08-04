@@ -254,7 +254,7 @@ provide('settingsModal', {
     <div class="header">
       <div class="sidebar-brand" @click.stop>
         <router-link v-if="!sidebarCollapsed" to="/" class="brand-link">
-          <img :src="infoStore.organization.avatar" class="brand-avatar" />
+          <img src="/qavor-logo.png" alt="QAVOR Logo" class="brand-avatar" />
           <span class="brand-name">{{ organizationName }}</span>
         </router-link>
         <button
@@ -264,7 +264,11 @@ provide('settingsModal', {
           aria-label="展开侧边栏"
           @click="setSidebarCollapsed(false)"
         >
-          <img :src="infoStore.organization.avatar" class="brand-avatar brand-avatar-image" />
+          <img
+            src="/qavor-logo.png"
+            alt="QAVOR Logo"
+            class="brand-avatar brand-avatar-image"
+          />
           <PanelLeftOpen class="brand-expand-icon" size="20" />
         </button>
         <button
@@ -520,7 +524,7 @@ div.header,
     flex: 0 0 @brand-avatar-size;
     width: @brand-avatar-size;
     height: @brand-avatar-size;
-    border-radius: 10px;
+    border-radius: 50%;
     object-fit: cover;
   }
 

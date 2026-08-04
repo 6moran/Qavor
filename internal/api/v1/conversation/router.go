@@ -1,10 +1,15 @@
 package conversation
 
-import "github.com/gin-gonic/gin"
+import (
+	"Qavor/internal/middleware"
+
+	"github.com/gin-gonic/gin"
+)
 
 // RegisterRoutes 注册会话路由
 func (ctrl *Controller) RegisterRoutes(router *gin.RouterGroup) {
 	conversations := router.Group("/conversations")
+	conversations.Use(middleware.Auth())
 	{
 		conversations.POST("", ctrl.CreateConversation)
 		conversations.GET("", ctrl.ListConversations)
