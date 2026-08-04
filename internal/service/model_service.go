@@ -37,6 +37,8 @@ type ModelService interface {
 	ResolveEmbedding(ctx context.Context, modelID uint) (einoEmbedding.Embedder, error)
 	// ResolveChatModel 根据模型管理中的 ID 创建原生 Eino ChatModel。
 	ResolveChatModel(ctx context.Context, modelID uint) (einoModel.BaseChatModel, error)
+	// TestConnection 测试未保存的模型配置是否能正常连接。
+	TestConnection(ctx context.Context, req *request.ModelConnectionTestRequest) (*dto.ModelConnectionTestResponse, error)
 }
 
 // modelService 模型服务实现

@@ -17,5 +17,6 @@ export const modelApi = {
   get: (id) => apiGet(`/api/v1/models/${encodeURIComponent(id)}`),
   create: (payload) => apiAdminPost('/api/v1/models', payload),
   update: (id, payload) => apiAdminPut(`/api/v1/models/${encodeURIComponent(id)}`, payload),
-  remove: (id) => apiAdminDelete(`/api/v1/models/${encodeURIComponent(id)}`)
+  remove: (id) => apiAdminDelete(`/api/v1/models/${encodeURIComponent(id)}`),
+  testConnection: (payload) => apiAdminPost('/api/v1/models/test', payload)
 }

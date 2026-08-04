@@ -33,3 +33,11 @@ type ModelListResponse struct {
 	Total int64           `json:"total"`
 	Items []ModelResponse `json:"items"`
 }
+
+// ModelConnectionTestResponse 模型连接测试响应
+type ModelConnectionTestResponse struct {
+	Connected bool   `json:"connected"`
+	LatencyMS int64  `json:"latency_ms"`
+	ModelType string `json:"model_type"`
+	Dimension int    `json:"dimension,omitempty"`
+}

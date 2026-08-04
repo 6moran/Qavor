@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { ChevronDown, Edit3, Plus, RotateCcw, Trash2 } from 'lucide-vue-next'
 
@@ -7,7 +7,9 @@ import PageShoulder from '@/components/shared/PageShoulder.vue'
 import { modelApi } from '@/apis/model_api'
 import {
   buildModelPayload,
+  buildModelTestPayload,
   createDefaultModelForm,
+  formatModelTestSuccess,
   modelToForm,
   MODEL_PROTOCOL_OPTIONS,
   resetAdvancedFields
@@ -15,6 +17,8 @@ import {
 
 const loading = ref(false)
 const saving = ref(false)
+const testing = ref(false)
+const testResult = ref(null)
 const models = ref([])
 const total = ref(0)
 const keyword = ref('')
@@ -25,6 +29,8 @@ const showModal = ref(false)
 const editingId = ref(null)
 const advancedOpen = ref(false)
 const form = reactive(createDefaultModelForm())
+// suppressTestResultReset 用于在 resetForm 期间暂停 watch，避免重复清空。
+const suppressTestResultReset = ref(false)
 
 const typeOptions = [
   { label: '全部类型', value: '' },
@@ -41,14 +47,39 @@ const stats = computed(() => ({
   rerank: models.value.filter((model) => model.model_type === 'rerank').length
 }))
 
+const testResultDescription = computed(() => {
+  if (!testResult.value) return ''
+  if (!testResult.value.success) return testResult.value.message
+  let desc = testResult.value.message
+  if (form.model_type === 'embedding' && testResult.value.dimension) {
+    desc += ` · 向量维度：${testResult.value.dimension}`
+  }
+  return desc
+})
+
 const resetForm = (source = null) => {
+  suppressTestResultReset.value = true
   Object.assign(form, source ? modelToForm(source) : createDefaultModelForm())
   advancedOpen.value = false
+  testResult.value = null
+  // 下一轮事件循环恢复 watch 监听，确保 Object.assign 触发的回调被跳过。
+  Promise.resolve().then(() => {
+    suppressTestResultReset.value = false
+  })
 }
 
 const resetAdvanced = () => {
   Object.assign(form, resetAdvancedFields())
 }
+
+// 监听连接相关字段变化，编辑后清空已有测试结果，避免结果与表单不一致。
+watch(
+  () => [form.name, form.protocol, form.base_url, form.api_key, form.timeout, form.model_type],
+  () => {
+    if (suppressTestResultReset.value) return
+    if (testResult.value) testResult.value = null
+  }
+)
 
 const loadModels = async () => {
   loading.value = true
@@ -111,6 +142,54 @@ const save = async () => {
     message.error(error.message || '保存模型配置失败')
   } finally {
     saving.value = false
+  }
+}
+
+const testConnection = async () => {
+  if (form.model_type === 'rerank') {
+    message.warning('暂不支持 rerank 模型连接测试')
+    return
+  }
+  if (!form.name.trim() || !form.protocol.trim() || !form.base_url.trim()) {
+    message.warning('请填写模型名称、协议和 Base URL')
+    return
+  }
+  if (!editingId.value && !form.api_key.trim()) {
+    message.warning('请填写 API Key')
+    return
+  }
+
+  let payload
+  try {
+    payload = buildModelTestPayload(form, editingId.value || null)
+  } catch (error) {
+    message.error(error.message)
+    return
+  }
+
+  testing.value = true
+  try {
+    const response = await modelApi.testConnection(payload)
+    if (response?.code !== 0) {
+      testResult.value = {
+        success: false,
+        message: response?.message || '连接测试失败'
+      }
+      return
+    }
+    const data = response?.data || {}
+    testResult.value = {
+      success: true,
+      message: formatModelTestSuccess(data),
+      dimension: data.dimension || 0
+    }
+  } catch (error) {
+    testResult.value = {
+      success: false,
+      message: error.message || '连接测试失败'
+    }
+  } finally {
+    testing.value = false
   }
 }
 
@@ -207,9 +286,7 @@ onMounted(loadModels)
     <a-modal
       v-model:open="showModal"
       :title="editingId ? '编辑模型配置' : '新增模型配置'"
-      :confirm-loading="saving"
       :width="680"
-      @ok="save"
     >
       <div class="form-grid">
         <label>
@@ -275,6 +352,34 @@ onMounted(loadModels)
           </div>
         </div>
       </div>
+
+      <div v-if="form.model_type === 'rerank'" class="model-test-hint">
+        当前模型类型为 rerank，暂不支持连接测试。
+      </div>
+
+      <a-alert
+        v-if="testResult"
+        class="model-test-result"
+        :type="testResult.success ? 'success' : 'error'"
+        :message="testResult.success ? '连接测试成功' : '连接测试失败'"
+        show-icon
+      >
+        <template #description>
+          <span class="model-test-result-desc">{{ testResultDescription }}</span>
+        </template>
+      </a-alert>
+
+      <template #footer>
+        <a-button @click="showModal = false">取消</a-button>
+        <a-button
+          :loading="testing"
+          :disabled="form.model_type === 'rerank'"
+          @click="testConnection"
+        >
+          测试连接
+        </a-button>
+        <a-button type="primary" :loading="saving" @click="save">保存</a-button>
+      </template>
     </a-modal>
   </div>
 </template>
@@ -382,11 +487,32 @@ onMounted(loadModels)
 .advanced-heading { color: var(--gray-700); font-size: 12px; }
 .advanced-heading .ant-btn { display: inline-flex; align-items: center; gap: 4px; padding-inline: 4px; }
 
+.model-test-hint {
+  margin-top: 12px;
+  color: var(--gray-500);
+  font-size: 12px;
+}
+
+.model-test-result {
+  margin-top: 12px;
+}
+
+.model-test-result-desc {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 760px) {
   .model-manage-panel { padding: 14px; }
   .model-row { align-items: flex-start; flex-wrap: wrap; }
   .model-updated { width: auto; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid .full-width { grid-column: auto; }
+  .ant-modal-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
 }
 </style>
