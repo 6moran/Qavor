@@ -43,7 +43,7 @@ func (s *authService) Login(req *request.LoginRequest) (*dto.LoginResponse, erro
 		return nil, bizerrors.ErrInvalidCredentials
 	}
 
-	token, err := jwt.GenerateToken()
+	token, err := jwt.GenerateToken(s.authConfig.AdminUsername)
 	if err != nil {
 		return nil, err
 	}

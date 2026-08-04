@@ -29,8 +29,7 @@ func (ctrl *Controller) CreateConversation(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
-	resp, err := ctrl.conversationService.CreateConversation(userID.(uint), &req)
+	resp, err := ctrl.conversationService.CreateConversation(&req)
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -48,8 +47,7 @@ func (ctrl *Controller) GetConversation(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
-	resp, err := ctrl.conversationService.GetConversation(uint(id), userID.(uint))
+	resp, err := ctrl.conversationService.GetConversation(uint(id))
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -74,8 +72,7 @@ func (ctrl *Controller) UpdateConversation(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
-	resp, err := ctrl.conversationService.UpdateConversation(uint(id), userID.(uint), &req)
+	resp, err := ctrl.conversationService.UpdateConversation(uint(id), &req)
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -93,8 +90,7 @@ func (ctrl *Controller) DeleteConversation(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
-	if err := ctrl.conversationService.DeleteConversation(uint(id), userID.(uint)); err != nil {
+	if err := ctrl.conversationService.DeleteConversation(uint(id)); err != nil {
 		response.BizError(c, err)
 		return
 	}
@@ -111,8 +107,7 @@ func (ctrl *Controller) ListConversations(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
-	resp, err := ctrl.conversationService.ListConversations(userID.(uint), &req)
+	resp, err := ctrl.conversationService.ListConversations(&req)
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -130,8 +125,7 @@ func (ctrl *Controller) CloseConversation(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
-	resp, err := ctrl.conversationService.CloseConversation(uint(id), userID.(uint))
+	resp, err := ctrl.conversationService.CloseConversation(uint(id))
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -149,8 +143,7 @@ func (ctrl *Controller) ArchiveConversation(c *gin.Context) {
 		return
 	}
 
-	userID, _ := c.Get("user_id")
-	resp, err := ctrl.conversationService.ArchiveConversation(uint(id), userID.(uint))
+	resp, err := ctrl.conversationService.ArchiveConversation(uint(id))
 	if err != nil {
 		response.BizError(c, err)
 		return

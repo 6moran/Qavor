@@ -18,7 +18,11 @@ type ModelParams struct {
 
 // Value 实现 driver.Valuer 接口
 func (p ModelParams) Value() (driver.Value, error) {
-	return json.Marshal(p)
+	bytes, err := json.Marshal(p)
+	if err != nil {
+		return nil, err
+	}
+	return string(bytes), nil
 }
 
 // Scan 实现 sql.Scanner 接口

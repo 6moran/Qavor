@@ -37,8 +37,7 @@ func (ctrl *Controller) CreateMessage(c *gin.Context) {
 	}
 	req.ConversationID = uint(conversationID)
 
-	userID, _ := c.Get("user_id")
-	resp, err := ctrl.messageService.CreateMessage(userID.(uint), &req)
+	resp, err := ctrl.messageService.CreateMessage(&req)
 	if err != nil {
 		response.BizError(c, err)
 		return

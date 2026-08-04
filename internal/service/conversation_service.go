@@ -12,13 +12,13 @@ import (
 
 // ConversationService 会话服务接口
 type ConversationService interface {
-	CreateConversation(userID uint, req *request.CreateConversationRequest) (*dto.ConversationResponse, error)
-	GetConversation(id, userID uint) (*dto.ConversationResponse, error)
-	UpdateConversation(id, userID uint, req *request.UpdateConversationRequest) (*dto.ConversationResponse, error)
-	DeleteConversation(id, userID uint) error
-	ListConversations(userID uint, req *request.ConversationListRequest) (*dto.ConversationListResponse, error)
-	CloseConversation(id, userID uint) (*dto.ConversationResponse, error)
-	ArchiveConversation(id, userID uint) (*dto.ConversationResponse, error)
+	CreateConversation(req *request.CreateConversationRequest) (*dto.ConversationResponse, error)
+	GetConversation(id uint) (*dto.ConversationResponse, error)
+	UpdateConversation(id uint, req *request.UpdateConversationRequest) (*dto.ConversationResponse, error)
+	DeleteConversation(id uint) error
+	ListConversations(req *request.ConversationListRequest) (*dto.ConversationListResponse, error)
+	CloseConversation(id uint) (*dto.ConversationResponse, error)
+	ArchiveConversation(id uint) (*dto.ConversationResponse, error)
 }
 
 // conversationService 会话服务实现
@@ -34,12 +34,11 @@ func NewConversationService(conversationRepo repository.ConversationRepository) 
 }
 
 // CreateConversation 创建会话
-func (s *conversationService) CreateConversation(userID uint, req *request.CreateConversationRequest) (*dto.ConversationResponse, error) {
+func (s *conversationService) CreateConversation(req *request.CreateConversationRequest) (*dto.ConversationResponse, error) {
 	conversation := &entity.Conversation{
 		ThreadID: uuid.New().String(),
 		Title:    req.Title,
 		Status:   "active",
-		UserID:   userID,
 		AgentID:  req.AgentID,
 	}
 
@@ -51,8 +50,8 @@ func (s *conversationService) CreateConversation(userID uint, req *request.Creat
 }
 
 // GetConversation 获取会话详情
-func (s *conversationService) GetConversation(id, userID uint) (*dto.ConversationResponse, error) {
-	conversation, err := s.conversationRepo.FindByIDAndUserID(id, userID)
+func (s *conversationService) GetConversation(id uint) (*dto.ConversationResponse, error) {
+	conversation, err := s.conversationRepo.FindByID(id)
 	if err != nil {
 		return nil, err
 	}
@@ -64,8 +63,8 @@ func (s *conversationService) GetConversation(id, userID uint) (*dto.Conversatio
 }
 
 // UpdateConversation 更新会话
-func (s *conversationService) UpdateConversation(id, userID uint, req *request.UpdateConversationRequest) (*dto.ConversationResponse, error) {
-	conversation, err := s.conversationRepo.FindByIDAndUserID(id, userID)
+func (s *conversationService) UpdateConversation(id uint, req *request.UpdateConversationRequest) (*dto.ConversationResponse, error) {
+	conversation, err := s.conversationRepo.FindByID(id)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +87,8 @@ func (s *conversationService) UpdateConversation(id, userID uint, req *request.U
 }
 
 // DeleteConversation 删除会话
-func (s *conversationService) DeleteConversation(id, userID uint) error {
-	conversation, err := s.conversationRepo.FindByIDAndUserID(id, userID)
+func (s *conversationService) DeleteConversation(id uint) error {
+	conversation, err := s.conversationRepo.FindByID(id)
 	if err != nil {
 		return err
 	}
@@ -101,7 +100,7 @@ func (s *conversationService) DeleteConversation(id, userID uint) error {
 }
 
 // ListConversations 获取会话列表
-func (s *conversationService) ListConversations(userID uint, req *request.ConversationListRequest) (*dto.ConversationListResponse, error) {
+func (s *conversationService) ListConversations(req *request.ConversationListRequest) (*dto.ConversationListResponse, error) {
 	page := req.Page
 	if page < 1 {
 		page = 1
@@ -118,9 +117,9 @@ func (s *conversationService) ListConversations(userID uint, req *request.Conver
 	var err error
 
 	if req.Status != "" {
-		conversations, total, err = s.conversationRepo.ListByUserIDWithStatus(userID, req.Status, offset, pageSize)
+		conversations, total, err = s.conversationRepo.ListWithStatus(req.Status, offset, pageSize)
 	} else {
-		conversations, total, err = s.conversationRepo.ListByUserID(userID, offset, pageSize)
+		conversations, total, err = s.conversationRepo.List(offset, pageSize)
 	}
 
 	if err != nil {
@@ -139,8 +138,8 @@ func (s *conversationService) ListConversations(userID uint, req *request.Conver
 }
 
 // CloseConversation 关闭会话
-func (s *conversationService) CloseConversation(id, userID uint) (*dto.ConversationResponse, error) {
-	conversation, err := s.conversationRepo.FindByIDAndUserID(id, userID)
+func (s *conversationService) CloseConversation(id uint) (*dto.ConversationResponse, error) {
+	conversation, err := s.conversationRepo.FindByID(id)
 	if err != nil {
 		return nil, err
 	}
@@ -164,8 +163,8 @@ func (s *conversationService) CloseConversation(id, userID uint) (*dto.Conversat
 }
 
 // ArchiveConversation 归档会话
-func (s *conversationService) ArchiveConversation(id, userID uint) (*dto.ConversationResponse, error) {
-	conversation, err := s.conversationRepo.FindByIDAndUserID(id, userID)
+func (s *conversationService) ArchiveConversation(id uint) (*dto.ConversationResponse, error) {
+	conversation, err := s.conversationRepo.FindByID(id)
 	if err != nil {
 		return nil, err
 	}
