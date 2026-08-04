@@ -75,6 +75,7 @@ const (
 	CodeSSEFileTooLarge        = 6011 // 文件大小超限
 	CodeSSEUnsupportedFileType = 6012 // 不支持的文件类型
 	CodeSSEFileProcessFailed   = 6013 // 文件处理失败
+	CodeSSEInternalError       = 6014 // 内部错误
 )
 
 // 错误码对应的文本消息
@@ -141,6 +142,7 @@ var codeMessages = map[int]string{
 	CodeSSEFileTooLarge:        "文件大小超过限制",
 	CodeSSEUnsupportedFileType: "不支持的文件类型",
 	CodeSSEFileProcessFailed:   "文件处理失败",
+	CodeSSEInternalError:       "服务器内部错误",
 }
 
 // GetMessage 获取错误码对应的文本消息

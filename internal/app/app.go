@@ -8,8 +8,8 @@ import (
 	ssectrl "Qavor/internal/api/v1/sse"
 	contextmgr "Qavor/internal/context"
 	"Qavor/internal/ingestion"
-	"Qavor/internal/llm"
 	"Qavor/internal/mcp"
+	shortterm "Qavor/internal/memory/short_term"
 	"Qavor/internal/model/entity"
 	documentqueue "Qavor/internal/queue"
 	"Qavor/internal/rag"
@@ -17,6 +17,7 @@ import (
 	"Qavor/internal/service"
 	"Qavor/internal/skill"
 	skillapi "Qavor/internal/skill/api"
+	"Qavor/internal/sse"
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
@@ -305,23 +306,47 @@ func (a *App) initDependencies() {
 	conversationSvc := service.NewConversationService(conversationRepo)
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
-	// 创建 Context Manager
+	// 创建短期记忆模块
+	shortTermStore := shortterm.NewRedisStore(a.redis, logger.GetLogger(), 24*time.Hour)
+	shortTermBuffer := shortterm.NewMessageBufferManager(logger.GetLogger(), 20)
+	shortTermState := shortterm.NewSessionStateManager(logger.GetLogger())
+	shortTermSummary := shortterm.NewSummaryGenerator(logger.GetLogger(), nil)
+	shortTermMgr := shortterm.NewManager(shortTermStore, shortTermBuffer, shortTermState, shortTermSummary, logger.GetLogger())
+
+	// 创建上下文管理器（集成 Short Memory）
 	contextConfig := &contextmgr.ContextConfig{
 		MaxTokens:     4096,
 		ReserveTokens: 1024,
 		SystemPrompt:  "You are a helpful assistant.",
 	}
-	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, logger.GetLogger())
+	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, logger.GetLogger())
 
-	// 创建 SSE Service（从配置文件读取）
-	llmFactory := llm.NewClient
-	sseSvc := service.NewSSEService(contextMgr, llmFactory, &a.cfg.SSE, logger.GetLogger())
+	// 创建 SSE 模块
+	heartbeatConfig := &sse.HeartbeatConfig{
+		Interval:         30 * time.Second,
+		BusinessInterval: 15 * time.Second,
+		Timeout:          60 * time.Second,
+	}
+	heartbeatMgr := sse.NewHeartbeatManager(heartbeatConfig, logger.GetLogger())
+
+	sseConfig := &sse.ManagerConfig{
+		MaxConnectionsPerUser: 5,
+		CleanInterval:         5 * time.Minute,
+		ConnectionTimeout:     10 * time.Minute,
+	}
+	sseManager := sse.NewManager(heartbeatMgr, logger.GetLogger(), sseConfig)
+
+	// 启动连接清理
+	sseManager.StartCleaner(context.Background())
 
 	// 创建 SSE API Controller (HTTP 处理)
-	sseAPICtrl := ssectrl.NewController(sseSvc, &a.cfg.SSE, logger.GetLogger())
+	sseAPICtrl := ssectrl.NewController(sseManager, logger.GetLogger())
+
+	// 创建 Chat Service
+	chatSvc := service.NewChatService(agentMgr, contextMgr, messageRepo, conversationRepo, logger.GetLogger())
 
 	// 创建 Chat Controller
-	chatCtrl := chatctrl.NewController(agentMgr, modelSvc, messageRepo, conversationSvc, messageSvc)
+	chatCtrl := chatctrl.NewController(chatSvc)
 
 	// 创建 Router
 	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl)
