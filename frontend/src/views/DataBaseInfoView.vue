@@ -347,7 +347,7 @@ import {
   Trash2
 } from 'lucide-vue-next'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import FileTable from '@/components/FileTable.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
 import FileUploadModal from '@/components/FileUploadModal.vue'
@@ -490,19 +490,7 @@ const pendingIndexCount = computed(() => {
 })
 
 const confirmBatchParse = () => {
-  const count = pendingParseCount.value
-  if (count <= 0) {
-    message.info('没有待解析文档')
-    return
-  }
-
-  Modal.confirm({
-    title: '解析待解析文件',
-    content: `将提交 ${formatStatNumber(count)} 个待解析文件，任务会在后台按批处理，可在任务中心查看进度。`,
-    okText: '提交解析',
-    cancelText: '取消',
-    onOk: () => store.parsePendingFiles(count)
-  })
+  message.info('当前版本不支持批量解析待解析文件，请在文件列表中逐个重试解析')
 }
 
 const confirmBatchIndex = () => {
