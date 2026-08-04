@@ -12,6 +12,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// 固定的管理员标识（无用户体系）
+const adminID = "admin"
+
 // Controller SSE 控制器
 type Controller struct {
 	manager *sse.Manager
@@ -32,9 +35,8 @@ func NewController(
 // Connect 建立 SSE 连接
 // GET /api/v1/sse/connect
 func (ctrl *Controller) Connect(c *gin.Context) {
-	// 1. 获取用户名（必须通过 Auth 中间件认证）
-	username := middleware.GetUsername(c)
-	if username == "" {
+	// 1. 验证认证（必须通过 Auth 中间件）
+	if !middleware.IsAuthenticated(c) {
 		c.JSON(http.StatusUnauthorized, pkgerrors.New(pkgerrors.CodeUnauthorized, "未授权"))
 		return
 	}
@@ -58,34 +60,32 @@ func (ctrl *Controller) Connect(c *gin.Context) {
 	writer := sse.NewSSEWriter(c, ctrl.logger)
 	defer writer.Close()
 
-	// 5. 建立连接
-	conn := ctrl.manager.Connect(c.Request.Context(), username, deviceID, writer)
+	// 5. 建立连接（使用固定的 adminID）
+	conn := ctrl.manager.Connect(c.Request.Context(), adminID, deviceID, writer)
 
 	// 6. 等待连接关闭
 	<-conn.Done
 
 	ctrl.logger.Info("SSE 连接已关闭",
-		zap.String("username", username),
 		zap.String("conn_id", conn.ConnID),
+		zap.String("device_id", deviceID),
 	)
 }
 
 // GetConnectionInfo 获取连接信息
 // GET /api/v1/sse/info
 func (ctrl *Controller) GetConnectionInfo(c *gin.Context) {
-	username := middleware.GetUsername(c)
-	if username == "" {
+	if !middleware.IsAuthenticated(c) {
 		c.JSON(http.StatusUnauthorized, pkgerrors.New(pkgerrors.CodeUnauthorized, "未授权"))
 		return
 	}
 
-	connections := ctrl.manager.GetConnections(username)
+	connections := ctrl.manager.GetConnections(adminID)
 	count := len(connections)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"username":         username,
 			"connection_count": count,
 			"is_connected":     count > 0,
 		},

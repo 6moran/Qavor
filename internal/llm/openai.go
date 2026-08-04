@@ -35,13 +35,27 @@ func newOpenAIClient(ctx context.Context, provider, modelName, apiKey, baseURL s
 		return nil, fmt.Errorf("API key is required for provider: %s", provider)
 	}
 
-	// DeepSeek 和 Moonshot 使用 OpenAI 兼容接口，可能需要不同的 BaseURL
+	// OpenAI 兼容接口的供应商默认 BaseURL 配置
 	if baseURL == "" {
 		switch provider {
+		case "openai":
+			baseURL = "https://api.openai.com/v1"
 		case "deepseek":
 			baseURL = "https://api.deepseek.com"
 		case "moonshot":
 			baseURL = "https://api.moonshot.cn"
+		case "zhipu":
+			baseURL = "https://open.bigmodel.cn/api/paas/v4"
+		case "alibaba":
+			baseURL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+		case "tencent":
+			baseURL = "https://api.hunyuan.cloud.tencent.com/v1"
+		case "minimax":
+			baseURL = "https://api.minimax.chat/v1"
+		case "groq":
+			baseURL = "https://api.groq.com/openai/v1"
+		case "siliconflow":
+			baseURL = "https://api.siliconflow.cn/v1"
 		}
 	}
 
