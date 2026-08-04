@@ -17,6 +17,7 @@ type CalculatorTool struct{}
 func (t *CalculatorTool) Meta() tool.ToolMeta {
 	return tool.ToolMeta{
 		Name:        "calculator",
+		Label:       "计算器",
 		Description: "数学计算",
 		Category:    tool.CategorySystem,
 		Args: []tool.ArgDef{{

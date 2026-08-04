@@ -93,11 +93,7 @@
         </AgentChatComponent>
       </div>
     </div>
-    <AgentEditModal
-      ref="agentEditModalRef"
-      :backend-options="agentBackendOptions"
-      @saved="handleAgentSaved"
-    />
+    <AgentEditModal ref="agentEditModalRef" @saved="handleAgentSaved" />
   </div>
 </template>
 
@@ -106,7 +102,6 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { Settings2, ChevronDown, Check } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
-import { agentApi } from '@/apis/agent_api'
 import { useOutsidePointerdown } from '@/composables/useOutsidePointerdown'
 import AgentChatComponent from '@/components/AgentChatComponent.vue'
 import AgentEditModal from '@/components/model-management/AgentEditModal.vue'
@@ -242,18 +237,6 @@ const currentAgentLabel = computed(() => {
 const agentDropdownOpen = ref(false)
 const agentDropdownTriggerRef = ref(null)
 const agentDropdownPanelRef = ref(null)
-const agentBackendOptions = ref([])
-const agentBackendsLoaded = ref(false)
-
-const loadAgentBackends = async () => {
-  if (agentBackendsLoaded.value) return
-  const response = await agentApi.getAgentBackends()
-  agentBackendOptions.value = (response.backends || []).map((backend) => ({
-    label: backend.name || backend.backend_id,
-    value: backend.backend_id
-  }))
-  agentBackendsLoaded.value = true
-}
 
 const handleAgentSwitch = async (agentId, hasActiveThread) => {
   if (!agentId || agentId === selectedAgentId.value) return
@@ -284,7 +267,6 @@ const openAgentManagement = async () => {
     return
   }
   try {
-    await loadAgentBackends()
     await agentEditModalRef.value?.openEdit(selectedAgentId.value)
   } catch (error) {
     message.error(error.message || '打开智能体配置失败')

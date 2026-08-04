@@ -20,6 +20,7 @@ import { useChatThreadsStore } from '@/stores/chatThreads'
 import { useChatUIStore } from '@/stores/chatUI'
 import { useDatabaseStore } from '@/stores/database'
 import { useInfoStore } from '@/stores/info'
+import { useTaskerStore } from '@/stores/tasker'
 import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 
@@ -34,6 +35,7 @@ const chatThreadsStore = useChatThreadsStore()
 const chatUIStore = useChatUIStore()
 const databaseStore = useDatabaseStore()
 const infoStore = useInfoStore()
+const taskerStore = useTaskerStore()
 const userStore = useUserStore()
 const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads } = storeToRefs(chatThreadsStore)
 
@@ -322,7 +324,6 @@ provide('settingsModal', {
           class="nav-item"
           :class="{ active: isNavItemActive(item) }"
           :active-class="item.action ? '' : 'active'"
-          @click.stop
         >
           <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
             <template #title>{{ item.name }}</template>
@@ -360,11 +361,10 @@ provide('settingsModal', {
         </div>
       </div>
     </div>
-    <router-view v-slot="{ Component, route }" id="app-router-view">
-      <keep-alive v-if="route.meta.keepAlive !== false">
+    <router-view v-slot="{ Component }" id="app-router-view">
+      <keep-alive :include="['AgentView', 'AgentChatComponent', 'WorkspaceView']">
         <component :is="Component" />
       </keep-alive>
-      <component :is="Component" v-else />
     </router-view>
 
     <ConversationSearchModal

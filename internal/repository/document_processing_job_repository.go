@@ -99,3 +99,69 @@ func (r *documentProcessingJobRepository) MarkFailed(jobID, errorCode, errorMess
 	now := time.Now()
 	return r.db.Model(&entity.DocumentProcessingJob{}).Where("job_id = ?", jobID).Updates(map[string]any{"status": entity.JobFailed, "error_code": errorCode, "error_message": errorMessage, "finished_at": now, "lease_expires_at": nil}).Error
 }
+
+// CreateForFileTransition 原子性地检查活跃任务、转换文件状态并插入任务。
+func (r *documentProcessingJobRepository) CreateForFileTransition(ctx context.Context, job *entity.DocumentProcessingJob, fromStatuses []string, queuedStatus string) (bool, error) {
+	var created bool
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 1. Check no active (pending/running) job exists for (kb_id, file_id, job_type).
+		var count int64
+		if err := tx.Model(&entity.DocumentProcessingJob{}).
+			Where("kb_id = ? AND file_id = ? AND job_type = ? AND status IN ?", job.KBID, job.FileID, job.JobType, []string{entity.JobPending, entity.JobRunning}).
+			Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			// 活跃任务已存在——状态冲突，非错误。
+			created = false
+			return nil
+		}
+
+		// 2. Compare-and-set the file status.
+		result := tx.Model(&entity.KnowledgeFile{}).
+			Where("kb_id = ? AND file_id = ? AND status IN ?", job.KBID, job.FileID, fromStatuses).
+			Update("status", queuedStatus)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			created = false
+			return nil
+		}
+
+		// 3. Insert the job.
+		if err := tx.Create(job).Error; err != nil {
+			return err
+		}
+		created = true
+		return nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return created, nil
+}
+
+// FindActiveByFileAndType 查找给定文件和任务类型的待处理或运行中的任务。
+func (r *documentProcessingJobRepository) FindActiveByFileAndType(ctx context.Context, kbID, fileID, jobType string) (*entity.DocumentProcessingJob, error) {
+	var job entity.DocumentProcessingJob
+	err := r.db.WithContext(ctx).
+		Where("kb_id = ? AND file_id = ? AND job_type = ? AND status IN ?", kbID, fileID, jobType, []string{entity.JobPending, entity.JobRunning}).
+		First(&job).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+// CancelPendingByFile 取消给定文件的待处理（非运行中）任务。
+func (r *documentProcessingJobRepository) CancelPendingByFile(ctx context.Context, kbID, fileID string) error {
+	now := time.Now()
+	return r.db.WithContext(ctx).
+		Model(&entity.DocumentProcessingJob{}).
+		Where("kb_id = ? AND file_id = ? AND status = ?", kbID, fileID, entity.JobPending).
+		Updates(map[string]any{"status": entity.JobCancelled, "finished_at": now}).Error
+}

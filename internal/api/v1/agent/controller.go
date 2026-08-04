@@ -2,20 +2,64 @@ package agent
 
 import (
 	"Qavor/internal/model/dto/request"
+	dto "Qavor/internal/model/dto/response"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
 )
 
+// OptionsProvider 提供 configurable_items 动态 options 的数据源接口。
+// 由 app.go 装配具体实现，避免 controller 直接依赖多个 service 造成循环依赖。
+type OptionsProvider interface {
+	// ToolOptions 返回内置工具选项
+	ToolOptions() []map[string]interface{}
+	// MCPServerOptions 返回 MCP 服务器选项
+	MCPServerOptions() []map[string]interface{}
+	// SkillOptions 返回技能选项
+	SkillOptions() []map[string]interface{}
+	// KnowledgeBaseOptions 返回知识库选项
+	KnowledgeBaseOptions() []map[string]interface{}
+	// SubagentOptions 返回子智能体选项
+	SubagentOptions() []map[string]interface{}
+}
+
 // Controller 智能体控制器
 type Controller struct {
 	agentSvc service.AgentService
+	opts     OptionsProvider
 }
 
 // NewController 创建智能体控制器
-func NewController(agentSvc service.AgentService) *Controller {
-	return &Controller{agentSvc: agentSvc}
+func NewController(agentSvc service.AgentService, opts OptionsProvider) *Controller {
+	return &Controller{agentSvc: agentSvc, opts: opts}
+}
+
+// enrichOptions 为 AgentResponse 的 configurable_items 填充动态 options
+func (ctrl *Controller) enrichOptions(resp *dto.AgentResponse) {
+	if resp == nil || resp.ConfigurableItems == nil || ctrl.opts == nil {
+		return
+	}
+	if item, ok := resp.ConfigurableItems["tools"]; ok {
+		item.Options = ctrl.opts.ToolOptions()
+		resp.ConfigurableItems["tools"] = item
+	}
+	if item, ok := resp.ConfigurableItems["mcp_servers"]; ok {
+		item.Options = ctrl.opts.MCPServerOptions()
+		resp.ConfigurableItems["mcp_servers"] = item
+	}
+	if item, ok := resp.ConfigurableItems["skills"]; ok {
+		item.Options = ctrl.opts.SkillOptions()
+		resp.ConfigurableItems["skills"] = item
+	}
+	if item, ok := resp.ConfigurableItems["knowledges"]; ok {
+		item.Options = ctrl.opts.KnowledgeBaseOptions()
+		resp.ConfigurableItems["knowledges"] = item
+	}
+	if item, ok := resp.ConfigurableItems["subagents"]; ok {
+		item.Options = ctrl.opts.SubagentOptions()
+		resp.ConfigurableItems["subagents"] = item
+	}
 }
 
 // Create 创建智能体
@@ -32,6 +76,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 		return
 	}
 
+	ctrl.enrichOptions(resp)
 	response.Success(c, resp)
 }
 
@@ -44,6 +89,7 @@ func (ctrl *Controller) Get(c *gin.Context) {
 		return
 	}
 
+	ctrl.enrichOptions(resp)
 	response.Success(c, resp)
 }
 
@@ -62,6 +108,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 		return
 	}
 
+	ctrl.enrichOptions(resp)
 	response.Success(c, resp)
 }
 
@@ -90,6 +137,16 @@ func (ctrl *Controller) List(c *gin.Context) {
 		return
 	}
 
+	// 分页响应的 List 是 []dto.AgentResponse，逐个填充 options
+	if resp != nil {
+		if items, ok := resp.List.([]dto.AgentResponse); ok {
+			for i := range items {
+				ctrl.enrichOptions(&items[i])
+			}
+			resp.List = items
+		}
+	}
+
 	response.Success(c, resp)
 }
 
@@ -112,5 +169,6 @@ func (ctrl *Controller) GetDefault(c *gin.Context) {
 		return
 	}
 
+	ctrl.enrichOptions(resp)
 	response.Success(c, resp)
 }

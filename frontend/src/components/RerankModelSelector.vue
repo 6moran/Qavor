@@ -1,85 +1,53 @@
 <template>
-  <a-dropdown trigger="click" @open-change="handleOpenChange">
-    <div class="model-select" @click.prevent>
-      <div class="model-select-content">
-        <div class="model-info">
-          <a-tooltip :title="displayText" placement="right">
-            <span class="model-text">{{ displayText }}</span>
-          </a-tooltip>
-        </div>
-      </div>
-    </div>
-
-    <template #overlay>
-      <a-menu class="scrollable-menu">
-        <a-menu-item-group v-for="(providerData, providerId) in v2Models" :key="providerId">
-          <template #title>
-            <span>{{ providerId }}</span>
-          </template>
-          <a-menu-item
-            v-for="model in providerData.models"
-            :key="model.spec"
-            @click="handleSelect(model.spec)"
-          >
-            {{ model.display_name }}
-          </a-menu-item>
-        </a-menu-item-group>
-      </a-menu>
-    </template>
-  </a-dropdown>
+  <a-select
+    :value="props.value"
+    :placeholder="props.placeholder"
+    :size="props.size"
+    :style="props.style"
+    :disabled="props.disabled"
+    :loading="loading"
+    @dropdown-visible-change="handleOpenChange"
+    @change="handleSelect"
+  >
+    <a-select-option v-for="model in models" :key="model.id" :value="String(model.id)">
+      {{ model.name }}
+    </a-select-option>
+  </a-select>
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
-import { modelProviderApi } from '@/apis/system_api'
+import { ref } from 'vue'
+import { modelApi } from '@/apis/model_api'
 
 const props = defineProps({
-  value: {
-    type: String,
-    default: ''
-  },
-  placeholder: {
-    type: String,
-    default: '请选择重排序模型'
-  },
-  size: {
-    type: String,
-    default: 'small',
-    validator: (value) => ['small', 'middle', 'large'].includes(value)
-  },
-  style: {
-    type: Object,
-    default: () => ({ width: '100%' })
-  },
-  disabled: {
-    type: Boolean,
-    default: false
-  }
+  value: { type: [String, Number], default: '' },
+  placeholder: { type: String, default: '请选择重排序模型' },
+  size: { type: String, default: 'small' },
+  style: { type: Object, default: () => ({ width: '100%' }) },
+  disabled: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:value', 'change'])
-
-const v2Models = ref({})
-const displayText = computed(() => props.value || props.placeholder)
+const models = ref([])
+const loading = ref(false)
+let loaded = false
 
 const handleOpenChange = async (open) => {
-  if (!open) return
+  if (!open || loaded) return
+  loading.value = true
   try {
-    const response = await modelProviderApi.getV2Models('rerank')
-    if (response.success) {
-      v2Models.value = response.data || {}
-    }
+    const response = await modelApi.list({ model_type: 'rerank', page: 1, page_size: 100 })
+    models.value = (response?.data?.items || []).filter((model) => model.enabled)
+    loaded = true
   } catch (error) {
     console.error('获取 rerank 模型失败:', error)
+  } finally {
+    loading.value = false
   }
 }
 
-const handleSelect = (spec) => {
-  emit('update:value', spec)
-  emit('change', spec)
+const handleSelect = (value) => {
+  emit('update:value', value)
+  emit('change', value)
 }
 </script>
-
-<style lang="less" scoped>
-@import '@/assets/css/model-selector-common.less';
-</style>

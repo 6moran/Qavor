@@ -31,11 +31,11 @@
       <InfoCard
         v-for="tool in filteredTools"
         :key="getToolSlug(tool)"
-        :title="formatExtensionCardTitle(tool.name)"
+        :title="getToolTitle(tool)"
         :subtitle="getToolSlug(tool)"
         :description="tool.description || '无描述'"
         :default-icon="getToolIcon(getToolSlug(tool)) || WrenchIcon"
-        :tags="toolTags(tool)"
+        :tags="toolCategoryTags(tool)"
         @click="selectTool(tool)"
       >
       </InfoCard>
@@ -43,7 +43,7 @@
 
     <a-modal
       v-model:open="detailVisible"
-      :title="currentTool?.name || '工具详情'"
+      :title="getToolTitle(currentTool) || '工具详情'"
       :footer="null"
       width="640px"
     >
@@ -77,17 +77,6 @@
             </div>
           </div>
 
-          <div class="detail-section">
-            <div class="section-header">
-              <Tags :size="14" />
-              <span>标签</span>
-            </div>
-            <div class="section-content">
-              <a-tag v-for="tag in currentTool.tags" :key="tag">{{ tag }}</a-tag>
-              <span v-if="!currentTool.tags?.length" class="text-muted">无</span>
-            </div>
-          </div>
-
           <div class="detail-section" v-if="currentTool.args?.length">
             <div class="section-header">
               <List :size="14" />
@@ -113,7 +102,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { Wrench, RefreshCw, FileText, Tag, Tags, List } from 'lucide-vue-next'
+import { Wrench, RefreshCw, FileText, Tag, List } from 'lucide-vue-next'
 import { toolApi } from '@/apis/tool_api'
 import { getToolIcon } from '@/components/ToolCallingResult/toolRegistry'
 import ExtensionCardGrid from './ExtensionCardGrid.vue'
@@ -130,22 +119,23 @@ const tools = ref([])
 const currentTool = ref(null)
 const detailVisible = ref(false)
 
-const categories = ['buildin', 'knowledge', 'mysql', 'debug']
-const categoryLabels = { buildin: '内置工具', knowledge: '知识库', mysql: 'MySQL', debug: '调试' }
-const categoryColors = { buildin: 'blue', knowledge: 'purple', mysql: 'green', debug: 'orange' }
+const categories = ['builtin', 'knowledge', 'platform', 'debug']
+const categoryLabels = { builtin: '内置工具', knowledge: '知识库', platform: '平台工具', debug: '调试' }
+const categoryColors = { builtin: 'blue', knowledge: 'purple', platform: 'green', debug: 'orange' }
 
-const getToolSlug = (tool) => tool?.slug || tool?.id || ''
+const getToolSlug = (tool) => tool?.slug || tool?.id || tool?.name || ''
+// 注意：tool 可能为 null（如 modal 初始 currentTool），此处必须用可选链保护 tool?.name
+const getToolTitle = (tool) => tool?.label || formatExtensionCardTitle(tool?.name)
 
-const toolTags = (tool) => {
-  const tags = []
-  if (tool.category) {
-    tags.push({
+// 卡片标签：只显示分类，不显示 tool.tags
+const toolCategoryTags = (tool) => {
+  if (!tool?.category) return []
+  return [
+    {
       name: categoryLabels[tool.category] || tool.category,
       color: categoryColors[tool.category] || 'blue'
-    })
-  }
-  ;(tool.tags || []).slice(0, 2).forEach((t) => tags.push(t))
-  return tags
+    }
+  ]
 }
 
 const argColumns = [
@@ -181,7 +171,8 @@ const fetchTools = async () => {
   loading.value = true
   try {
     const result = await toolApi.getTools()
-    tools.value = result?.data || []
+    // 后端响应为 { code, data: { tools: [...] } }，tools 包在 data.tools 中
+    tools.value = result?.data?.tools || []
   } catch {
     message.error('加载工具失败')
   } finally {

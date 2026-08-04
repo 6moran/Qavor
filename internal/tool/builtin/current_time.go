@@ -14,6 +14,7 @@ type CurrentTimeTool struct{}
 func (t *CurrentTimeTool) Meta() tool.ToolMeta {
 	return tool.ToolMeta{
 		Name:        "current_time",
+		Label:       "当前时间",
 		Description: "获取当前时间",
 		Category:    tool.CategorySystem,
 		Args:        []tool.ArgDef{},

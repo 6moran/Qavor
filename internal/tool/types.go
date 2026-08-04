@@ -18,6 +18,7 @@ const (
 // ToolMeta 工具元数据
 type ToolMeta struct {
 	Name        string   `json:"name"`
+	Label       string   `json:"label,omitempty"`
 	Description string   `json:"description"`
 	Category    Category `json:"category"`
 	Tags        []string `json:"tags,omitempty"`

@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -88,6 +89,45 @@ func (r *knowledgeFileRepository) DeleteByKBIDAndFileID(kbID, fileID string) err
 	return r.db.Where("kb_id = ? AND file_id = ?", kbID, fileID).Delete(&entity.KnowledgeFile{}).Error
 }
 
+// DeleteWithChunks 在一个数据库事务中删除文件的分块和文件记录。
+func (r *knowledgeFileRepository) DeleteWithChunks(ctx context.Context, kbID, fileID string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("kb_id = ? AND file_id = ?", kbID, fileID).Delete(&entity.KnowledgeChunk{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("kb_id = ? AND file_id = ?", kbID, fileID).Delete(&entity.KnowledgeFile{}).Error
+	})
+}
+
 func (r *knowledgeFileRepository) UpdateProcessingResult(kbID, fileID, status, markdownFile, errorMessage string) error {
 	return r.db.Model(&entity.KnowledgeFile{}).Where("kb_id = ? AND file_id = ?", kbID, fileID).Updates(map[string]any{"status": status, "markdown_file": markdownFile, "error_message": errorMessage}).Error
+}
+
+// TransitionStatus 比较并设置文件状态，从允许的状态之一转换到目标状态。
+func (r *knowledgeFileRepository) TransitionStatus(ctx context.Context, kbID, fileID string, from []string, to string, updates map[string]any) (bool, error) {
+	sets := map[string]any{"status": to}
+	for k, v := range updates {
+		sets[k] = v
+	}
+	result := r.db.WithContext(ctx).
+		Model(&entity.KnowledgeFile{}).
+		Where("kb_id = ? AND file_id = ? AND status IN ?", kbID, fileID, from).
+		Updates(sets)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	return result.RowsAffected == 1, nil
+}
+
+// ListByKBIDAndStatuses 返回指定知识库中匹配任一状态的文件，最多返回 limit 条。
+func (r *knowledgeFileRepository) ListByKBIDAndStatuses(ctx context.Context, kbID string, statuses []string, limit int) ([]*entity.KnowledgeFile, error) {
+	var files []*entity.KnowledgeFile
+	if err := r.db.WithContext(ctx).
+		Where("kb_id = ? AND status IN ?", kbID, statuses).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&files).Error; err != nil {
+		return nil, err
+	}
+	return files, nil
 }

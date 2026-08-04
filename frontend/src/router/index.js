@@ -117,7 +117,7 @@ const router = createRouter({
           },
           children: [
             {
-              path: 'mcp/:slug',
+              path: 'mcp/:name',
               name: 'ToolMcpDetail',
               component: () => import('../components/extensions/McpDetailView.vue'),
               meta: {

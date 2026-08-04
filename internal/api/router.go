@@ -7,6 +7,7 @@ import (
 	"Qavor/internal/api/v1/conversation"
 	knowledgebase "Qavor/internal/api/v1/knowledge_base"
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
+	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
 	processingjob "Qavor/internal/api/v1/processing_job"
@@ -36,6 +37,7 @@ type Router struct {
 	toolCtrl          *toolctrl.Controller
 	skillCtrl         *skillapi.Controller
 	sseCtrl           *ssectrl.Controller
+	mcpServerCtrl     *mcpserverctrl.Controller
 }
 
 // NewRouter 创建路由
@@ -48,11 +50,13 @@ func NewRouter(
 	conversationService service.ConversationService,
 	messageService service.MessageService,
 	agentService service.AgentService,
+	agentOpts agentctrl.OptionsProvider,
 	chatCtrl *chatctrl.Controller,
 	ragCtrl *ragctrl.Controller,
 	toolRegistry *tool.Registry,
 	skillCtrl *skillapi.Controller,
 	sseCtrl *ssectrl.Controller,
+	mcpServerCtrl *mcpserverctrl.Controller,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -62,12 +66,13 @@ func NewRouter(
 		modelCtrl:         model.NewController(modelService),
 		conversationCtrl:  conversation.NewController(conversationService),
 		messageCtrl:       message.NewController(messageService),
-		agentCtrl:         agentctrl.NewController(agentService),
+		agentCtrl:         agentctrl.NewController(agentService, agentOpts),
 		chatCtrl:          chatCtrl,
 		ragCtrl:           ragCtrl,
 		toolCtrl:          toolctrl.NewController(toolRegistry),
 		sseCtrl:           sseCtrl,
 		skillCtrl:         skillCtrl,
+		mcpServerCtrl:     mcpServerCtrl,
 	}
 }
 
@@ -122,6 +127,9 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// Skill 路由
 		r.skillCtrl.RegisterRoutes(v1)
+
+		// MCP 服务器路由
+		r.mcpServerCtrl.RegisterRoutes(v1)
 
 		// SSE 流式服务路由
 		ssectrl.RegisterRoutes(v1, r.sseCtrl)

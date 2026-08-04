@@ -3,7 +3,9 @@ package app
 import (
 	agentpkg "Qavor/internal/agent"
 	"Qavor/internal/api"
+	agentctrl "Qavor/internal/api/v1/agent"
 	chatctrl "Qavor/internal/api/v1/chat"
+	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
 	contextmgr "Qavor/internal/context"
@@ -18,6 +20,7 @@ import (
 	"Qavor/internal/skill"
 	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/sse"
+	"Qavor/internal/skill/remote"
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
@@ -32,6 +35,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,6 +45,47 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+// qavorDataDir 返回工作目录下的 qavor 数据目录，并确保目录存在。
+// 工作目录无法解析或创建失败时返回 error，调用方应终止初始化。
+func qavorDataDir() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("无法解析工作目录: %w", err)
+	}
+	dir := filepath.Join(cwd, "qavor")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("创建 qavor 数据目录失败: %w", err)
+	}
+	return dir, nil
+}
+
+// defaultSkillsDir 返回工作目录下 qavor/skills 目录，并确保目录存在。
+// 目录创建失败时返回 error，调用方应终止初始化。
+func defaultSkillsDir() (string, error) {
+	dataDir, err := qavorDataDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(dataDir, "skills")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("创建 Skill 目录失败: %w", err)
+	}
+	return dir, nil
+}
+
+// expandSkillDir 展开路径开头的 ~ 或 ~/ 为当前用户主目录。
+// 其余形式（绝对路径、相对路径、~user/）原样返回。
+func expandSkillDir(path string) (string, error) {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, strings.TrimPrefix(path[1:], "/")), nil
+	}
+	return path, nil
+}
 
 // App 应用结构体
 type App struct {
@@ -50,6 +96,7 @@ type App struct {
 	server     *http.Server
 	workerStop context.CancelFunc
 	workerDone chan struct{}
+	mcpManager *mcp.MCPManager
 }
 
 // NewApp 创建应用实例
@@ -80,7 +127,9 @@ func (a *App) Initialize() error {
 	}
 
 	// 5. 初始化依赖
-	a.initDependencies()
+	if err := a.initDependencies(); err != nil {
+		return err
+	}
 
 	// 6. 初始化路由
 	a.initRouter()
@@ -180,7 +229,7 @@ func (a *App) initMinIO() error {
 }
 
 // initDependencies 初始化依赖注入
-func (a *App) initDependencies() {
+func (a *App) initDependencies() error {
 	// 创建 Repository
 	knowledgeBaseRepo := repository.NewKnowledgeBaseRepository(a.postgresDB)
 	knowledgeFileRepo := repository.NewKnowledgeFileRepository(a.postgresDB)
@@ -267,12 +316,21 @@ func (a *App) initDependencies() {
 	}
 
 	// 初始化 MCPManager
-	fileStore, err := store.NewMCPServerFileStore(".")
+	dataDir, err := qavorDataDir()
+	if err != nil {
+		return err
+	}
+	fileStore, err := store.NewMCPServerFileStore(dataDir)
 	if err != nil {
 		logger.Warn("MCP 配置文件加载失败", zap.Error(err))
 		fileStore = store.NewEmptyMCPServerFileStore()
 	}
 	mcpManager := mcp.NewMCPManager(fileStore)
+	a.mcpManager = mcpManager
+
+	// 创建 MCP Server 服务和控制器
+	mcpServerSvc := service.NewMCPServerService(fileStore, mcpManager)
+	mcpServerCtrl := mcpserverctrl.NewController(mcpServerSvc)
 
 	// 收集预热白名单：从所有 Agent 配置中提取 MCP server name
 	whitelist := a.buildMCPWhitelist(agentRepo)
@@ -287,9 +345,15 @@ func (a *App) initDependencies() {
 	toolRegistry.RegisterFromProvider(toolProvider)
 
 	// 初始化 Skill 相关组件
-	skillsDir := "skills"
+	skillsDir, err := defaultSkillsDir()
+	if err != nil {
+		return err
+	}
 	if a.cfg.App.SkillsDir != "" {
-		skillsDir = a.cfg.App.SkillsDir
+		skillsDir, err = expandSkillDir(a.cfg.App.SkillsDir)
+		if err != nil {
+			return err
+		}
 	}
 	skillLoader := skill.NewLoader(skillsDir)
 	skillResolver := skill.NewResolver(skillLoader, toolRegistry, mcpManager)
@@ -297,7 +361,12 @@ func (a *App) initDependencies() {
 	skillsMiddleware := skill.NewSkillsMiddleware(skillLoader, skillResolver, activation)
 	skillRepo := skill.NewSkillRepository(a.postgresDB)
 	skillSvc := skill.NewSkillService(skillRepo, skillLoader)
-	skillCtrl := skillapi.NewController(skillSvc, skillLoader)
+	installSvc := skill.NewInstallService(skillRepo, skillLoader)
+
+	// 注册远程拉取源
+	remote.RegisterSource(remote.NewGitHubProvider(""))
+
+	skillCtrl := skillapi.NewController(skillSvc, skillLoader, installSvc)
 
 	// 创建 AgentManager
 	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, skillResolver, agentSvc)
@@ -348,8 +417,13 @@ func (a *App) initDependencies() {
 	// 创建 Chat Controller
 	chatCtrl := chatctrl.NewController(chatSvc)
 
+	// 创建 Agent Options Provider
+	agentOpts := agentctrl.NewDefaultOptionsProvider(toolRegistry, mcpServerSvc, skillSvc, knowledgeBaseSvc, agentSvc)
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl)
+
+	return nil
 }
 
 // initRouter 初始化路由
@@ -447,6 +521,11 @@ func (a *App) gracefulShutdown() {
 		case <-time.After(5 * time.Second):
 			logger.Warn("等待文档处理 Worker 关闭超时")
 		}
+	}
+
+	// 关闭 MCP 服务器连接（SSE 断开、stdio 子进程终止等）
+	if a.mcpManager != nil {
+		a.mcpManager.CloseAll()
 	}
 
 	// 关闭数据库连接
