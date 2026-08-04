@@ -1,11 +1,13 @@
 package model
 
 import (
+	"Qavor/internal/llm"
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
 	"Qavor/pkg/response"
 	"Qavor/pkg/validator"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -158,6 +160,64 @@ func (ctrl *Controller) ListModels(c *gin.Context) {
 	}
 
 	response.Success(c, resp)
+}
+
+// GetProviders 获取支持的供应商列表
+// @Summary 获取供应商列表
+// @Description 获取所有支持的模型供应商列表，供用户选择，支持关键词搜索和协议筛选
+// @Tags 模型
+// @Accept json
+// @Produce json
+// @Param keyword query string false "搜索关键词（名称或显示名）"
+// @Param protocol query string false "协议类型筛选（openai/ollama）"
+// @Success 200 {object} response.Response{data=[]llm.Provider}
+// @Router /api/v1/models/providers [get]
+func (ctrl *Controller) GetProviders(c *gin.Context) {
+	keyword := c.Query("keyword")
+	protocol := c.Query("protocol")
+
+	result := llm.ProviderRegistry
+
+	// 按协议筛选
+	if protocol != "" {
+		result = llm.GetProvidersByProtocol(protocol)
+	}
+
+	// 搜索供应商（不区分大小写）
+	if keyword != "" {
+		keyword = strings.ToLower(keyword)
+		var filtered []llm.Provider
+		for _, p := range result {
+			if strings.Contains(strings.ToLower(p.Name), keyword) ||
+				strings.Contains(strings.ToLower(p.DisplayName), keyword) {
+				filtered = append(filtered, p)
+			}
+		}
+		result = filtered
+	}
+
+	response.Success(c, result)
+}
+
+// GetProviderByName 根据供应商名称获取详情
+// @Summary 获取供应商详情
+// @Description 根据供应商名称获取配置详情，用于填充表单默认值
+// @Tags 模型
+// @Accept json
+// @Produce json
+// @Param name path string true "供应商名称（如 openai, deepseek）"
+// @Success 200 {object} response.Response{data=llm.Provider}
+// @Router /api/v1/models/providers/{name} [get]
+func (ctrl *Controller) GetProviderByName(c *gin.Context) {
+	name := c.Param("name")
+
+	provider, found := llm.GetProviderByName(name)
+	if !found {
+		response.Error(c, 404, "供应商不存在")
+		return
+	}
+
+	response.Success(c, provider)
 }
 
 // TestConnection 测试模型连接

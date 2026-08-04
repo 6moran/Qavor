@@ -1,179 +1,33 @@
 import { useUserStore, checkAdminPermission, checkSuperAdminPermission } from '@/stores/user'
 import { message } from 'ant-design-vue'
-import {
-  USE_MOCK, mockResponse,
-  // 智能体
-  mockAgents, mockAgentBackends, mockThreads, mockThreadHistory, mockChatResponse,
-  // 系统
-  mockHealth, mockInfo, mockConfig, mockConfigOptions, mockLogs,
-  // MCP
-  mockMcpServers, mockMcpTools,
-  // 知识库
-  mockDatabases, mockAccessibleDatabases, mockDocuments, mockChunkPresets, mockKnowledgeStats,
-  // 技能
-  mockSkills, mockAccessibleSkills, mockBuiltinSkills,
-  // 用户
-  mockCurrentUser, mockUsers, mockUserConfig, mockAgentEnv, mockApiKeys, mockAccessOptions,
-  // Dashboard
-  mockDashboardStats, mockDashboardConversations, mockDashboardFeedbacks, mockUserStats, mockToolStats, mockAgentStats, mockKnowledgeStatsDash, mockTimeseries,
-  // 图谱
-  mockGraphs, mockGraphSubgraph, mockGraphStats, mockGraphLabels,
-  // 部门
-  mockDepartments,
-  // 工具
-  mockTools, mockToolOptions,
-  // 工作区
-  mockWorkspaceTree,
-} from '@/mock'
+
+/**
+ * 将旧 FastAPI 风格路径 /api/xxx 规范化为 Go 后端 /api/v1/xxx。
+ * 只重写 path 部分，保留 query string / fragment 原样。
+ * 已是 /api/v1/ 或非 /api 开头则原样返回。
+ */
+export function normalizeApiUrl(url) {
+  if (typeof url !== 'string') return url
+  const hashIndex = url.indexOf('#')
+  const queryIndex = url.indexOf('?')
+  let path = url
+  let suffix = ''
+  let splitAt = url.length
+  if (hashIndex >= 0) splitAt = Math.min(splitAt, hashIndex)
+  if (queryIndex >= 0) splitAt = Math.min(splitAt, queryIndex)
+  if (splitAt < url.length) {
+    path = url.slice(0, splitAt)
+    suffix = url.slice(splitAt)
+  }
+  if (!path.startsWith('/api/')) return url
+  if (path.startsWith('/api/v1')) return url
+  return `/api/v1${path.slice('/api'.length)}${suffix}`
+}
 
 /**
  * 基础API请求封装
  * 提供统一的请求方法，自动处理认证头和错误
  */
-
-/**
- * 根据 URL 和方法获取 mock 数据
- */
-function getMockData(url, method) {
-  // /api/v1 由当前 Go 服务提供，必须始终请求真实后端。
-  // 旧 Mock 中宽泛的 includes('/documents') 等规则会误拦截新版知识库接口。
-  if (url.startsWith('/api/v1/')) return undefined
-
-  // ==================== 系统 ====================
-  if (url === '/api/system/health') return mockResponse(mockHealth)
-  if (url === '/api/system/info') return mockResponse(mockInfo)
-  if (url === '/api/system/config' && method === 'GET') return mockResponse(mockConfig)
-  if (url === '/api/system/config' && method === 'POST') return mockResponse({ success: true })
-  if (url === '/api/system/config/update') return mockResponse({ success: true })
-  if (url === '/api/system/config/options') return mockResponse(mockConfigOptions)
-  if (url.startsWith('/api/system/config/options/')) return mockResponse({ success: true })
-  if (url.startsWith('/api/system/logs')) return mockResponse(mockLogs)
-  if (url.startsWith('/api/system/mcp-servers') && method === 'GET') return mockResponse({ data: mockMcpServers })
-  if (url.startsWith('/api/system/mcp-servers') && method === 'POST') return mockResponse({ success: true })
-  if (url.startsWith('/api/system/mcp-servers/') && url.endsWith('/tools') && method === 'GET') return mockResponse({ data: mockMcpTools })
-  if (url.startsWith('/api/system/mcp-servers/')) return mockResponse({ success: true })
-  if (url.startsWith('/api/system/skills') && method === 'GET') return mockResponse({ skills: mockSkills })
-  if (url.startsWith('/api/system/skills/builtin')) return mockResponse({ skills: mockBuiltinSkills })
-  if (url.startsWith('/api/system/skills/')) return mockResponse({ success: true })
-  if (url.startsWith('/api/system/tools')) return mockResponse({ tools: mockTools })
-  if (url.startsWith('/api/system/tools/options')) return mockResponse({ options: mockToolOptions })
-  if (url.startsWith('/api/system/ocr/options')) return mockResponse({ enabled: true })
-  if (url.startsWith('/api/system/ocr/health')) return mockResponse({ status: 'ok' })
-  // ==================== 认证 ====================
-  if (url.startsWith('/api/auth/me')) return mockResponse(mockCurrentUser)
-  if (url.startsWith('/api/auth/check-first-run')) return mockResponse({ first_run: false })
-  if (url.startsWith('/api/auth/oidc/config')) return mockResponse({ enabled: false })
-  if (url.startsWith('/api/auth/oidc/login-url')) return mockResponse({ login_url: '/login' })
-  if (url.startsWith('/api/auth/oidc/exchange-code')) return mockResponse({ access_token: 'mock-token', user_id: 1 })
-  if (url.startsWith('/api/auth/initialize')) return mockResponse({ access_token: 'mock-token', user_id: 1, username: 'admin', role: 'admin' })
-  if (url.startsWith('/api/auth/token')) return mockResponse({ access_token: 'mock-token', user_id: 1, username: 'zhangsan', role: 'admin' })
-  if (url.startsWith('/api/auth/users')) return mockResponse({ users: mockUsers })
-  if (url.startsWith('/api/auth/users/access-options')) return mockResponse({ options: mockAccessOptions })
-  if (url.startsWith('/api/auth/cli/sessions/')) return mockResponse({ status: 'pending', key_name: 'Qavor CLI' })
-
-  // ==================== 用户 ====================
-  if (url.startsWith('/api/user/config') && method === 'GET') return mockResponse(mockUserConfig)
-  if (url.startsWith('/api/user/config') && method === 'PUT') return mockResponse({ success: true })
-  if (url.startsWith('/api/user/agent-env') && method === 'GET') return mockResponse(mockAgentEnv)
-  if (url.startsWith('/api/user/agent-env') && method === 'PUT') return mockResponse({ success: true })
-  if (url.startsWith('/api/user/apikey') && method === 'GET') return mockResponse({ api_keys: mockApiKeys })
-  if (url.startsWith('/api/user/apikey')) return mockResponse({ success: true })
-  if (url.startsWith('/api/user/upload-image')) return mockResponse({ url: '/assets/defaults/agent.png' })
-
-  // ==================== 智能体 ====================
-  if (url.startsWith('/api/agent/backends')) return mockResponse({ backends: mockAgentBackends })
-  if (url.startsWith('/api/agent') && method === 'GET') return mockResponse({ agents: mockAgents })
-  if (url.startsWith('/api/agent') && method === 'POST') return mockResponse({ success: true, agent: mockAgents[0] })
-  if (url.match(/^\/api\/agent\/[^/]+/) && method === 'GET') {
-    const id = url.split('/api/agent/')[1].split('?')[0].split('/')[0]
-    return mockResponse(mockAgents.find(a => a.id === id) || mockAgents[0])
-  }
-  if (url.match(/^\/api\/agent\/[^/]+/) && (method === 'PUT' || method === 'DELETE')) return mockResponse({ success: true })
-  if (url.startsWith('/api/agent/runs')) return mockResponse({ run_id: 'run-001', status: 'completed' })
-  if (url.startsWith('/api/agent/runs/')) return mockResponse({ status: 'completed' })
-  if (url.startsWith('/api/agent/requests/')) return mockResponse({ status: 'completed' })
-  if (url.startsWith('/api/agent/thread/')) return mockResponse({ requests: [] })
-
-  // ==================== 聊天 ====================
-  if (url.startsWith('/api/chat/call') && method === 'POST') return mockResponse(mockChatResponse)
-  if (url.startsWith('/api/chat/threads')) return mockResponse(mockThreads)
-  if (url.startsWith('/api/chat/thread') && method === 'POST') return mockResponse({ id: 'thread-new', title: '新对话' })
-  if (url.match(/^\/api\/chat\/thread\/[^/]+/) && method === 'PUT') return mockResponse({ success: true })
-  if (url.match(/^\/api\/chat\/thread\/[^/]+/) && method === 'DELETE') return mockResponse({ success: true })
-  if (url.match(/^\/api\/chat\/thread\/[^/]+\/history/)) {
-    const threadId = url.split('/api/chat/thread/')[1].split('/history')[0].split('?')[0]
-    return mockResponse(mockThreadHistory.filter(m => m.thread_id === threadId))
-  }
-  if (url.match(/^\/api\/chat\/thread\/[^/]+\/state/)) return mockResponse({ agent_state: { thread_id: url.split('/').slice(-2)[0].split('?')[0], status: 'idle', token_usage: { prompt: 256, completion: 198, total: 454, llm_input_tokens: 256, llm_output_tokens: 198 }, files: { '/user-data/documents/技术文档/API文档.md': { name: 'API文档.md', type: 'file', size: 12560 }, '/user-data/documents/技术文档/系统架构设计.md': { name: '系统架构设计.md', type: 'file', size: 28900 } }, artifacts: [{ path: '/user-data/scripts/generated_report.py', name: 'generated_report.py', size: 4096, type: 'file' }], todos: [{ id: 'todo-1', content: '完成 API 文档编写', status: 'completed' }, { id: 'todo-2', content: '优化 Vue 组件性能', status: 'in_progress' }, { id: 'todo-3', content: '编写单元测试', status: 'pending' }], subagent_runs: [] } })
-  if (url.match(/^\/api\/chat\/thread\/[^/]+\/attachments/)) return mockResponse({ attachments: [] })
-  if (url.match(/^\/api\/chat\/thread\/[^/]+\/files/)) return mockResponse({ entries: mockWorkspaceTree })
-  if (url.match(/^\/api\/chat\/thread\/[^/]+\/artifacts/)) return mockResponse({ artifacts: [] })
-  if (url.match(/^\/api\/chat\/message\/[^/]+\/feedback/)) return mockResponse({ feedback: null })
-  if (url.startsWith('/api/chat/image/upload')) return mockResponse({ url: '/tmp/image.png' })
-  if (url.startsWith('/api/chat/attachments/tmp')) return mockResponse({ id: 'att-001' })
-  if (url.startsWith('/api/chat/attachments/tmp/parse')) return mockResponse({ content: '文件内容' })
-
-  // ==================== 知识库 ====================
-  if (url.startsWith('/api/knowledge/databases/accessible')) return mockResponse({ databases: mockAccessibleDatabases })
-  if (url.startsWith('/api/knowledge/databases') && method === 'GET') return mockResponse({ databases: mockDatabases })
-  if (url.startsWith('/api/knowledge/databases') && method === 'POST') return mockResponse({ success: true, database: mockDatabases[0] })
-  if (url.match(/^\/api\/knowledge\/databases\/[^/]+/) && method === 'GET') return mockResponse(mockDatabases[0])
-  if (url.match(/^\/api\/knowledge\/databases\/[^/]+/) && (method === 'PUT' || method === 'DELETE')) return mockResponse({ success: true })
-  if (url.includes('/documents') && method === 'GET') return mockResponse({ documents: mockDocuments })
-  if (url.includes('/documents') && method === 'POST') return mockResponse({ success: true })
-  if (url.includes('/folders') && method === 'POST') return mockResponse({ success: true })
-  if (url.includes('/query') && method === 'POST') return mockResponse({ results: [], answer: '模拟查询结果' })
-  if (url.includes('/mindmap')) return mockResponse({ mindmap: { nodes: [], edges: [] } })
-  if (url.includes('/graph-build')) return mockResponse({ status: 'idle' })
-  if (url.startsWith('/api/knowledge/chunk-presets')) return mockResponse({ presets: mockChunkPresets })
-  if (url.startsWith('/api/knowledge/stats')) return mockResponse(mockKnowledgeStats)
-  if (url.includes('/evaluation/')) return mockResponse({ datasets: [], runs: [] })
-
-  // ==================== 技能 ====================
-  if (url.startsWith('/api/skills/accessible')) return mockResponse({ skills: mockAccessibleSkills })
-  if (url.includes('/skills/remote/list')) return mockResponse({ skills: [] })
-  if (url.includes('/skills/remote/search')) return mockResponse({ skills: [] })
-  if (url.startsWith('/api/skills/')) return mockResponse({ success: true })
-
-  // ==================== MCP ====================
-  if (url.startsWith('/api/system/mcp-servers') && method === 'GET') return mockResponse({ data: mockMcpServers })
-
-  // ==================== Dashboard ====================
-  if (url.startsWith('/api/dashboard/stats') && method === 'GET') return mockResponse(mockDashboardStats)
-  if (url.startsWith('/api/dashboard/stats/users')) return mockResponse(mockUserStats)
-  if (url.startsWith('/api/dashboard/stats/tools')) return mockResponse(mockToolStats)
-  if (url.startsWith('/api/dashboard/stats/agents')) return mockResponse(mockAgentStats)
-  if (url.startsWith('/api/dashboard/stats/knowledge')) return mockResponse(mockKnowledgeStatsDash)
-  if (url.includes('/calls/timeseries')) return mockResponse(mockTimeseries)
-  if (url.startsWith('/api/dashboard/conversations')) return mockResponse({ conversations: mockDashboardConversations })
-  if (url.startsWith('/api/dashboard/feedbacks')) return mockResponse({ feedbacks: mockDashboardFeedbacks })
-
-  // ==================== 图谱 ====================
-  if (url.startsWith('/api/graph/list')) return mockResponse({ graphs: mockGraphs })
-  if (url.startsWith('/api/graph/subgraph')) return mockResponse(mockGraphSubgraph)
-  if (url.startsWith('/api/graph/stats')) return mockResponse(mockGraphStats)
-  if (url.startsWith('/api/graph/labels')) return mockResponse({ labels: mockGraphLabels })
-
-  // ==================== 部门 ====================
-  if (url.startsWith('/api/departments') && method === 'GET') return mockResponse({ departments: mockDepartments })
-  if (url.startsWith('/api/departments') && method === 'POST') return mockResponse({ success: true })
-  if (url.match(/^\/api\/departments\/[^/]+/)) return mockResponse({ success: true })
-
-  // ==================== 工作区 ====================
-  if (url.startsWith('/api/workspace/tree')) return mockResponse({ entries: mockWorkspaceTree })
-  if (url.startsWith('/api/workspace/file')) return mockResponse({ content: '文件内容' })
-  if (url.includes('/workspace/')) return mockResponse({ success: true })
-
-  // ==================== Viewer ====================
-  if (url.includes('/viewer/filesystem/tree')) return mockResponse({ entries: mockWorkspaceTree })
-  if (url.includes('/viewer/filesystem/')) return mockResponse({ success: true })
-
-  // ==================== Mention ====================
-  if (url.startsWith('/api/mention/search')) return mockResponse([])
-
-  // 未匹配
-  return undefined
-}
 
 /**
  * 发送API请求的基础函数
@@ -184,16 +38,8 @@ function getMockData(url, method) {
  * @returns {Promise} - 请求结果
  */
 export async function apiRequest(url, options = {}, requiresAuth = true, responseType = 'json') {
-  // Mock 数据拦截
-  if (USE_MOCK) {
-    const method = options?.method || 'GET'
-    const mockResult = getMockData(url, method)
-    if (mockResult !== undefined) {
-      return mockResult
-    }
-  }
-
   try {
+    url = normalizeApiUrl(url)
     const isFormData = options?.body instanceof FormData
     // 默认请求配置
     const requestOptions = {

@@ -14,8 +14,6 @@ type MCPServerConfig struct {
 	Headers        map[string]string `json:"headers,omitempty"`
 	Timeout        *int              `json:"timeout,omitempty"`
 	SSEReadTimeout *int              `json:"sseReadTimeout,omitempty"`
-	Tags           []string          `json:"tags,omitempty"`
-	Icon           string            `json:"icon,omitempty"`
 	Enabled        bool              `json:"enabled"`
 	DisabledTools  []string          `json:"disabledTools,omitempty"`
 	CreatedAt      time.Time         `json:"createdAt"`

@@ -1,5 +1,4 @@
-import { apiGet, apiAdminGet, apiAdminPost, apiAdminPut } from './base'
-import { USE_MOCK, mockResponse, mockHealth, mockInfo, mockConfig } from '@/mock'
+import { apiGet, apiAdminGet, apiAdminPost, apiAdminPut, apiAdminDelete } from './base'
 
 /**
  * 系统管理API模块
@@ -16,9 +15,6 @@ export const healthApi = {
    * @returns {Promise} - 健康检查结果
    */
   checkHealth: () => {
-    if (USE_MOCK) {
-      return mockResponse(mockHealth)
-    }
     return apiGet('/api/system/health', {}, false)
   }
 }
@@ -33,9 +29,6 @@ export const configApi = {
    * @returns {Promise} - 系统配置
    */
   getConfig: async () => {
-    if (USE_MOCK) {
-      return mockResponse(mockConfig)
-    }
     return apiGet('/api/system/config')
   },
 
@@ -84,9 +77,6 @@ export const brandApi = {
    * @returns {Promise} - 系统信息配置
    */
   getInfoConfig: () => {
-    if (USE_MOCK) {
-      return mockResponse(mockInfo)
-    }
     return apiGet('/api/system/info', {}, false)
   }
 }
@@ -105,3 +95,43 @@ export const ocrApi = {
 // =============================================================================
 
 export const chatModelApi = {}
+
+// =============================================================================
+// === 独立模型供应商配置分组 ===
+// =============================================================================
+
+export const modelProviderApi = {
+  getProviders: async () => {
+    return apiAdminGet('/api/system/model-providers')
+  },
+
+  getV2Models: async (modelType = 'chat') => {
+    return apiGet(`/api/system/model-providers/models/v2?model_type=${modelType}`)
+  },
+
+  refreshModelCache: async () => {
+    return apiAdminPost('/api/system/model-providers/models/cache/refresh')
+  },
+
+  getModelStatusBySpec: async (spec) => {
+    return apiAdminGet(`/api/system/model-providers/models/status?spec=${encodeURIComponent(spec)}`)
+  },
+
+  createProvider: async (payload) => {
+    return apiAdminPost('/api/system/model-providers', payload)
+  },
+
+  updateProvider: async (providerId, payload) => {
+    return apiAdminPut(`/api/system/model-providers/${encodeURIComponent(providerId)}`, payload)
+  },
+
+  deleteProvider: async (providerId) => {
+    return apiAdminDelete(`/api/system/model-providers/${encodeURIComponent(providerId)}`)
+  },
+
+  fetchRemoteModels: async (providerId) => {
+    return apiAdminGet(
+      `/api/system/model-providers/${encodeURIComponent(providerId)}/remote-models`
+    )
+  }
+}

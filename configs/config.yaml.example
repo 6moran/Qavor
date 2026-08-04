@@ -4,6 +4,7 @@ app:
   version: "1.0.0"
   mode: "debug"  # debug, release, test
   port: 8080
+  skills_dir: ""  # Skill 文件目录，留空默认使用工作目录下 qavor/skills；支持 ~ 前缀展开
 
 auth:
   admin_username: "change-me"

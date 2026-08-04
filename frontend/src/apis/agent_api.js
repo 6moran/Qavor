@@ -1,6 +1,5 @@
-import { apiGet, apiPost, apiDelete, apiPut, apiRequest } from './base'
+import { apiGet, apiPost, apiDelete, apiPut, apiRequest, normalizeApiUrl } from './base'
 import { useUserStore } from '@/stores/user'
-import { USE_MOCK, mockResponse, mockAgents, mockThreads, mockThreadHistory, mockChatResponse } from '@/mock'
 
 /**
  * 智能体API模块
@@ -30,12 +29,6 @@ export const agentApi = {
    * @returns {Promise} - 聊天响应
    */
   simpleCall: (query) => {
-    if (USE_MOCK) {
-      return mockResponse({
-        ...mockChatResponse,
-        response: `收到您的问题："${query.slice(0, 50)}"。这是一个模拟响应。`
-      })
-    }
     return apiPost('/api/chat/call', { query })
   },
 
@@ -57,34 +50,26 @@ export const agentApi = {
    * 获取智能体列表
    * @returns {Promise} - 智能体列表
    */
-  getAgents: ({ includeSubagents = false } = {}) => {
-    if (USE_MOCK) {
-      return mockResponse({ agents: mockAgents })
+  getAgents: async () => {
+    const url = normalizeApiUrl(`/api/agent/list?page=1&page_size=100`)
+    const result = await apiGet(url)
+    if (result?.data?.list) {
+      return { success: result.code === 0, data: result.data.list, message: result.message }
     }
-    const params = new URLSearchParams()
-    if (includeSubagents) params.set('include_subagents', 'true')
-    const query = params.toString()
-    return apiGet(query ? `/api/agent?${query}` : '/api/agent')
-  },
-
-  getAgentBackends: () => {
-    if (USE_MOCK) {
-      return mockResponse(mockAgentBackends)
-    }
-    return apiGet('/api/agent/backends')
+    return { success: result?.code === 0, data: result?.data || [], message: result?.message }
   },
 
   /**
    * 获取单个智能体详情
-   * @param {string} agentId - 智能体ID
+   * @param {string} agentId - 智能体ID（slug）
    * @returns {Promise} - 智能体详情
    */
-  getAgentDetail: (agentId) => {
-    if (USE_MOCK) {
-      const agent = mockAgents.find(a => a.id === agentId || a.agent_id === agentId)
-      return mockResponse({ agent: agent || mockAgents[0] })
+  getAgentDetail: async (agentId) => {
+    const result = await apiGet(normalizeApiUrl(`/api/agent/${encodeURIComponent(agentId)}`))
+    if (result?.data) {
+      return { success: result.code === 0, data: result.data, message: result.message }
     }
-    return apiGet(`/api/agent/${agentId}`)
+    return { success: result?.code === 0, data: null, message: result?.message }
   },
 
   /**
@@ -94,9 +79,6 @@ export const agentApi = {
    * @returns {Promise} - 历史消息
    */
   getAgentHistory: (threadId) => {
-    if (USE_MOCK) {
-      return mockResponse({ history: mockThreadHistory.filter(m => m.thread_id === threadId) })
-    }
     return apiGet(`/api/chat/thread/${threadId}/history`)
   },
 
@@ -107,28 +89,6 @@ export const agentApi = {
    * @returns {Promise} - AgentState
    */
   getAgentState: (threadId, { includeMessages = false } = {}) => {
-    if (USE_MOCK) {
-      return mockResponse({
-        agent_state: {
-          thread_id: threadId,
-          status: 'idle',
-          token_usage: { prompt: 256, completion: 198, total: 454, llm_input_tokens: 256, llm_output_tokens: 198 },
-          files: {
-            '/user-data/documents/技术文档/API文档.md': { name: 'API文档.md', type: 'file', size: 12560 },
-            '/user-data/documents/技术文档/系统架构设计.md': { name: '系统架构设计.md', type: 'file', size: 28900 }
-          },
-          artifacts: [
-            { path: '/user-data/scripts/generated_report.py', name: 'generated_report.py', size: 4096, type: 'file' }
-          ],
-          todos: [
-            { id: 'todo-1', content: '完成 API 文档编写', status: 'completed' },
-            { id: 'todo-2', content: '优化 Vue 组件性能', status: 'in_progress' },
-            { id: 'todo-3', content: '编写单元测试', status: 'pending' }
-          ],
-          subagent_runs: []
-        }
-      })
-    }
     return apiGet(`/api/chat/thread/${threadId}/state${includeMessages ? '?include_messages=true' : ''}`)
   },
 
@@ -149,11 +109,23 @@ export const agentApi = {
    */
   getMessageFeedback: (messageId) => apiGet(`/api/chat/message/${messageId}/feedback`),
 
-  createAgent: (payload) => apiPost('/api/agent', payload),
+  createAgent: async (payload) => {
+    const result = await apiPost(normalizeApiUrl('/api/agent'), payload)
+    return { success: result?.code === 0, data: result?.data, message: result?.message }
+  },
 
-  updateAgent: (agentId, payload) => apiPut(`/api/agent/${agentId}`, payload),
+  updateAgent: async (agentId, payload) => {
+    const result = await apiPut(
+      normalizeApiUrl(`/api/agent/${encodeURIComponent(agentId)}`),
+      payload
+    )
+    return { success: result?.code === 0, data: result?.data, message: result?.message }
+  },
 
-  deleteAgent: (agentId) => apiDelete(`/api/agent/${agentId}`),
+  deleteAgent: async (agentId) => {
+    const result = await apiDelete(normalizeApiUrl(`/api/agent/${encodeURIComponent(agentId)}`))
+    return { success: result?.code === 0, data: result?.data, message: result?.message }
+  },
 
   /**
    * 创建异步运行任务（Run）
@@ -211,7 +183,7 @@ export const agentApi = {
   streamRequestEvents: (requestId, options = {}) => {
     const { signal } = options
     const headers = { ...useUserStore().getAuthHeaders() }
-    return fetch(`/api/agent/requests/${requestId}/events`, {
+    return fetch(normalizeApiUrl(`/api/agent/requests/${requestId}/events`), {
       method: 'GET',
       headers,
       signal
@@ -256,7 +228,7 @@ export const agentApi = {
       headers['Last-Event-ID'] = cursor
     }
     const params = new URLSearchParams({ verbose: String(verbose) })
-    return fetch(`/api/agent/runs/${runId}/events?${params.toString()}`, {
+    return fetch(normalizeApiUrl(`/api/agent/runs/${runId}/events?${params.toString()}`), {
       method: 'GET',
       headers,
       signal
@@ -302,13 +274,6 @@ export const threadApi = {
    * @returns {Promise} - 对话线程列表
    */
   getThreads: (agentId = null, limit = 100, offset = 0) => {
-    if (USE_MOCK) {
-      let threads = [...mockThreads]
-      if (agentId) {
-        threads = threads.filter(t => t.agent_id === agentId)
-      }
-      return mockResponse(threads.slice(offset, offset + limit))
-    }
     const params = new URLSearchParams({
       limit: String(limit),
       offset: String(offset)
@@ -349,20 +314,6 @@ export const threadApi = {
    * @returns {Promise} - 创建结果
    */
   createThread: (agentId, title, metadata) => {
-    if (USE_MOCK) {
-      const newThread = {
-        id: `thread-${Date.now()}`,
-        agent_id: agentId,
-        title: title || '新的对话',
-        metadata: metadata || {},
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_pinned: false,
-        message_count: 0
-      }
-      mockThreads.unshift(newThread)
-      return mockResponse(newThread)
-    }
     return apiPost('/api/chat/thread', {
       agent_id: agentId,
       title: title || '新的对话',
@@ -438,7 +389,7 @@ export const threadApi = {
       .map((segment) => encodeURIComponent(segment))
       .join('/')
     const query = download ? '?download=true' : ''
-    return `/api/chat/thread/${threadId}/artifacts/${encodedPath}${query}`
+    return normalizeApiUrl(`/api/chat/thread/${threadId}/artifacts/${encodedPath}${query}`)
   },
 
   /**

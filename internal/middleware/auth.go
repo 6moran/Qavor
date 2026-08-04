@@ -28,14 +28,10 @@ func GetTokenFromHeader(c *gin.Context) string {
 	return parts[1]
 }
 
-// GetUsername 从 gin.Context 获取用户名
-func GetUsername(c *gin.Context) string {
-	if v, ok := c.Get("username"); ok {
-		if username, ok := v.(string); ok {
-			return username
-		}
-	}
-	return ""
+// IsAuthenticated 检查是否已认证
+func IsAuthenticated(c *gin.Context) bool {
+	_, exists := c.Get("authenticated")
+	return exists
 }
 
 // Auth JWT 认证中间件
@@ -58,7 +54,7 @@ func Auth() gin.HandlerFunc {
 		}
 
 		// 解析 Token
-		claims, err := parseAuthToken(token)
+		_, err := parseAuthToken(token)
 		if err != nil {
 			response.Unauthorized(c, err.Error())
 			c.Abort()
@@ -74,8 +70,8 @@ func Auth() gin.HandlerFunc {
 			return
 		}
 
-		// 将用户名设置到上下文中
-		c.Set("username", claims.Username)
+		// 标记已认证
+		c.Set("authenticated", true)
 
 		c.Next()
 	}

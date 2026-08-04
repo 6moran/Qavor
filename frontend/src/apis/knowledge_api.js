@@ -7,9 +7,9 @@ import {
   apiAdminPost,
   apiAdminPut,
   apiAdminDelete,
-  apiRequest
+  apiRequest,
+  normalizeApiUrl
 } from './base'
-import { USE_MOCK, mockResponse, mockAccessibleDatabases } from '@/mock'
 import {
   unwrapKnowledgeResponse,
   adaptKnowledgeBaseList,
@@ -115,9 +115,6 @@ export const databaseApi = {
    * @returns {Promise} - 可访问的知识库列表
    */
   getAccessibleDatabases: async () => {
-    if (USE_MOCK) {
-      return mockResponse({ databases: mockAccessibleDatabases })
-    }
     return apiGet('/api/knowledge/databases/accessible')
   }
 }
@@ -424,7 +421,7 @@ export const processingJobApi = {
 // =============================================================================
 
 function graphBuildUrl(kbId, action) {
-  return `/api/knowledge/databases/${kbId}/graph-build/${action}`
+  return normalizeApiUrl(`/api/knowledge/databases/${kbId}/graph-build/${action}`)
 }
 
 export const graphBuildApi = {

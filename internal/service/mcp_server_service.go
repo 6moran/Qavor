@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"strings"
 
+	"Qavor/internal/mcp"
 	"Qavor/internal/model/dto/request"
 	dto "Qavor/internal/model/dto/response"
 	"Qavor/internal/model/entity"
@@ -13,13 +15,15 @@ import (
 
 // mcpServerService MCP服务器服务实现
 type mcpServerService struct {
-	fileStore store.MCPServerFileStore
+	fileStore  store.MCPServerFileStore
+	mcpManager *mcp.MCPManager
 }
 
 // NewMCPServerService 创建MCP服务器服务
-func NewMCPServerService(fileStore store.MCPServerFileStore) MCPServerService {
+func NewMCPServerService(fileStore store.MCPServerFileStore, mcpManager *mcp.MCPManager) MCPServerService {
 	return &mcpServerService{
-		fileStore: fileStore,
+		fileStore:  fileStore,
+		mcpManager: mcpManager,
 	}
 }
 
@@ -63,16 +67,6 @@ func (s *mcpServerService) CreateMCPServer(req *request.CreateMCPServerRequest) 
 		}
 	}
 
-	// 转换 tags 类型
-	var tags []string
-	if req.Tags != nil {
-		for _, tag := range req.Tags {
-			if str, ok := tag.(string); ok {
-				tags = append(tags, str)
-			}
-		}
-	}
-
 	// 转换 disabledTools 类型
 	var disabledTools []string
 	if req.DisabledTools != nil {
@@ -94,8 +88,6 @@ func (s *mcpServerService) CreateMCPServer(req *request.CreateMCPServerRequest) 
 		Headers:        headers,
 		Timeout:        req.Timeout,
 		SSEReadTimeout: req.SSEReadTimeout,
-		Tags:           tags,
-		Icon:           req.Icon,
 		Enabled:        true,
 		DisabledTools:  disabledTools,
 	}
@@ -181,18 +173,6 @@ func (s *mcpServerService) UpdateMCPServer(name string, req *request.UpdateMCPSe
 	if req.SSEReadTimeout != nil {
 		updates.SSEReadTimeout = req.SSEReadTimeout
 	}
-	if req.Tags != nil {
-		var tags []string
-		for _, tag := range req.Tags {
-			if str, ok := tag.(string); ok {
-				tags = append(tags, str)
-			}
-		}
-		updates.Tags = tags
-	}
-	if req.Icon != "" {
-		updates.Icon = req.Icon
-	}
 	if req.Enabled != nil {
 		updates.Enabled = *req.Enabled == 1
 	}
@@ -224,7 +204,14 @@ func (s *mcpServerService) DeleteMCPServer(name string) error {
 	if existing == nil {
 		return bizerrors.New(bizerrors.CodeResourceNotFound, "MCP 服务器不存在")
 	}
-	return s.fileStore.Delete(name)
+	if err := s.fileStore.Delete(name); err != nil {
+		return err
+	}
+	// 删除后关闭连接并清理缓存
+	if s.mcpManager != nil {
+		s.mcpManager.Close(name)
+	}
+	return nil
 }
 
 // ListMCPServers 分页获取MCP服务器列表
@@ -302,12 +289,147 @@ func (s *mcpServerService) DisableMCPServer(name string) error {
 	updates := &entity.MCPServerConfig{
 		Enabled: false,
 	}
-	return s.fileStore.Update(name, updates)
+	if err := s.fileStore.Update(name, updates); err != nil {
+		return err
+	}
+	// 禁用后关闭连接，释放资源
+	if s.mcpManager != nil {
+		s.mcpManager.Close(name)
+	}
+	return nil
 }
 
 // RefreshIfChanged 刷新配置
 func (s *mcpServerService) RefreshIfChanged() error {
 	return s.fileStore.RefreshIfChanged()
+}
+
+// TestMCPServer 测试已保存的 MCP 服务器连接
+func (s *mcpServerService) TestMCPServer(name string) error {
+	config, err := s.fileStore.GetByName(name)
+	if err != nil {
+		return err
+	}
+	if config == nil {
+		return bizerrors.New(bizerrors.CodeResourceNotFound, "MCP 服务器不存在")
+	}
+	if s.mcpManager == nil {
+		return bizerrors.New(bizerrors.CodeInternalError, "MCP 管理器未初始化")
+	}
+	_, err = s.mcpManager.TestConnect(config)
+	return err
+}
+
+// TestMCPServerConfig 测试表单中尚未保存的 MCP 配置是否可连通
+func (s *mcpServerService) TestMCPServerConfig(req *request.CreateMCPServerRequest) (*dto.MCPTestResponse, error) {
+	config := &entity.MCPServerConfig{
+		Transport:      req.Transport,
+		URL:            req.URL,
+		Command:        req.Command,
+		Args:           toArgs(req.Args),
+		Env:            toEnv(req.Env),
+		Headers:        toHeaders(req.Headers),
+		Timeout:        req.Timeout,
+		SSEReadTimeout: req.SSEReadTimeout,
+	}
+	if s.mcpManager == nil {
+		return nil, bizerrors.New(bizerrors.CodeInternalError, "MCP 管理器未初始化")
+	}
+	info, err := s.mcpManager.TestConnect(config)
+	if err != nil {
+		return nil, err
+	}
+	resp := &dto.MCPTestResponse{}
+	if info != nil {
+		resp.ServerName = info.Name
+		resp.ServerVersion = info.Version
+	}
+	return resp, nil
+}
+
+// GetMCPServerTools 获取MCP服务器的工具列表
+func (s *mcpServerService) GetMCPServerTools(name string) ([]*dto.MCPToolResponse, error) {
+	config, err := s.fileStore.GetByName(name)
+	if err != nil {
+		return nil, err
+	}
+	if config == nil {
+		return nil, bizerrors.New(bizerrors.CodeResourceNotFound, "MCP 服务器不存在")
+	}
+	return s.listTools(config)
+}
+
+// RefreshMCPServerTools 刷新MCP服务器的工具列表
+func (s *mcpServerService) RefreshMCPServerTools(name string) ([]*dto.MCPToolResponse, error) {
+	config, err := s.fileStore.GetByName(name)
+	if err != nil {
+		return nil, err
+	}
+	if config == nil {
+		return nil, bizerrors.New(bizerrors.CodeResourceNotFound, "MCP 服务器不存在")
+	}
+	return s.listTools(config)
+}
+
+// listTools 从 MCPManager 拉取指定服务器的工具并转换为响应 DTO
+func (s *mcpServerService) listTools(config *entity.MCPServerConfig) ([]*dto.MCPToolResponse, error) {
+	if s.mcpManager == nil {
+		return []*dto.MCPToolResponse{}, nil
+	}
+
+	// 确保服务器已连接，才能获取工具
+	s.mcpManager.EnsureConnected([]string{config.Name})
+
+	disabledSet := make(map[string]bool, len(config.DisabledTools))
+	for _, t := range config.DisabledTools {
+		disabledSet[t] = true
+	}
+
+	tools := s.mcpManager.GetToolsByServers([]string{config.Name})
+	result := make([]*dto.MCPToolResponse, 0, len(tools))
+	for _, t := range tools {
+		info, err := t.Info(context.Background())
+		if err != nil {
+			continue
+		}
+		result = append(result, &dto.MCPToolResponse{
+			Name:        info.Name,
+			Description: info.Desc,
+			Enabled:     !disabledSet[info.Name],
+		})
+	}
+	return result, nil
+}
+
+// ToggleMCPServerTool 切换单个工具的启用状态
+func (s *mcpServerService) ToggleMCPServerTool(serverName, toolName string) error {
+	config, err := s.fileStore.GetByName(serverName)
+	if err != nil {
+		return err
+	}
+	if config == nil {
+		return bizerrors.New(bizerrors.CodeResourceNotFound, "MCP 服务器不存在")
+	}
+
+	// 切换 DisabledTools 中的工具名
+	disabled := config.DisabledTools
+	idx := -1
+	for i, t := range disabled {
+		if t == toolName {
+			idx = i
+			break
+		}
+	}
+	if idx >= 0 {
+		// 当前已禁用 → 启用（移除）
+		disabled = append(disabled[:idx], disabled[idx+1:]...)
+	} else {
+		// 当前已启用 → 禁用（加入）
+		disabled = append(disabled, toolName)
+	}
+
+	updates := &entity.MCPServerConfig{DisabledTools: disabled}
+	return s.fileStore.Update(serverName, updates)
 }
 
 // toResponse 转换为响应 DTO
@@ -344,14 +466,6 @@ func (s *mcpServerService) toResponse(name string, config *entity.MCPServerConfi
 	}
 
 	// 转换 tags 类型
-	var tags entity.JSONArray
-	if config.Tags != nil {
-		tags = make(entity.JSONArray, len(config.Tags))
-		for i, tag := range config.Tags {
-			tags[i] = tag
-		}
-	}
-
 	// 转换 disabledTools 类型
 	var disabledTools entity.JSONArray
 	if config.DisabledTools != nil {
@@ -367,6 +481,12 @@ func (s *mcpServerService) toResponse(name string, config *entity.MCPServerConfi
 		enabled = 1
 	}
 
+	// 获取连接状态（mcpManager 未初始化时兜底为 unknown）
+	status := "unknown"
+	if s.mcpManager != nil {
+		status = s.mcpManager.GetStatus(name).String()
+	}
+
 	return &dto.MCPServerResponse{
 		Name:           name,
 		Description:    config.Description,
@@ -378,11 +498,52 @@ func (s *mcpServerService) toResponse(name string, config *entity.MCPServerConfi
 		Headers:        headers,
 		Timeout:        config.Timeout,
 		SSEReadTimeout: config.SSEReadTimeout,
-		Tags:           tags,
-		Icon:           config.Icon,
 		Enabled:        enabled,
 		DisabledTools:  disabledTools,
+		Status:         status,
 		CreatedAt:      config.CreatedAt,
 		UpdatedAt:      config.UpdatedAt,
 	}
+}
+
+// toArgs 将请求中的 JSONArray 参数转换为 []string
+func toArgs(args entity.JSONArray) []string {
+	if args == nil {
+		return nil
+	}
+	var result []string
+	for _, arg := range args {
+		if str, ok := arg.(string); ok {
+			result = append(result, str)
+		}
+	}
+	return result
+}
+
+// toEnv 将请求中的 JSON 环境变量转换为 map[string]string
+func toEnv(env entity.JSON) map[string]string {
+	if env == nil {
+		return nil
+	}
+	result := make(map[string]string, len(env))
+	for k, v := range env {
+		if str, ok := v.(string); ok {
+			result[k] = str
+		}
+	}
+	return result
+}
+
+// toHeaders 将请求中的 JSON 请求头转换为 map[string]string
+func toHeaders(headers entity.JSON) map[string]string {
+	if headers == nil {
+		return nil
+	}
+	result := make(map[string]string, len(headers))
+	for k, v := range headers {
+		if str, ok := v.(string); ok {
+			result[k] = str
+		}
+	}
+	return result
 }
