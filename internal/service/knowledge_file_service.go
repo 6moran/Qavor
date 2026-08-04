@@ -422,7 +422,7 @@ func (s *knowledgeFileService) IndexFiles(ctx context.Context, kbID string, req 
 		return nil, bizerrors.New(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用")
 	}
 	result := &response.ProcessingJobBatchResponse{}
-	indexableStatuses := []string{entity.FileParsed, entity.FileIndexFailed, entity.FileIndexed}
+	indexableStatuses := []string{entity.FileParsed, entity.FileIndexFailed, entity.FileIndexed, "ready"}
 	processingParams := entity.JSON{
 		"chunk_preset_id":    req.Params.ChunkPresetID,
 		"chunk_token_num":    req.Params.ChunkParserConfig.ChunkTokenNum,
@@ -486,7 +486,7 @@ func (s *knowledgeFileService) IndexPending(ctx context.Context, kbID string, pa
 	if s.jobRepo == nil || s.queue == nil {
 		return nil, bizerrors.New(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用")
 	}
-	files, err := s.fileRepo.ListByKBIDAndStatuses(ctx, kbID, []string{entity.FileParsed, entity.FileIndexFailed}, 500)
+	files, err := s.fileRepo.ListByKBIDAndStatuses(ctx, kbID, []string{entity.FileParsed, entity.FileIndexFailed, "ready"}, 500)
 	if err != nil {
 		return nil, err
 	}

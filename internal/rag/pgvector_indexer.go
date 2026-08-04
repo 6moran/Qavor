@@ -29,7 +29,7 @@ type PGVectorIndexer struct {
 // embedder 为 Eino embedding.Embedder；dimension > 0 时校验返回向量维度。
 func NewPGVectorIndexer(embedder embedding.Embedder, repo repository.KnowledgeChunkRepository, batchSize, dimension int) *PGVectorIndexer {
 	if batchSize <= 0 {
-		batchSize = 32
+		batchSize = 15
 	}
 	return &PGVectorIndexer{
 		embedder:  embedder,

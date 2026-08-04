@@ -2,6 +2,7 @@ package response
 
 import (
 	"math"
+	"net/http"
 
 	"Qavor/pkg/errors"
 
@@ -53,39 +54,54 @@ func ErrorWithData(c *gin.Context, code int, message string, data interface{}) {
 // BizError 业务错误响应
 func BizError(c *gin.Context, err error) {
 	if bizErr, ok := err.(*errors.BizError); ok {
-		c.JSON(200, Response{
+		c.JSON(http.StatusOK, Response{
 			Code:    bizErr.Code,
 			Message: bizErr.Message,
 		})
 		return
 	}
-	// 其他错误类型
-	Error(c, errors.CodeInternalError, errors.GetMessage(errors.CodeInternalError))
+	// 其他错误类型，作为内部错误处理
+	InternalError(c, errors.GetMessage(errors.CodeInternalError))
 }
 
 // BadRequest 400 错误
 func BadRequest(c *gin.Context, message string) {
-	Error(c, errors.CodeBadRequest, message)
+	c.JSON(http.StatusBadRequest, Response{
+		Code:    errors.CodeBadRequest,
+		Message: message,
+	})
 }
 
 // Unauthorized 401 错误
 func Unauthorized(c *gin.Context, message string) {
-	Error(c, errors.CodeUnauthorized, message)
+	c.JSON(http.StatusUnauthorized, Response{
+		Code:    errors.CodeUnauthorized,
+		Message: message,
+	})
 }
 
 // Forbidden 403 错误
 func Forbidden(c *gin.Context, message string) {
-	Error(c, errors.CodeForbidden, message)
+	c.JSON(http.StatusForbidden, Response{
+		Code:    errors.CodeForbidden,
+		Message: message,
+	})
 }
 
 // NotFound 404 错误
 func NotFound(c *gin.Context, message string) {
-	Error(c, errors.CodeNotFound, message)
+	c.JSON(http.StatusNotFound, Response{
+		Code:    errors.CodeNotFound,
+		Message: message,
+	})
 }
 
 // InternalError 500 错误
 func InternalError(c *gin.Context, message string) {
-	Error(c, errors.CodeInternalError, message)
+	c.JSON(http.StatusInternalServerError, Response{
+		Code:    errors.CodeInternalError,
+		Message: message,
+	})
 }
 
 // PageRequest 分页请求参数

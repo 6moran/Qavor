@@ -4,12 +4,15 @@ import (
 	"Qavor/internal/llm"
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 	"Qavor/pkg/validator"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller 模型控制器
@@ -41,7 +44,13 @@ func (ctrl *Controller) CreateModel(c *gin.Context) {
 
 	resp, err := ctrl.modelService.CreateModel(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，创建模型失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("创建模型失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -61,13 +70,19 @@ func (ctrl *Controller) GetModel(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的ID")
+		response.BadRequest(c, "无效的ID")
 		return
 	}
 
 	resp, err := ctrl.modelService.GetModel(uint(id))
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取模型失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取模型失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -88,7 +103,7 @@ func (ctrl *Controller) UpdateModel(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的ID")
+		response.BadRequest(c, "无效的ID")
 		return
 	}
 
@@ -101,7 +116,13 @@ func (ctrl *Controller) UpdateModel(c *gin.Context) {
 
 	resp, err := ctrl.modelService.UpdateModel(uint(id), &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，更新模型失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("更新模型失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -121,12 +142,18 @@ func (ctrl *Controller) DeleteModel(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的ID")
+		response.BadRequest(c, "无效的ID")
 		return
 	}
 
 	if err := ctrl.modelService.DeleteModel(uint(id)); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，删除模型失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("删除模型失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -155,7 +182,13 @@ func (ctrl *Controller) ListModels(c *gin.Context) {
 
 	resp, err := ctrl.modelService.ListModels(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取模型列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取模型列表失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -213,7 +246,7 @@ func (ctrl *Controller) GetProviderByName(c *gin.Context) {
 
 	provider, found := llm.GetProviderByName(name)
 	if !found {
-		response.Error(c, 404, "供应商不存在")
+		response.NotFound(c, "供应商不存在")
 		return
 	}
 
@@ -238,7 +271,13 @@ func (ctrl *Controller) TestConnection(c *gin.Context) {
 	}
 	result, err := ctrl.modelService.TestConnection(c.Request.Context(), &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，测试连接失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("测试连接失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, result)

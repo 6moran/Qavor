@@ -3,11 +3,14 @@ package message
 import (
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 	"Qavor/pkg/validator"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller 消息控制器
@@ -25,7 +28,7 @@ func (ctrl *Controller) CreateMessage(c *gin.Context) {
 	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的会话ID")
+		response.BadRequest(c, "无效的会话ID")
 		return
 	}
 
@@ -39,7 +42,13 @@ func (ctrl *Controller) CreateMessage(c *gin.Context) {
 
 	resp, err := ctrl.messageService.CreateMessage(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，创建消息失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("创建消息失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -51,20 +60,26 @@ func (ctrl *Controller) GetMessage(c *gin.Context) {
 	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的会话ID")
+		response.BadRequest(c, "无效的会话ID")
 		return
 	}
 
 	idStr := c.Param("msg_id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的消息ID")
+		response.BadRequest(c, "无效的消息ID")
 		return
 	}
 
 	resp, err := ctrl.messageService.GetMessage(uint(id), uint(conversationID))
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取消息失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取消息失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -76,14 +91,14 @@ func (ctrl *Controller) UpdateMessage(c *gin.Context) {
 	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的会话ID")
+		response.BadRequest(c, "无效的会话ID")
 		return
 	}
 
 	idStr := c.Param("msg_id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的消息ID")
+		response.BadRequest(c, "无效的消息ID")
 		return
 	}
 
@@ -96,7 +111,13 @@ func (ctrl *Controller) UpdateMessage(c *gin.Context) {
 
 	resp, err := ctrl.messageService.UpdateMessage(uint(id), uint(conversationID), &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，更新消息失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("更新消息失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -108,19 +129,25 @@ func (ctrl *Controller) DeleteMessage(c *gin.Context) {
 	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的会话ID")
+		response.BadRequest(c, "无效的会话ID")
 		return
 	}
 
 	idStr := c.Param("msg_id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的消息ID")
+		response.BadRequest(c, "无效的消息ID")
 		return
 	}
 
 	if err := ctrl.messageService.DeleteMessage(uint(id), uint(conversationID)); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，删除消息失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("删除消息失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -132,7 +159,7 @@ func (ctrl *Controller) ListMessages(c *gin.Context) {
 	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的会话ID")
+		response.BadRequest(c, "无效的会话ID")
 		return
 	}
 
@@ -145,7 +172,13 @@ func (ctrl *Controller) ListMessages(c *gin.Context) {
 
 	resp, err := ctrl.messageService.ListMessages(uint(conversationID), &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取消息列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取消息列表失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -157,13 +190,19 @@ func (ctrl *Controller) GetLatestMessage(c *gin.Context) {
 	conversationIDStr := c.Param("id")
 	conversationID, err := strconv.ParseUint(conversationIDStr, 10, 32)
 	if err != nil {
-		response.Error(c, 400, "无效的会话ID")
+		response.BadRequest(c, "无效的会话ID")
 		return
 	}
 
 	resp, err := ctrl.messageService.GetLatestMessage(uint(conversationID))
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取最新消息失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取最新消息失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 

@@ -7,9 +7,12 @@ import (
 
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller 负责文件请求参数绑定，并将存储和持久化操作交给文件业务层。
@@ -29,7 +32,13 @@ func (ctrl *Controller) CreateFolder(c *gin.Context) {
 	}
 	result, err := ctrl.service.CreateFolder(c.Param("kb_id"), &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，创建文件夹失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("创建文件夹失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	c.JSON(202, response.Response{Code: 0, Message: "文件已进入解析队列", Data: result})
@@ -44,7 +53,13 @@ func (ctrl *Controller) Upload(c *gin.Context) {
 	}
 	result, err := ctrl.service.Upload(c.Query("kb_id"), c.Query("parent_id"), file)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，上传文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("上传文件失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, result)
@@ -59,7 +74,13 @@ func (ctrl *Controller) List(c *gin.Context) {
 	}
 	result, err := ctrl.service.List(c.Param("kb_id"), &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取文件列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取文件列表失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, result)
@@ -74,7 +95,13 @@ func (ctrl *Controller) Search(c *gin.Context) {
 	}
 	result, err := ctrl.service.Search(c.Param("kb_id"), req.Query, req.Offset, req.Limit)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，搜索文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("搜索文件失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, result)
@@ -84,7 +111,13 @@ func (ctrl *Controller) Search(c *gin.Context) {
 func (ctrl *Controller) Get(c *gin.Context) {
 	result, err := ctrl.service.Get(c.Param("kb_id"), c.Param("doc_id"))
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取文件详情失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取文件详情失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, result)
@@ -94,7 +127,13 @@ func (ctrl *Controller) Get(c *gin.Context) {
 func (ctrl *Controller) Preview(c *gin.Context) {
 	result, err := ctrl.service.Preview(c.Param("kb_id"), c.Param("doc_id"))
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，预览文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("预览文件失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, result)
@@ -104,7 +143,13 @@ func (ctrl *Controller) Preview(c *gin.Context) {
 func (ctrl *Controller) Download(c *gin.Context) {
 	result, err := ctrl.service.Download(c.Param("kb_id"), c.Param("doc_id"))
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，下载文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("下载文件失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	defer result.Reader.Close()
@@ -129,7 +174,13 @@ func (ctrl *Controller) BatchDelete(c *gin.Context) {
 	}
 	result, err := ctrl.service.BatchDelete(c.Param("kb_id"), req.FileIDs)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，批量删除文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("批量删除文件失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, result)
@@ -138,7 +189,13 @@ func (ctrl *Controller) BatchDelete(c *gin.Context) {
 // Delete 删除数据库文件记录，并由业务层同步清理对象存储
 func (ctrl *Controller) Delete(c *gin.Context) {
 	if err := ctrl.service.Delete(c.Param("kb_id"), c.Param("doc_id")); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，删除文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("删除文件失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, nil)
@@ -148,7 +205,13 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 func (ctrl *Controller) RetryParse(c *gin.Context) {
 	result, err := ctrl.service.RetryParse(c.Request.Context(), c.Param("kb_id"), c.Param("doc_id"))
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，重试解析失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("重试解析失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	c.JSON(202, response.Response{Code: 0, Message: "文件已进入解析队列", Data: result})
@@ -166,7 +229,13 @@ func (ctrl *Controller) IndexOne(c *gin.Context) {
 		Params:  req.Params,
 	})
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，手动入库失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("手动入库失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})
@@ -181,7 +250,13 @@ func (ctrl *Controller) IndexMany(c *gin.Context) {
 	}
 	result, err := ctrl.service.IndexFiles(c.Request.Context(), c.Param("kb_id"), &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，批量入库失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("批量入库失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})
@@ -198,7 +273,13 @@ func (ctrl *Controller) IndexPending(c *gin.Context) {
 	}
 	result, err := ctrl.service.IndexPending(c.Request.Context(), c.Param("kb_id"), req.Params)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，批量入库待处理文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("批量入库待处理文件失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})

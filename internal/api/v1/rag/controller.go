@@ -6,9 +6,12 @@ import (
 
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller RAG 问答控制器。
@@ -39,7 +42,13 @@ func (ctrl *Controller) Answer(c *gin.Context) {
 
 	result, err := ctrl.service.Answer(ctx, req.KnowledgeBaseIDs, req.Query)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，RAG 问答失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("RAG 问答失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	response.Success(c, result)
