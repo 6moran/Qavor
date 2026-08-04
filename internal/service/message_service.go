@@ -16,7 +16,7 @@ import (
 
 // MessageService 消息服务接口
 type MessageService interface {
-	CreateMessage(userID uint, req *request.CreateMessageRequest) (*dto.MessageResponse, error)
+	CreateMessage(req *request.CreateMessageRequest) (*dto.MessageResponse, error)
 	GetMessage(id, conversationID uint) (*dto.MessageResponse, error)
 	UpdateMessage(id, conversationID uint, req *request.UpdateMessageRequest) (*dto.MessageResponse, error)
 	DeleteMessage(id, conversationID uint) error
@@ -41,9 +41,9 @@ func NewMessageService(messageRepo repository.MessageRepository, conversationRep
 }
 
 // CreateMessage 创建消息
-func (s *messageService) CreateMessage(userID uint, req *request.CreateMessageRequest) (*dto.MessageResponse, error) {
-	// 校验会话存在且属于当前用户
-	conv, err := s.conversationRepo.FindByIDAndUserID(req.ConversationID, userID)
+func (s *messageService) CreateMessage(req *request.CreateMessageRequest) (*dto.MessageResponse, error) {
+	// 校验会话存在
+	conv, err := s.conversationRepo.FindByID(req.ConversationID)
 	if err != nil {
 		return nil, err
 	}

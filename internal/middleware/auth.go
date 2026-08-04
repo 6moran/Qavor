@@ -28,14 +28,14 @@ func GetTokenFromHeader(c *gin.Context) string {
 	return parts[1]
 }
 
-// GetUserID 从 gin.Context 获取用户 ID
-func GetUserID(c *gin.Context) uint {
-	if v, ok := c.Get("user_id"); ok {
-		if id, ok := v.(uint); ok {
-			return id
+// GetUsername 从 gin.Context 获取用户名
+func GetUsername(c *gin.Context) string {
+	if v, ok := c.Get("username"); ok {
+		if username, ok := v.(string); ok {
+			return username
 		}
 	}
-	return 0
+	return ""
 }
 
 // Auth JWT 认证中间件
@@ -58,7 +58,7 @@ func Auth() gin.HandlerFunc {
 		}
 
 		// 解析 Token
-		_, err := parseAuthToken(token)
+		claims, err := parseAuthToken(token)
 		if err != nil {
 			response.Unauthorized(c, err.Error())
 			c.Abort()
@@ -73,6 +73,9 @@ func Auth() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
+		// 将用户名设置到上下文中
+		c.Set("username", claims.Username)
 
 		c.Next()
 	}

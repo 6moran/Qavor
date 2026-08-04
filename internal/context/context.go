@@ -25,4 +25,10 @@ type ContextManager interface {
 
 	// CountTokens 计算消息列表的 Token 数量
 	CountTokens(messages []*schema.Message) int
+
+	// UpdateShortMemory 更新短期记忆（AI回复完成后调用）
+	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message) error
+
+	// GetShortMemoryContext 获取短期记忆上下文
+	GetShortMemoryContext(ctx context.Context, conversationID uint, maxTokens int) ([]*schema.Message, error)
 }
