@@ -1,8 +1,10 @@
 package request
 
+import "Qavor/internal/model/entity"
+
 // CreateAgentRequest 创建智能体请求
 type CreateAgentRequest struct {
-	Slug          string            `json:"slug" binding:"required,max=80"`
+	Slug          string            `json:"slug" binding:"omitempty,max=80"`
 	Name          string            `json:"name" binding:"required,max=100"`
 	Description   string            `json:"description"`
 	Icon          string            `json:"icon"`
@@ -15,6 +17,8 @@ type CreateAgentRequest struct {
 	Temperature   float64           `json:"temperature"`
 	Metadata      map[string]string `json:"metadata"`
 	IsDefault     bool              `json:"is_default"`
+	BackendID     string            `json:"backend_id"`
+	IsSubagent    bool              `json:"is_subagent"`
 }
 
 // UpdateAgentRequest 更新智能体请求
@@ -30,6 +34,7 @@ type UpdateAgentRequest struct {
 	MaxTokens     *int              `json:"max_tokens"`
 	Temperature   *float64          `json:"temperature"`
 	Metadata      map[string]string `json:"metadata"`
+	ConfigJSON    entity.JSON       `json:"config_json"`
 }
 
 // AgentListRequest 智能体列表请求

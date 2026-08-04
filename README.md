@@ -235,7 +235,7 @@ make help         # 显示帮助
 
 ### 使用方法
 
-1. 创建skill目录：`skills/my-skill/`
+1. 创建skill目录：`qavor/skills/my-skill/`（默认加载工作目录下 `qavor/skills/`，可用 `app.skills_dir` 覆盖）
 2. 创建SKILL.md文件
 3. 通过API或文件系统添加skill
 4. Agent创建时选择skill

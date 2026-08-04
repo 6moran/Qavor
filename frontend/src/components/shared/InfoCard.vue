@@ -43,6 +43,19 @@
           </a-dropdown>
         </div>
       </div>
+      <div v-if="status" class="info-card-mini-status">
+        <span
+          v-if="status.label"
+          class="card-status-tag"
+          :class="`card-status-tag--${status.level || 'info'}`"
+          >{{ status.label }}</span
+        >
+        <span
+          v-if="status.showDot !== false"
+          class="card-status-dot"
+          :class="`card-status-dot--${statusDotColor}`"
+        ></span>
+      </div>
     </template>
 
     <template v-else>
@@ -323,6 +336,14 @@ const normalizedTags = computed(() => {
     align-items: center;
     gap: 12px;
     min-width: 0;
+  }
+
+  &-mini-status {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-top: 8px;
   }
 
   &-mini-desc {

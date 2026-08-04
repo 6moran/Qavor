@@ -189,6 +189,7 @@ import {
 } from '@ant-design/icons-vue'
 import dayjs from '@/utils/time'
 import { configApi } from '@/apis/system_api'
+import { normalizeApiUrl } from '@/apis/base'
 import { checkSuperAdminPermission } from '@/stores/user'
 
 const configStore = useConfigStore()
@@ -539,7 +540,7 @@ const printAgentConfig = async () => {
 // 获取用户列表
 const fetchUsers = async () => {
   try {
-    const response = await fetch('/api/auth/users', {
+    const response = await fetch(normalizeApiUrl('/api/auth/users'), {
       headers: userStore.getAuthHeaders()
     })
     if (!response.ok) {
@@ -572,7 +573,7 @@ const switchToUser = async (user) => {
     onOk: async () => {
       state.switchingUser = true
       try {
-        const response = await fetch(`/api/auth/impersonate/${user.id}`, {
+        const response = await fetch(normalizeApiUrl(`/api/auth/impersonate/${user.id}`), {
           method: 'POST',
           headers: userStore.getAuthHeaders()
         })

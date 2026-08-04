@@ -5,7 +5,7 @@ import { apiAdminGet } from './base'
  * 包含系统内置工具的查询功能
  */
 
-const BASE_URL = '/api/system/tools'
+const BASE_URL = '/api/v1/system/tools'
 
 /**
  * 获取工具列表

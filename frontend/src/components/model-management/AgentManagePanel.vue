@@ -18,14 +18,24 @@ const router = useRouter()
 const agentLoading = ref(false)
 const searchQuery = ref('')
 
-const agentBackendOptions = ref([])
+const agentBackendOptions = ref([
+  { label: '主智能体', value: 'ChatbotAgent' },
+  { label: '子智能体', value: 'SubAgentBackend' }
+])
 const managedAgents = ref([])
 const agentEditModalRef = ref(null)
 
 const normalizeAgent = (agent) => {
   const agentId = agent?.agent_id || agent?.slug || agent?.id
   return agentId
-    ? { ...agent, id: agentId, agent_id: agentId, slug: agent?.slug || agentId }
+    ? {
+        ...agent,
+        id: agentId,
+        agent_id: agentId,
+        slug: agent?.slug || agentId,
+        can_manage: agent?.can_manage ?? true,
+        is_builtin: agent?.is_builtin ?? false
+      }
     : agent
 }
 
@@ -72,23 +82,11 @@ const canManageAgent = (agent) => !!agent?.can_manage
 const getAgentDefaultIconSrc = (agent) => (agent.id ? generatePixelAvatar(agent.id) : '')
 
 // ============ Agent Operations ============
-const loadAgentBackends = async () => {
-  try {
-    const response = await agentApi.getAgentBackends()
-    agentBackendOptions.value = (response.backends || []).map((backend) => ({
-      label: backend.name || backend.backend_id,
-      value: backend.backend_id
-    }))
-  } catch (error) {
-    message.error(error.message || '加载智能体后端失败')
-  }
-}
-
 const loadAgents = async () => {
   agentLoading.value = true
   try {
     const response = await agentApi.getAgents({ includeSubagents: true })
-    managedAgents.value = (response.agents || []).map(normalizeAgent)
+    managedAgents.value = (response?.data || []).map(normalizeAgent)
   } catch (error) {
     message.error(error.message || '加载智能体失败')
   } finally {
@@ -138,7 +136,7 @@ const deleteAgent = async (agent) => {
 }
 
 onMounted(async () => {
-  await Promise.all([loadAgentBackends(), loadAgents()])
+  await loadAgents()
 })
 
 defineExpose({

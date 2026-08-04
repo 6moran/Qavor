@@ -513,7 +513,7 @@ const removeDependency = (group, value) => {
 }
 
 const goBack = () => {
-  router.push({ path: '/extensions', query: { tab: 'skills' } })
+  router.push({ path: '/tools', query: { tab: 'skills' } })
 }
 
 const cloneShareConfig = (config) => ({
@@ -674,7 +674,7 @@ const confirmDeleteSkill = () => {
       try {
         await skillApi.deleteSkill(target.slug)
         message.success(`已${actionText}`)
-        router.push({ path: '/extensions', query: { tab: 'skills' } })
+        router.push({ path: '/tools', query: { tab: 'skills' } })
       } catch {
         message.error(`${actionText}失败`)
       }
