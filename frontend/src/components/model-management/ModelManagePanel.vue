@@ -171,7 +171,7 @@ onMounted(loadModels)
       <div v-else class="model-list">
         <div v-for="model in models" :key="model.id" class="model-row">
           <div class="model-main">
-            <div class="model-name">{{ model.name }}</div>
+            <div class="model-remark">{{ model.remark || '未填写备注' }}</div>
             <div class="model-url">{{ model.base_url }}</div>
           </div>
           <a-tag :color="model.model_type === 'chat' ? 'blue' : model.model_type === 'embedding' ? 'green' : 'orange'">
@@ -217,6 +217,10 @@ onMounted(loadModels)
           <a-input v-model:value="form.name" placeholder="例如 gpt-4o" />
         </label>
         <label>
+          备注
+          <a-input v-model:value="form.remark" placeholder="便于识别此模型配置" />
+        </label>
+        <label>
           协议 *
           <a-select v-model:value="form.protocol" :options="MODEL_PROTOCOL_OPTIONS" />
         </label>
@@ -227,10 +231,6 @@ onMounted(loadModels)
         <label>
           API Key
           <a-input-password v-model:value="form.api_key" placeholder="留空表示不修改" />
-        </label>
-        <label>
-          Organization ID
-          <a-input v-model:value="form.org_id" />
         </label>
         <label>
           超时（毫秒）
@@ -312,7 +312,7 @@ onMounted(loadModels)
 }
 
 .model-main { flex: 1; min-width: 0; }
-.model-name { color: var(--gray-900); font-weight: 600; }
+.model-remark { color: var(--gray-900); font-weight: 600; }
 .model-url, .model-updated { color: var(--gray-500); font-size: 12px; }
 .model-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-updated { width: 150px; }

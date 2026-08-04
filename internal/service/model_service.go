@@ -84,16 +84,16 @@ func (s *modelService) CreateModel(req *request.CreateModelRequest) (*dto.ModelR
 
 	// 构建实体
 	model := &entity.Model{
-		Name:           req.Name,
-		Protocol:       req.Protocol,
-		BaseURL:        req.BaseURL,
-		APIKey:         encryptedAPIKey,
-		OrganizationID: req.OrganizationID,
-		Headers:        types.StringMap(req.Headers),
-		Timeout:        timeout,
-		Enabled:        enabled,
-		ModelType:      modelType,
-		Params:         params,
+		Name:      req.Name,
+		Remark:    req.Remark,
+		Protocol:  req.Protocol,
+		BaseURL:   req.BaseURL,
+		APIKey:    encryptedAPIKey,
+		Headers:   types.StringMap(req.Headers),
+		Timeout:   timeout,
+		Enabled:   enabled,
+		ModelType: modelType,
+		Params:    params,
 	}
 
 	// 保存到数据库
@@ -131,6 +131,7 @@ func (s *modelService) UpdateModel(id uint, req *request.UpdateModelRequest) (*d
 	if req.Name != "" {
 		model.Name = req.Name
 	}
+	model.Remark = req.Remark
 	if req.Protocol != "" {
 		model.Protocol = req.Protocol
 	}
@@ -143,9 +144,6 @@ func (s *modelService) UpdateModel(id uint, req *request.UpdateModelRequest) (*d
 			return nil, errors.New(errors.CodeInternalError, "API Key加密失败")
 		}
 		model.APIKey = encrypted
-	}
-	if req.OrganizationID != "" {
-		model.OrganizationID = req.OrganizationID
 	}
 	if req.Headers != nil {
 		model.Headers = types.StringMap(req.Headers)
@@ -305,15 +303,15 @@ func (s *modelService) ResolveChatModel(ctx context.Context, modelID uint) (eino
 // toResponse 将实体转换为响应 DTO
 func (s *modelService) toResponse(model *entity.Model) *dto.ModelResponse {
 	return &dto.ModelResponse{
-		ID:             model.ID,
-		Name:           model.Name,
-		Protocol:       model.Protocol,
-		BaseURL:        model.BaseURL,
-		OrganizationID: model.OrganizationID,
-		Headers:        map[string]string(model.Headers),
-		Timeout:        model.Timeout,
-		Enabled:        model.Enabled,
-		ModelType:      model.ModelType,
+		ID:        model.ID,
+		Name:      model.Name,
+		Remark:    model.Remark,
+		Protocol:  model.Protocol,
+		BaseURL:   model.BaseURL,
+		Headers:   map[string]string(model.Headers),
+		Timeout:   model.Timeout,
+		Enabled:   model.Enabled,
+		ModelType: model.ModelType,
 		Params: dto.ModelParams{
 			MaxTokens:        model.Params.MaxTokens,
 			Temperature:      model.Params.Temperature,

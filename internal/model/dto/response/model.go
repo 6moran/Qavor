@@ -14,18 +14,18 @@ type ModelParams struct {
 
 // ModelResponse 模型响应
 type ModelResponse struct {
-	ID             uint              `json:"id"`
-	Name           string            `json:"name"`
-	Protocol       string            `json:"protocol"`
-	BaseURL        string            `json:"base_url"`
-	OrganizationID string            `json:"org_id,omitempty"`
-	Headers        map[string]string `json:"headers,omitempty"`
-	Timeout        int               `json:"timeout"`
-	Enabled        bool              `json:"enabled"`
-	ModelType      string            `json:"model_type"`
-	Params         ModelParams       `json:"params"`
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
+	ID        uint              `json:"id"`
+	Name      string            `json:"name"`
+	Remark    string            `json:"remark,omitempty"`
+	Protocol  string            `json:"protocol"`
+	BaseURL   string            `json:"base_url"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Timeout   int               `json:"timeout"`
+	Enabled   bool              `json:"enabled"`
+	ModelType string            `json:"model_type"`
+	Params    ModelParams       `json:"params"`
+	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
 }
 
 // ModelListResponse 模型列表响应

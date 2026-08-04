@@ -13,10 +13,10 @@ export const formatJsonText = (value) => JSON.stringify(value ?? {}, null, 2)
 
 export const createDefaultModelForm = () => ({
   name: '',
+  remark: '',
   protocol: 'openai',
   base_url: '',
   api_key: '',
-  org_id: '',
   headers: formatJsonText({}),
   timeout: 30000,
   enabled: true,
@@ -39,10 +39,10 @@ export const parseJsonObject = (text, label) => {
 
 export const buildModelPayload = (form) => ({
   name: form.name.trim(),
+  remark: form.remark?.trim() || '',
   protocol: form.protocol.trim(),
   base_url: form.base_url.trim(),
   api_key: form.api_key || '',
-  org_id: form.org_id?.trim() || '',
   headers: parseJsonObject(form.headers, '请求头'),
   timeout: Number(form.timeout) || 30000,
   enabled: Boolean(form.enabled),
@@ -52,10 +52,10 @@ export const buildModelPayload = (form) => ({
 
 export const modelToForm = (model) => ({
   name: model.name || '',
+  remark: model.remark || '',
   protocol: model.protocol || 'openai',
   base_url: model.base_url || '',
   api_key: '',
-  org_id: model.org_id || '',
   headers: formatJsonText(model.headers),
   timeout: model.timeout || 30000,
   enabled: model.enabled !== false,
