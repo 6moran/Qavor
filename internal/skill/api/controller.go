@@ -9,9 +9,12 @@ import (
 	"Qavor/internal/model/entity"
 	"Qavor/internal/skill"
 	"Qavor/internal/skill/remote"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller Skill API 控制器
@@ -41,7 +44,13 @@ func (ctrl *Controller) ListSkills(c *gin.Context) {
 
 	skills, total, err := ctrl.svc.List((page-1)*pageSize, pageSize, keyword)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取Skill列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取Skill列表失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -58,7 +67,13 @@ func (ctrl *Controller) GetSkill(c *gin.Context) {
 	slug := c.Param("slug")
 	skillEntity, err := ctrl.svc.GetBySlug(slug)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取Skill详情失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取Skill详情失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	if skillEntity == nil {
@@ -78,7 +93,13 @@ func (ctrl *Controller) CreateSkill(c *gin.Context) {
 	}
 
 	if err := ctrl.svc.Create(&req); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，创建Skill失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("创建Skill失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -95,7 +116,13 @@ func (ctrl *Controller) UpdateSkill(c *gin.Context) {
 	}
 
 	if err := ctrl.svc.Update(slug, &req); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，更新Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("更新Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -106,7 +133,13 @@ func (ctrl *Controller) UpdateSkill(c *gin.Context) {
 func (ctrl *Controller) DeleteSkill(c *gin.Context) {
 	slug := c.Param("slug")
 	if err := ctrl.svc.Delete(slug); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，删除Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("删除Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -123,7 +156,13 @@ func (ctrl *Controller) BatchCreateSkills(c *gin.Context) {
 
 	for _, skill := range req {
 		if err := ctrl.svc.Create(skill); err != nil {
-			response.BizError(c, err)
+			if errors.IsBizError(err) {
+				logger.Warn("业务错误，批量创建Skill失败", zap.Error(err))
+				response.BizError(c, err)
+			} else {
+				logger.Error("批量创建Skill失败", zap.Error(err))
+				response.InternalError(c, "服务器内部错误")
+			}
 			return
 		}
 	}
@@ -143,7 +182,13 @@ func (ctrl *Controller) BatchDeleteSkills(c *gin.Context) {
 
 	for _, slug := range req.Slugs {
 		if err := ctrl.svc.Delete(slug); err != nil {
-			response.BizError(c, err)
+			if errors.IsBizError(err) {
+				logger.Warn("业务错误，批量删除Skill失败", zap.Error(err))
+				response.BizError(c, err)
+			} else {
+				logger.Error("批量删除Skill失败", zap.Error(err))
+				response.InternalError(c, "服务器内部错误")
+			}
 			return
 		}
 	}
@@ -155,7 +200,13 @@ func (ctrl *Controller) BatchDeleteSkills(c *gin.Context) {
 func (ctrl *Controller) GetSkillOptions(c *gin.Context) {
 	options, err := ctrl.svc.GetOptions()
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取Skill选项失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取Skill选项失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -169,7 +220,8 @@ func (ctrl *Controller) GetSkillTree(c *gin.Context) {
 
 	tree, err := buildFileTree(dir, dir)
 	if err != nil {
-		response.BizError(c, fmt.Errorf("读取目录失败: %w", err))
+		logger.Error("获取Skill目录结构失败", zap.String("slug", slug), zap.Error(err))
+		response.InternalError(c, "读取目录失败")
 		return
 	}
 
@@ -188,7 +240,13 @@ func (ctrl *Controller) DeleteSkillsBatch(c *gin.Context) {
 
 	for _, slug := range req.Slugs {
 		if err := ctrl.svc.Delete(slug); err != nil {
-			response.BizError(c, err)
+			if errors.IsBizError(err) {
+				logger.Warn("业务错误，批量删除Skill失败", zap.Error(err))
+				response.BizError(c, err)
+			} else {
+				logger.Error("批量删除Skill失败", zap.Error(err))
+				response.InternalError(c, "服务器内部错误")
+			}
 			return
 		}
 	}
@@ -206,20 +264,28 @@ func (ctrl *Controller) PrepareSkillUpload(c *gin.Context) {
 
 	f, err := file.Open()
 	if err != nil {
-		response.BizError(c, fmt.Errorf("打开文件失败: %w", err))
+		logger.Error("打开文件失败", zap.Error(err))
+		response.InternalError(c, "打开文件失败")
 		return
 	}
 	defer f.Close()
 
 	data := make([]byte, file.Size)
 	if _, err := f.Read(data); err != nil {
-		response.BizError(c, fmt.Errorf("读取文件失败: %w", err))
+		logger.Error("读取文件失败", zap.Error(err))
+		response.InternalError(c, "读取文件失败")
 		return
 	}
 
 	results, err := ctrl.install.InstallFromZip(data, file.Filename)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，上传Skill失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("上传Skill失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -232,7 +298,13 @@ func (ctrl *Controller) GetSkillDependencyOptions(c *gin.Context) {
 
 	options, err := ctrl.svc.GetDependencyOptions(slug)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取Skill依赖选项失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取Skill依赖选项失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -243,7 +315,13 @@ func (ctrl *Controller) GetSkillDependencyOptions(c *gin.Context) {
 func (ctrl *Controller) ListBuiltinSkills(c *gin.Context) {
 	skills, err := ctrl.svc.ListBuiltinSkills()
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，列出内置Skills失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("列出内置Skills失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -253,7 +331,13 @@ func (ctrl *Controller) ListBuiltinSkills(c *gin.Context) {
 // SyncBuiltinSkills 同步内置 Skills
 func (ctrl *Controller) SyncBuiltinSkills(c *gin.Context) {
 	if err := ctrl.svc.SyncBuiltinSkills(); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，同步内置Skills失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("同步内置Skills失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -287,12 +371,14 @@ func (ctrl *Controller) CreateSkillFile(c *gin.Context) {
 	}
 
 	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
-		response.BizError(c, fmt.Errorf("创建目录失败: %w", err))
+		logger.Error("创建目录失败", zap.Error(err))
+		response.InternalError(c, "创建目录失败")
 		return
 	}
 
 	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
-		response.BizError(c, fmt.Errorf("写入文件失败: %w", err))
+		logger.Error("写入文件失败", zap.Error(err))
+		response.InternalError(c, "写入文件失败")
 		return
 	}
 
@@ -317,7 +403,8 @@ func (ctrl *Controller) DeleteSkillFile(c *gin.Context) {
 	}
 
 	if err := os.Remove(absPath); err != nil {
-		response.BizError(c, fmt.Errorf("删除文件失败: %w", err))
+		logger.Error("删除文件失败", zap.Error(err))
+		response.InternalError(c, "删除文件失败")
 		return
 	}
 
@@ -339,7 +426,13 @@ func (ctrl *Controller) UpdateSkillDependencies(c *gin.Context) {
 
 	skillEntity, err := ctrl.svc.GetBySlug(slug)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	if skillEntity == nil {
@@ -351,7 +444,13 @@ func (ctrl *Controller) UpdateSkillDependencies(c *gin.Context) {
 	skillEntity.MCPDependencies = toStringArray(req.MCPDependencies)
 
 	if err := ctrl.svc.Update(slug, skillEntity); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，更新Skill依赖失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("更新Skill依赖失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -388,7 +487,13 @@ func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 
 	skillEntity, err := ctrl.svc.GetBySlug(slug)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 	if skillEntity == nil {
@@ -399,7 +504,13 @@ func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 	skillEntity.Enabled = req.Enabled
 
 	if err := ctrl.svc.Update(slug, skillEntity); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，更新Skill启用状态失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("更新Skill启用状态失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -411,7 +522,13 @@ func (ctrl *Controller) ListAccessibleSkills(c *gin.Context) {
 	// TODO: 实现基于用户权限的过滤
 	skills, total, err := ctrl.svc.List(0, 100, "")
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，列出可访问Skills失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("列出可访问Skills失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -439,7 +556,13 @@ func (ctrl *Controller) ListRemoteSkills(c *gin.Context) {
 
 	skills, err := provider.List(req.Source)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，列出远程Skills失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("列出远程Skills失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -459,7 +582,13 @@ func (ctrl *Controller) PrepareRemoteSkills(c *gin.Context) {
 
 	results, err := ctrl.install.InstallFromRemote(req.Source, req.Skills)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，准备远程Skills失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("准备远程Skills失败", zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -486,7 +615,8 @@ func (ctrl *Controller) GetSkillFile(c *gin.Context) {
 
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		response.BizError(c, fmt.Errorf("读取文件失败: %w", err))
+		logger.Error("读取文件失败", zap.Error(err))
+		response.InternalError(c, "读取文件失败")
 		return
 	}
 
@@ -523,12 +653,14 @@ func (ctrl *Controller) UpdateSkillFile(c *gin.Context) {
 	}
 
 	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
-		response.BizError(c, fmt.Errorf("创建目录失败: %w", err))
+		logger.Error("创建目录失败", zap.Error(err))
+		response.InternalError(c, "创建目录失败")
 		return
 	}
 
 	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
-		response.BizError(c, fmt.Errorf("写入文件失败: %w", err))
+		logger.Error("写入文件失败", zap.Error(err))
+		response.InternalError(c, "写入文件失败")
 		return
 	}
 
@@ -609,19 +741,27 @@ func (ctrl *Controller) ImportSkill(c *gin.Context) {
 
 	f, err := file.Open()
 	if err != nil {
-		response.BizError(c, fmt.Errorf("打开文件失败: %w", err))
+		logger.Error("打开文件失败", zap.Error(err))
+		response.InternalError(c, "打开文件失败")
 		return
 	}
 	defer f.Close()
 
 	data := make([]byte, file.Size)
 	if _, err := f.Read(data); err != nil {
-		response.BizError(c, fmt.Errorf("读取文件失败: %w", err))
+		logger.Error("读取文件失败", zap.Error(err))
+		response.InternalError(c, "读取文件失败")
 		return
 	}
 
 	if err := ctrl.svc.Import(slug, data); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，导入Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("导入Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
@@ -634,7 +774,13 @@ func (ctrl *Controller) ExportSkill(c *gin.Context) {
 
 	data, err := ctrl.svc.Export(slug)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，导出Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("导出Skill失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalError(c, "服务器内部错误")
+		}
 		return
 	}
 
