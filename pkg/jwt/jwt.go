@@ -26,7 +26,7 @@ func RemainingTTL(claims *CustomClaims, now time.Time) time.Duration {
 }
 
 // GenerateToken 生成 JWT Token
-func GenerateToken(username string) (string, error) {
+func GenerateToken() (string, error) {
 	cfg := config.Get().JWT
 
 	claims := CustomClaims{
@@ -36,7 +36,6 @@ func GenerateToken(username string) (string, error) {
 			NotBefore: jwt.NewNumericDate(time.Now()),
 			Issuer:    "qavor",
 		},
-		Username: username,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
