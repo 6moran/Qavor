@@ -4,7 +4,6 @@ import "Qavor/internal/model/entity"
 
 // CreateMCPServerRequest 创建MCP服务器请求
 type CreateMCPServerRequest struct {
-	Slug           string           `json:"slug" binding:"required,max=100"`
 	Name           string           `json:"name" binding:"required,max=100"`
 	Description    string           `json:"description" binding:"omitempty,max=500"`
 	Transport      string           `json:"transport" binding:"required,oneof=sse streamable_http stdio"`
@@ -15,8 +14,6 @@ type CreateMCPServerRequest struct {
 	Headers        entity.JSON      `json:"headers" binding:"omitempty"`
 	Timeout        *int             `json:"timeout" binding:"omitempty,min=1"`
 	SSEReadTimeout *int             `json:"sse_read_timeout" binding:"omitempty,min=1"`
-	Tags           entity.JSONArray `json:"tags" binding:"omitempty"`
-	Icon           string           `json:"icon" binding:"omitempty,max=50"`
 	DisabledTools  entity.JSONArray `json:"disabled_tools" binding:"omitempty"`
 }
 
@@ -31,8 +28,6 @@ type UpdateMCPServerRequest struct {
 	Headers        entity.JSON      `json:"headers" binding:"omitempty"`
 	Timeout        *int             `json:"timeout" binding:"omitempty,min=1"`
 	SSEReadTimeout *int             `json:"sse_read_timeout" binding:"omitempty,min=1"`
-	Tags           entity.JSONArray `json:"tags" binding:"omitempty"`
-	Icon           string           `json:"icon" binding:"omitempty,max=50"`
 	Enabled        *int             `json:"enabled" binding:"omitempty,oneof=0 1"`
 	DisabledTools  entity.JSONArray `json:"disabled_tools" binding:"omitempty"`
 }

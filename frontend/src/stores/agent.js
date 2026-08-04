@@ -7,7 +7,14 @@ import { handleChatError } from '@/utils/errorHandler'
 function normalizeAgent(agent) {
   const agentId = agent?.agent_id || agent?.slug || agent?.id
   return agentId
-    ? { ...agent, id: agentId, agent_id: agentId, slug: agent?.slug || agentId }
+    ? {
+        ...agent,
+        id: agentId,
+        agent_id: agentId,
+        slug: agent?.slug || agentId,
+        can_manage: agent?.can_manage ?? true,
+        is_builtin: agent?.is_builtin ?? false
+      }
     : agent
 }
 
@@ -122,7 +129,7 @@ export const useAgentStore = defineStore(
       error.value = null
       try {
         const response = await agentApi.getAgents({ includeSubagents })
-        agents.value = sortAgents((response.agents || []).map(normalizeAgent))
+        agents.value = sortAgents((response?.data || []).map(normalizeAgent))
       } catch (err) {
         console.error('Failed to fetch agents:', err)
         handleChatError(err, 'fetch')
@@ -166,7 +173,7 @@ export const useAgentStore = defineStore(
       error.value = null
       try {
         const response = await agentApi.getAgentDetail(agentId)
-        const agent = normalizeAgent(response.agent || response)
+        const agent = normalizeAgent(response?.data || response)
         agentDetails.value[agent.id] = agent
         return agent
       } catch (err) {
@@ -208,7 +215,7 @@ export const useAgentStore = defineStore(
         const response = await agentApi.updateAgent(targetAgentId, {
           config_json: { context: agentConfig.value }
         })
-        const updated = normalizeAgent(response.agent)
+        const updated = normalizeAgent(response?.data || response)
         agentDetails.value[targetAgentId] = updated
         const index = agents.value.findIndex((item) => item.id === targetAgentId)
         if (index >= 0) agents.value.splice(index, 1, updated)
@@ -223,7 +230,10 @@ export const useAgentStore = defineStore(
 
     async function createAgent(payload) {
       const response = await agentApi.createAgent(payload)
-      const created = normalizeAgent(response.agent)
+      if (!response?.success) {
+        throw new Error(response?.message || '创建智能体失败')
+      }
+      const created = normalizeAgent(response?.data || response)
       if (created?.id) {
         agentDetails.value[created.id] = created
         agents.value = sortAgents([
@@ -237,7 +247,7 @@ export const useAgentStore = defineStore(
 
     async function updateAgentProfile(agentId, payload) {
       const response = await agentApi.updateAgent(agentId, payload)
-      const updated = normalizeAgent(response.agent)
+      const updated = normalizeAgent(response?.data || response)
       agentDetails.value[updated.id] = updated
       const index = agents.value.findIndex((item) => item.id === updated.id)
       if (index >= 0) agents.value.splice(index, 1, updated)

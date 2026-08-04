@@ -2,9 +2,7 @@
 import { computed, nextTick, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import {
-  Bot,
   Info,
-  Microscope,
   RefreshCw,
   Settings2,
   SlidersHorizontal,
@@ -14,10 +12,8 @@ import {
 
 import { userApi } from '@/apis/user_api'
 import AgentRuntimeConfigForm from '@/components/AgentRuntimeConfigForm.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
-import { isBuiltinAgent, useAgentStore } from '@/stores/agent'
-import { useUserStore } from '@/stores/user'
+import { useAgentStore } from '@/stores/agent'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import { MAX_IMAGE_UPLOAD_SIZE_BYTES, MAX_IMAGE_UPLOAD_SIZE_MB } from '@/utils/upload_limits'
 
@@ -27,7 +23,6 @@ const props = defineProps({
 
 const emit = defineEmits(['saved'])
 
-const userStore = useUserStore()
 const agentStore = useAgentStore()
 
 const DEFAULT_AGENT_BACKEND_ID = 'ChatbotAgent'
@@ -39,10 +34,8 @@ const editingAgentId = ref(null)
 const agentModalActiveTab = ref('basic')
 const agentIconUploading = ref(false)
 const saving = ref(false)
-const agentShareConfigFormRef = ref(null)
 const runtimeConfigFormRef = ref(null)
 const agentNameInputRef = ref(null)
-const agentShareConfig = ref({ access_level: 'user', department_ids: [], user_uids: [] })
 const agentForm = reactive({
   slug: '',
   name: '',
@@ -78,32 +71,6 @@ const isRuntimeAgentModalTab = (key) => runtimeAgentModalTabs.includes(key)
 const getDefaultBackendId = () => DEFAULT_AGENT_BACKEND_ID
 const isSubAgentBackend = (backendId) => backendId === SUB_AGENT_BACKEND_ID
 
-const getInitialShareConfig = () => ({
-  access_level: userStore.isAdmin ? 'global' : 'user',
-  department_ids: [],
-  user_uids: userStore.uid ? [userStore.uid] : []
-})
-
-const normalizeShareConfigForPayload = () => {
-  if (isBuiltinAgent({ id: editingAgentId.value })) {
-    return { access_level: 'global', department_ids: [], user_uids: [] }
-  }
-  const config = agentShareConfig.value || getInitialShareConfig()
-  const accessLevel = userStore.isAdmin ? config.access_level : 'user'
-  return {
-    access_level: accessLevel,
-    department_ids: accessLevel === 'department' ? config.department_ids || [] : [],
-    user_uids: accessLevel === 'user' ? config.user_uids || [] : []
-  }
-}
-
-const isEditingBuiltinAgent = computed(() => isBuiltinAgent({ id: editingAgentId.value }))
-const canEditAgentShareConfig = computed(() => !isEditingBuiltinAgent.value)
-const getAgentShareAllowedLevels = () => {
-  if (isEditingBuiltinAgent.value) return ['global']
-  return userStore.isAdmin ? ['global', 'department', 'user'] : ['user']
-}
-
 const agentModalTitle = computed(() => (editingAgentId.value ? '编辑智能体' : '新增智能体'))
 const agentPreviewDefaultIcon = computed(() =>
   editingAgentId.value ? generatePixelAvatar(editingAgentId.value) : ''
@@ -115,10 +82,6 @@ const selectedBackendOption = computed(() =>
 const selectedBackendLabel = computed(
   () => selectedBackendOption.value?.label || agentForm.backend_id || '未选择'
 )
-const selectedBackendIcon = computed(() => {
-  const backendText = `${agentForm.backend_id} ${selectedBackendLabel.value}`.toLowerCase()
-  return backendText.includes('deep') || backendText.includes('search') ? Microscope : Bot
-})
 
 const resetAgentForm = () => {
   Object.assign(agentForm, {
@@ -128,7 +91,6 @@ const resetAgentForm = () => {
     description: '',
     icon: ''
   })
-  agentShareConfig.value = getInitialShareConfig()
 }
 
 const focusAgentNameInput = async () => {
@@ -167,9 +129,6 @@ const openEdit = async (agent) => {
     description: detail.description || '',
     icon: detail.icon || ''
   })
-  agentShareConfig.value = isBuiltinAgent(detail)
-    ? { access_level: 'global', department_ids: [], user_uids: [] }
-    : detail.share_config || getInitialShareConfig()
   await agentStore.selectAgent(detail.id, { allowSubagent: true })
   showAgentModal.value = true
 }
@@ -219,12 +178,10 @@ const buildAgentPayload = () => {
     name: agentForm.name.trim(),
     description: agentForm.description.trim() || null,
     icon: agentForm.icon.trim() || null,
-    share_config: normalizeShareConfigForPayload(),
     is_subagent: isSubAgentBackend(agentForm.backend_id)
   }
 
   if (!editingAgentId.value) {
-    payload.slug = agentForm.slug.trim() || undefined
     payload.backend_id = agentForm.backend_id
   }
 
@@ -238,29 +195,10 @@ const saveAgent = async () => {
     return
   }
 
-  const validation = canEditAgentShareConfig.value
-    ? agentShareConfigFormRef.value?.validate?.()
-    : null
-  if (validation && !validation.valid) {
-    agentModalActiveTab.value = 'basic'
-    message.error(validation.message)
-    return
-  }
-
   saving.value = true
   try {
     const payload = buildAgentPayload()
     if (editingAgentId.value) {
-      const validatedConfig = runtimeConfigFormRef.value?.validateAndFilterConfig?.()
-      if (
-        validatedConfig &&
-        JSON.stringify(validatedConfig) !== JSON.stringify(agentStore.agentConfig)
-      ) {
-        agentStore.updateAgentConfig(validatedConfig)
-      }
-      if (agentStore.hasConfigChanges) {
-        payload.config_json = { context: agentStore.agentConfig }
-      }
       const updated = await agentStore.updateAgentProfile(editingAgentId.value, payload)
       agentStore.originalAgentConfig = { ...agentStore.agentConfig }
       emit('saved', { mode: 'edit', agent: updated })
@@ -334,7 +272,7 @@ defineExpose({
       <div class="agent-modal-main">
         <section v-show="agentModalActiveTab === 'basic'" class="agent-modal-section">
           <div class="agent-profile-header">
-            <div class="agent-icon-preview" aria-label="智能体图标、名称与后端">
+            <div class="agent-icon-preview" aria-label="智能体图标与名称">
               <div class="agent-profile-main">
                 <a-upload
                   :show-upload-list="false"
@@ -369,50 +307,35 @@ defineExpose({
                   </div>
                 </a-upload>
                 <div class="agent-icon-preview-text">
-                  <input
-                    ref="agentNameInputRef"
-                    v-model="agentForm.name"
-                    class="agent-inline-name-input"
-                    type="text"
-                    placeholder="点击输入智能体名称"
-                    aria-label="智能体名称"
-                  />
-                  <input
-                    v-if="!editingAgentId"
-                    v-model="agentForm.slug"
-                    class="agent-inline-slug-input"
-                    type="text"
-                    placeholder="标识可选，留空自动生成"
-                    aria-label="智能体标识"
-                  />
-                  <span v-else class="agent-inline-slug">{{
+                  <div class="agent-name-field">
+                    <span class="required-mark" aria-hidden="true">*</span>
+                    <input
+                      ref="agentNameInputRef"
+                      v-model="agentForm.name"
+                      class="agent-inline-name-input"
+                      type="text"
+                      placeholder="请输入智能体名称"
+                      aria-label="智能体名称"
+                    />
+                  </div>
+                  <span v-if="editingAgentId" class="agent-inline-slug">{{
                     agentForm.slug || editingAgentId
                   }}</span>
-                </div>
-              </div>
-              <div
-                class="agent-backend-summary"
-                :class="{ editable: !editingAgentId }"
-                aria-label="智能体后端"
-              >
-                <span class="agent-backend-icon">
-                  <component :is="selectedBackendIcon" :size="16" />
-                </span>
-                <div class="agent-backend-text">
-                  <span class="agent-backend-label">智能体后端</span>
-                  <a-select
-                    v-if="!editingAgentId"
-                    v-model:value="agentForm.backend_id"
-                    class="agent-backend-select"
-                    :bordered="false"
-                    :options="backendOptions"
-                  />
-                  <span v-else class="agent-backend-name">{{ selectedBackendLabel }}</span>
                 </div>
               </div>
             </div>
           </div>
           <div class="modal-form">
+            <label class="form-label full-width">
+              <span>智能体后端</span>
+              <a-select
+                v-if="!editingAgentId"
+                v-model:value="agentForm.backend_id"
+                class="agent-backend-select"
+                :options="backendOptions"
+              />
+              <span v-else class="agent-backend-name">{{ selectedBackendLabel }}</span>
+            </label>
             <label class="form-label full-width">
               <span>描述</span>
               <a-textarea
@@ -422,18 +345,6 @@ defineExpose({
                 placeholder="可选"
               />
             </label>
-          </div>
-
-          <div v-if="canEditAgentShareConfig" class="share-config-block">
-            <div class="section-heading">
-              <span>共享权限</span>
-            </div>
-            <ShareConfigForm
-              ref="agentShareConfigFormRef"
-              v-model="agentShareConfig"
-              :auto-select-user-dept="true"
-              :allowed-access-levels="getAgentShareAllowedLevels()"
-            />
           </div>
         </section>
 
@@ -643,24 +554,13 @@ defineExpose({
   }
 }
 
-.section-heading {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 12px;
-  color: var(--gray-900);
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .agent-profile-header {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .agent-icon-preview {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   width: 100%;
   min-width: 0;
   gap: 16px;
@@ -748,13 +648,27 @@ defineExpose({
   line-height: 1.25;
 }
 
+.agent-name-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.required-mark {
+  flex-shrink: 0;
+  color: var(--color-error-500);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .agent-inline-name-input {
-  width: 200px;
+  width: 220px;
   max-width: 100%;
-  padding: 1px 4px;
-  border: 1px solid transparent;
+  padding: 4px 6px;
+  border: 1px solid var(--gray-200);
   border-radius: 6px;
-  background: transparent;
+  background: var(--gray-10);
   color: var(--gray-900);
   caret-color: var(--main-700);
   font-size: 14px;
@@ -782,8 +696,7 @@ defineExpose({
   }
 }
 
-.agent-inline-slug,
-.agent-inline-slug-input {
+.agent-inline-slug {
   padding: 1px 4px;
   width: 200px;
   max-width: 100%;
@@ -794,69 +707,8 @@ defineExpose({
   white-space: nowrap;
 }
 
-.agent-inline-slug-input {
-  border: 1px solid transparent;
-  border-radius: 2px;
-  background: transparent;
-
-  &::placeholder {
-    color: var(--gray-400);
-  }
-
-  &:hover,
-  &:focus {
-    border-color: var(--gray-300);
-    background: var(--gray-0);
-    outline: none;
-  }
-}
-
-.agent-backend-summary {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 10px;
-  width: 190px;
-  min-height: 56px;
-  padding: 10px 12px;
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  background: var(--gray-10);
-  color: var(--gray-700);
-
-  &.editable {
-    padding-right: 8px;
-  }
-}
-
-.agent-backend-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: var(--gray-100);
-  color: var(--gray-700);
-}
-
-.agent-backend-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  gap: 3px;
-  line-height: 1.2;
-}
-
-.agent-backend-label {
-  color: var(--gray-500);
-  font-size: 11px;
-}
-
 .agent-backend-name {
-  max-width: 128px;
+  max-width: 320px;
   overflow: hidden;
   color: var(--gray-900);
   font-size: 13px;
@@ -866,29 +718,18 @@ defineExpose({
 }
 
 .agent-backend-select {
-  width: 128px;
-  margin: -3px 0 -5px -11px;
+  width: 280px;
+  max-width: 100%;
 
   :deep(.ant-select-selector) {
-    background: transparent !important;
-    box-shadow: none !important;
+    border-radius: 8px;
   }
 
   :deep(.ant-select-selection-item) {
     color: var(--gray-900);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
   }
-
-  :deep(.ant-select-arrow) {
-    color: var(--gray-500);
-  }
-}
-
-.share-config-block {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--gray-150);
 }
 
 .modal-form {

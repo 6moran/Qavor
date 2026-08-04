@@ -1,5 +1,4 @@
 import { apiGet, apiAdminGet, apiAdminPost, apiAdminPut, apiAdminDelete } from './base'
-import { USE_MOCK, mockResponse, mockHealth, mockInfo, mockConfig } from '@/mock'
 
 /**
  * 系统管理API模块
@@ -16,9 +15,6 @@ export const healthApi = {
    * @returns {Promise} - 健康检查结果
    */
   checkHealth: () => {
-    if (USE_MOCK) {
-      return mockResponse(mockHealth)
-    }
     return apiGet('/api/system/health', {}, false)
   }
 }
@@ -33,9 +29,6 @@ export const configApi = {
    * @returns {Promise} - 系统配置
    */
   getConfig: async () => {
-    if (USE_MOCK) {
-      return mockResponse(mockConfig)
-    }
     return apiGet('/api/system/config')
   },
 
@@ -84,9 +77,6 @@ export const brandApi = {
    * @returns {Promise} - 系统信息配置
    */
   getInfoConfig: () => {
-    if (USE_MOCK) {
-      return mockResponse(mockInfo)
-    }
     return apiGet('/api/system/info', {}, false)
   }
 }

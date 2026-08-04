@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"Qavor/internal/agent"
 	"Qavor/internal/model/dto/request"
@@ -22,9 +24,22 @@ func NewAgentService(agentRepo repository.AgentRepository) AgentService {
 }
 
 func (s *agentService) CreateAgent(req *request.CreateAgentRequest) (*dto.AgentResponse, error) {
-	existing, _ := s.agentRepo.GetBySlug(req.Slug)
-	if existing != nil {
-		return nil, bizerrors.New(bizerrors.CodeResourceAlreadyExists, "Agent 已存在")
+	slug := strings.TrimSpace(req.Slug)
+	if slug == "" {
+		// 前端不传 slug 时自动生成，冲突则追加随机后缀
+		slug = generateSlug(req.Name)
+		for {
+			existing, _ := s.agentRepo.GetBySlug(slug)
+			if existing == nil {
+				break
+			}
+			slug = fmt.Sprintf("%s-%d", slug, time.Now().UnixNano()%1000000)
+		}
+	} else {
+		existing, _ := s.agentRepo.GetBySlug(slug)
+		if existing != nil {
+			return nil, bizerrors.New(bizerrors.CodeResourceAlreadyExists, "Agent 已存在")
+		}
 	}
 
 	cfg := agent.AgentConfig{
@@ -51,12 +66,14 @@ func (s *agentService) CreateAgent(req *request.CreateAgentRequest) (*dto.AgentR
 	}
 
 	a := &entity.Agent{
-		Slug:        req.Slug,
+		Slug:        slug,
+		BackendID:   req.BackendID,
 		Name:        req.Name,
 		Description: req.Description,
 		Icon:        req.Icon,
 		ConfigJSON:  cfgMap,
 		IsDefault:   req.IsDefault,
+		IsSubagent:  req.IsSubagent,
 	}
 
 	if req.IsDefault {
@@ -128,6 +145,13 @@ func (s *agentService) UpdateAgent(slug string, req *request.UpdateAgentRequest)
 	}
 	if req.Metadata != nil {
 		cfg.Metadata = req.Metadata
+	}
+
+	// 前端保存运行时配置：body { config_json: { context: {...} } }，拆出 context 合并进 AgentConfig
+	if ctx, ok := req.ConfigJSON["context"]; ok {
+		if ctxMap, ok := ctx.(map[string]interface{}); ok {
+			mergeContext(&cfg, ctxMap)
+		}
 	}
 
 	cfgJSON, err := json.Marshal(cfg)
@@ -240,6 +264,16 @@ func (s *agentService) parseConfig(raw entity.JSON) agent.AgentConfig {
 	if raw == nil {
 		return cfg
 	}
+	// 兼容两种存储格式：前端保存的 { context: {...} } 或历史平铺数据
+	if ctx, ok := raw["context"]; ok {
+		if ctxMap, ok := ctx.(map[string]interface{}); ok {
+			data, err := json.Marshal(ctxMap)
+			if err == nil {
+				_ = json.Unmarshal(data, &cfg)
+				return cfg
+			}
+		}
+	}
 	data, err := json.Marshal(raw)
 	if err != nil {
 		return cfg
@@ -250,14 +284,194 @@ func (s *agentService) parseConfig(raw entity.JSON) agent.AgentConfig {
 
 func (s *agentService) toResponse(a *entity.Agent) *dto.AgentResponse {
 	cfg := s.parseConfig(a.ConfigJSON)
+
+	// 前端 extractContext 读 config_json.context，故响应时包一层 context
+	cfgJSON, _ := json.Marshal(cfg)
+	var cfgMap entity.JSON
+	_ = json.Unmarshal(cfgJSON, &cfgMap)
+	configJSON := entity.JSON{"context": cfgMap}
+
 	return &dto.AgentResponse{
-		Slug:        a.Slug,
-		Name:        a.Name,
-		Description: a.Description,
-		Icon:        a.Icon,
-		IsDefault:   a.IsDefault,
-		Config:      cfg,
-		CreatedAt:   a.CreatedAt,
-		UpdatedAt:   a.UpdatedAt,
+		Slug:              a.Slug,
+		BackendID:         a.BackendID,
+		Name:              a.Name,
+		Description:       a.Description,
+		Icon:              a.Icon,
+		IsDefault:         a.IsDefault,
+		IsSubagent:        a.IsSubagent,
+		Config:            cfg,
+		ConfigJSON:        configJSON,
+		ConfigurableItems: buildConfigurableItems(a.BackendID),
+		CreatedAt:         a.CreatedAt,
+		UpdatedAt:         a.UpdatedAt,
 	}
+}
+
+// generateSlug 由名称生成 slug：转小写、非字母数字字符压缩为连字符。
+// 若结果为空（如全中文名），回退为 agent-<纳秒时间戳>。
+func generateSlug(name string) string {
+	base := strings.ToLower(strings.TrimSpace(name))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		default:
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		slug = fmt.Sprintf("agent-%d", time.Now().UnixNano())
+	}
+	return slug
+}
+
+// mergeContext 将前端保存的 context map 合并进 AgentConfig。
+// 只取 AgentConfig 认识的字段（按 json tag），避免多余 key 混入。
+func mergeContext(cfg *agent.AgentConfig, ctx map[string]interface{}) {
+	getString := func(key string) (string, bool) {
+		v, ok := ctx[key]
+		if !ok {
+			return "", false
+		}
+		s, ok := v.(string)
+		return s, ok
+	}
+	getStrings := func(key string) ([]string, bool) {
+		v, ok := ctx[key]
+		if !ok {
+			return nil, false
+		}
+		arr, ok := v.([]interface{})
+		if !ok {
+			return nil, false
+		}
+		out := make([]string, 0, len(arr))
+		for _, item := range arr {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out, true
+	}
+	getFloat := func(key string) (float64, bool) {
+		v, ok := ctx[key]
+		if !ok {
+			return 0, false
+		}
+		f, ok := v.(float64)
+		return f, ok
+	}
+	getBool := func(key string) (bool, bool) {
+		v, ok := ctx[key]
+		if !ok {
+			return false, false
+		}
+		b, ok := v.(bool)
+		return b, ok
+	}
+	getInt := func(key string) (int, bool) {
+		v, ok := ctx[key]
+		if !ok {
+			return 0, false
+		}
+		switch n := v.(type) {
+		case float64:
+			return int(n), true
+		case int:
+			return n, true
+		case json.Number:
+			if i, err := n.Int64(); err == nil {
+				return int(i), true
+			}
+		}
+		return 0, false
+	}
+
+	if v, ok := getString("instruction"); ok {
+		cfg.Instruction = v
+	}
+	if v, ok := getString("model_name"); ok {
+		cfg.ModelName = v
+	}
+	if v, ok := getString("provider_id"); ok {
+		cfg.ProviderID = v
+	}
+	if v, ok := getStrings("tools"); ok {
+		cfg.Tools = v
+	}
+	if v, ok := getStrings("mcp_servers"); ok {
+		cfg.MCPServers = v
+	}
+	if v, ok := getStrings("skills"); ok {
+		cfg.Skills = v
+	}
+	if v, ok := getStrings("knowledges"); ok {
+		cfg.Knowledges = v
+	}
+	if v, ok := getStrings("subagents"); ok {
+		cfg.Subagents = v
+	}
+	if v, ok := getStrings("disabled_tools"); ok {
+		cfg.DisabledTools = v
+	}
+	if v, ok := getFloat("temperature"); ok {
+		cfg.Temperature = v
+	}
+	if v, ok := getInt("max_tokens"); ok {
+		cfg.MaxTokens = v
+	}
+	if v, ok := getBool("tool_retrieval_enabled"); ok {
+		cfg.ToolRetrievalEnabled = v
+	}
+	if v, ok := getInt("tool_retrieval_threshold"); ok {
+		cfg.ToolRetrievalThreshold = v
+	}
+	if v, ok := getInt("tool_retrieval_top_k"); ok {
+		cfg.ToolRetrievalTopK = v
+	}
+	if v, ok := ctx["metadata"]; ok {
+		if metaMap, ok := v.(map[string]interface{}); ok {
+			meta := make(map[string]string, len(metaMap))
+			for k, val := range metaMap {
+				if s, ok := val.(string); ok {
+					meta[k] = s
+				}
+			}
+			if len(meta) > 0 {
+				cfg.Metadata = meta
+			}
+		}
+	}
+}
+
+// buildConfigurableItems 按 backend_id 返回前端可配置项 schema（不含动态 options）。
+// 动态 options（工具/MCP/技能/知识库/子智能体）由 controller 层注入。
+func buildConfigurableItems(backendID string) map[string]dto.ConfigurableItem {
+	items := map[string]dto.ConfigurableItem{
+		"model_name":               {Name: "模型", Kind: "llm", Description: "选择智能体使用的模型"},
+		"instruction":              {Name: "系统提示词", Kind: "prompt", Description: "智能体的系统提示词"},
+		"temperature":              {Name: "温度", Kind: "number", Type: "number", Description: "控制生成随机性，0.0-1.0", Default: 0.7},
+		"max_tokens":               {Name: "最大 Token", Kind: "number", Type: "int", Description: "单次生成的最大 token 数", Default: 4096},
+		"tool_retrieval_enabled":   {Name: "工具检索", Kind: "bool", Type: "boolean", Description: "启用工具自动检索"},
+		"tool_retrieval_threshold": {Name: "工具检索阈值", Kind: "number", Type: "number", Description: "工具检索相似度阈值", Default: 0.6},
+		"tool_retrieval_top_k":     {Name: "工具检索 TopK", Kind: "number", Type: "int", Description: "检索返回的工具数量", Default: 10},
+		"tools":                    {Name: "工具", Kind: "tools", Type: "list", Description: "启用的内置工具"},
+		"mcp_servers":              {Name: "MCP 服务器", Kind: "mcps", Type: "list", Description: "连接的 MCP 服务器"},
+		"skills":                   {Name: "技能", Kind: "skills", Type: "list", Description: "启用的技能"},
+		"knowledges":               {Name: "知识库", Kind: "knowledges", Type: "list", Description: "关联的知识库"},
+	}
+
+	// 子智能体不能嵌套子智能体
+	if backendID != "SubAgentBackend" {
+		items["subagents"] = dto.ConfigurableItem{Name: "子智能体", Kind: "subagents", Type: "list", Description: "可调用的子智能体"}
+	}
+
+	return items
 }

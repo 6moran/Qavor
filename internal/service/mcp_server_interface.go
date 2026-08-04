@@ -16,4 +16,9 @@ type MCPServerService interface {
 	EnableMCPServer(name string) error
 	DisableMCPServer(name string) error
 	RefreshIfChanged() error
+	TestMCPServer(name string) error
+	TestMCPServerConfig(req *request.CreateMCPServerRequest) (*dto.MCPTestResponse, error)
+	GetMCPServerTools(name string) ([]*dto.MCPToolResponse, error)
+	RefreshMCPServerTools(name string) ([]*dto.MCPToolResponse, error)
+	ToggleMCPServerTool(serverName, toolName string) error
 }

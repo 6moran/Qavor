@@ -167,12 +167,6 @@ func (s *MCPServerFileStoreImpl) Update(name string, updates *entity.MCPServerCo
 	if updates.SSEReadTimeout != nil {
 		existing.SSEReadTimeout = updates.SSEReadTimeout
 	}
-	if updates.Tags != nil {
-		existing.Tags = updates.Tags
-	}
-	if updates.Icon != "" {
-		existing.Icon = updates.Icon
-	}
 	// Enabled 字段需要特殊处理，允许设置为 false
 	if updates.Enabled != existing.Enabled {
 		existing.Enabled = updates.Enabled

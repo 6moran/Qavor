@@ -8,6 +8,7 @@ import (
 
 	"Qavor/internal/model/entity"
 	"Qavor/internal/skill"
+	"Qavor/internal/skill/remote"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
@@ -15,13 +16,14 @@ import (
 
 // Controller Skill API 控制器
 type Controller struct {
-	svc    skill.SkillService
-	loader skill.SkillLoader
+	svc     skill.SkillService
+	install *skill.InstallService
+	loader  skill.SkillLoader
 }
 
 // NewController 创建控制器
-func NewController(svc skill.SkillService, loader skill.SkillLoader) *Controller {
-	return &Controller{svc: svc, loader: loader}
+func NewController(svc skill.SkillService, loader skill.SkillLoader, install *skill.InstallService) *Controller {
+	return &Controller{svc: svc, loader: loader, install: install}
 }
 
 // ListSkills 获取 Skill 列表
@@ -174,6 +176,296 @@ func (ctrl *Controller) GetSkillTree(c *gin.Context) {
 	response.Success(c, tree)
 }
 
+// DeleteSkillsBatch 批量删除 Skills（POST 方式）
+func (ctrl *Controller) DeleteSkillsBatch(c *gin.Context) {
+	var req struct {
+		Slugs []string `json:"slugs"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	for _, slug := range req.Slugs {
+		if err := ctrl.svc.Delete(slug); err != nil {
+			response.BizError(c, err)
+			return
+		}
+	}
+
+	response.Success(c, nil)
+}
+
+// PrepareSkillUpload 准备 Skill 上传
+func (ctrl *Controller) PrepareSkillUpload(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	f, err := file.Open()
+	if err != nil {
+		response.BizError(c, fmt.Errorf("打开文件失败: %w", err))
+		return
+	}
+	defer f.Close()
+
+	data := make([]byte, file.Size)
+	if _, err := f.Read(data); err != nil {
+		response.BizError(c, fmt.Errorf("读取文件失败: %w", err))
+		return
+	}
+
+	results, err := ctrl.install.InstallFromZip(data, file.Filename)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, results)
+}
+
+// GetSkillDependencyOptions 获取 Skill 依赖选项
+func (ctrl *Controller) GetSkillDependencyOptions(c *gin.Context) {
+	slug := c.Query("slug")
+
+	options, err := ctrl.svc.GetDependencyOptions(slug)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, options)
+}
+
+// ListBuiltinSkills 列出内置 Skills
+func (ctrl *Controller) ListBuiltinSkills(c *gin.Context) {
+	skills, err := ctrl.svc.ListBuiltinSkills()
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"skills": skills})
+}
+
+// SyncBuiltinSkills 同步内置 Skills
+func (ctrl *Controller) SyncBuiltinSkills(c *gin.Context) {
+	if err := ctrl.svc.SyncBuiltinSkills(); err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// CreateSkillFile 创建 Skill 文件
+func (ctrl *Controller) CreateSkillFile(c *gin.Context) {
+	slug := c.Param("slug")
+
+	var req struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	if req.Path == "" {
+		response.BadRequest(c, "path 不能为空")
+		return
+	}
+
+	dir := ctrl.loader.GetSkillDir(slug)
+	absPath := filepath.Join(dir, req.Path)
+
+	if !isSubPath(dir, absPath) {
+		response.BadRequest(c, "非法路径")
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
+		response.BizError(c, fmt.Errorf("创建目录失败: %w", err))
+		return
+	}
+
+	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
+		response.BizError(c, fmt.Errorf("写入文件失败: %w", err))
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// DeleteSkillFile 删除 Skill 文件
+func (ctrl *Controller) DeleteSkillFile(c *gin.Context) {
+	slug := c.Param("slug")
+	relPath := c.Query("path")
+	if relPath == "" {
+		response.BadRequest(c, "path 参数不能为空")
+		return
+	}
+
+	dir := ctrl.loader.GetSkillDir(slug)
+	absPath := filepath.Join(dir, relPath)
+
+	if !isSubPath(dir, absPath) {
+		response.BadRequest(c, "非法路径")
+		return
+	}
+
+	if err := os.Remove(absPath); err != nil {
+		response.BizError(c, fmt.Errorf("删除文件失败: %w", err))
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// UpdateSkillDependencies 更新 Skill 依赖
+func (ctrl *Controller) UpdateSkillDependencies(c *gin.Context) {
+	slug := c.Param("slug")
+
+	var req struct {
+		ToolDependencies []string `json:"tool_dependencies"`
+		MCPDependencies  []string `json:"mcp_dependencies"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	skillEntity, err := ctrl.svc.GetBySlug(slug)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	if skillEntity == nil {
+		response.NotFound(c, "Skill 不存在")
+		return
+	}
+
+	skillEntity.ToolDependencies = toStringArray(req.ToolDependencies)
+	skillEntity.MCPDependencies = toStringArray(req.MCPDependencies)
+
+	if err := ctrl.svc.Update(slug, skillEntity); err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// UpdateSkillShareConfig 更新 Skill 分享配置
+func (ctrl *Controller) UpdateSkillShareConfig(c *gin.Context) {
+	_ = c.Param("slug")
+
+	var req struct {
+		ShareConfig map[string]interface{} `json:"share_config"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	// TODO: 实现分享配置更新逻辑
+	response.Success(c, nil)
+}
+
+// UpdateSkillEnabled 更新 Skill 启用状态
+func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
+	slug := c.Param("slug")
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	skillEntity, err := ctrl.svc.GetBySlug(slug)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+	if skillEntity == nil {
+		response.NotFound(c, "Skill 不存在")
+		return
+	}
+
+	skillEntity.Enabled = req.Enabled
+
+	if err := ctrl.svc.Update(slug, skillEntity); err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, skillEntity)
+}
+
+// ListAccessibleSkills 列出用户可访问的 Skills
+func (ctrl *Controller) ListAccessibleSkills(c *gin.Context) {
+	// TODO: 实现基于用户权限的过滤
+	skills, total, err := ctrl.svc.List(0, 100, "")
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{
+		"skills": skills,
+		"total":  total,
+	})
+}
+
+// ListRemoteSkills 列出远程 Skills
+func (ctrl *Controller) ListRemoteSkills(c *gin.Context) {
+	var req struct {
+		Source string `json:"source"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	provider, err := remote.Resolve(req.Source)
+	if err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	skills, err := provider.List(req.Source)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, skills)
+}
+
+// PrepareRemoteSkills 准备远程 Skills
+func (ctrl *Controller) PrepareRemoteSkills(c *gin.Context) {
+	var req struct {
+		Source string   `json:"source"`
+		Skills []string `json:"skills"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	results, err := ctrl.install.InstallFromRemote(req.Source, req.Skills)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, results)
+}
+
 // GetSkillFile 读取 Skill 文件内容
 func (ctrl *Controller) GetSkillFile(c *gin.Context) {
 	slug := c.Param("slug")
@@ -290,6 +582,15 @@ func isSubPath(parent, child string) bool {
 		return false
 	}
 	return rel != ".." && len(rel) > 0 && rel[0] != '.'
+}
+
+// toStringArray 将 []string 转换为 entity.JSONArray
+func toStringArray(items []string) entity.JSONArray {
+	result := make(entity.JSONArray, len(items))
+	for i, item := range items {
+		result[i] = item
+	}
+	return result
 }
 
 // ImportSkill 导入 Skill

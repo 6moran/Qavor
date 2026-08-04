@@ -121,3 +121,71 @@ func (ctrl *Controller) Disable(c *gin.Context) {
 
 	response.Success(c, nil)
 }
+
+// Test 测试MCP服务器连接
+func (ctrl *Controller) Test(c *gin.Context) {
+	name := c.Param("name")
+
+	if err := ctrl.mcpServerService.TestMCPServer(name); err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+// TestConfig 测试表单中的 MCP 配置是否可连通
+func (ctrl *Controller) TestConfig(c *gin.Context) {
+	var req request.CreateMCPServerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+
+	resp, err := ctrl.mcpServerService.TestMCPServerConfig(&req)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, resp)
+}
+
+// GetTools 获取MCP服务器的工具列表
+func (ctrl *Controller) GetTools(c *gin.Context) {
+	name := c.Param("name")
+
+	tools, err := ctrl.mcpServerService.GetMCPServerTools(name)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"tools": tools})
+}
+
+// RefreshTools 刷新MCP服务器的工具列表
+func (ctrl *Controller) RefreshTools(c *gin.Context) {
+	name := c.Param("name")
+
+	tools, err := ctrl.mcpServerService.RefreshMCPServerTools(name)
+	if err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"tools": tools})
+}
+
+// ToggleTool 切换单个工具的启用状态
+func (ctrl *Controller) ToggleTool(c *gin.Context) {
+	serverName := c.Param("name")
+	toolName := c.Param("toolName")
+
+	if err := ctrl.mcpServerService.ToggleMCPServerTool(serverName, toolName); err != nil {
+		response.BizError(c, err)
+		return
+	}
+
+	response.Success(c, nil)
+}

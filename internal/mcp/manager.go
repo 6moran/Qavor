@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"Qavor/internal/model/entity"
@@ -11,6 +12,7 @@ import (
 	einomcp "github.com/cloudwego/eino-ext/components/tool/mcp"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/mcp"
 	"go.uber.org/zap"
 
 	"Qavor/pkg/logger"
@@ -121,25 +123,17 @@ func (m *MCPManager) EnsureConnected(names []string) {
 	}
 }
 
-// connect 连接单个 MCP 服务器（只建连接，不获取工具）
-func (m *MCPManager) connect(name string, config *entity.MCPServerConfig) error {
-	m.mu.RLock()
-	if m.status[name] == StatusConnected {
-		m.mu.RUnlock()
-		return nil
-	}
-	m.mu.RUnlock()
-
-	logger.Info("连接 MCP 服务器", zap.String("name", name))
+// newClient 按传输类型创建 MCP client，返回后尚未 Start/Initialize
+func (m *MCPManager) newClient(config *entity.MCPServerConfig) (*client.Client, error) {
+	transport := strings.ReplaceAll(strings.ToLower(config.Transport), "_", "-")
 
 	var c *client.Client
 	var err error
 
-	switch config.Transport {
+	switch transport {
 	case "stdio":
 		if config.Command == "" {
-			err = fmt.Errorf("stdio 模式需要 command 参数")
-			break
+			return nil, fmt.Errorf("stdio 模式需要 command 参数")
 		}
 		var env []string
 		for k, v := range config.Env {
@@ -151,9 +145,23 @@ func (m *MCPManager) connect(name string, config *entity.MCPServerConfig) error 
 	case "streamable-http":
 		c, err = client.NewStreamableHttpClient(config.URL)
 	default:
-		err = fmt.Errorf("不支持的传输类型: %s", config.Transport)
+		return nil, fmt.Errorf("不支持的传输类型: %s", config.Transport)
 	}
+	return c, err
+}
 
+// connect 连接单个 MCP 服务器（只建连接，不获取工具）
+func (m *MCPManager) connect(name string, config *entity.MCPServerConfig) error {
+	m.mu.RLock()
+	if m.status[name] == StatusConnected {
+		m.mu.RUnlock()
+		return nil
+	}
+	m.mu.RUnlock()
+
+	logger.Info("连接 MCP 服务器", zap.String("name", name))
+
+	c, err := m.newClient(config)
 	if err != nil {
 		m.mu.Lock()
 		m.status[name] = StatusFailed
@@ -161,7 +169,31 @@ func (m *MCPManager) connect(name string, config *entity.MCPServerConfig) error 
 		return err
 	}
 
-	// 只建连接，不获取工具列表
+	// 启动 transport 并完成 MCP 握手：Start -> Initialize 后才能请求工具等接口
+	ctx := context.Background()
+	if err := c.Start(ctx); err != nil {
+		m.mu.Lock()
+		m.status[name] = StatusFailed
+		m.mu.Unlock()
+		logger.Warn("MCP 服务器启动失败", zap.String("name", name), zap.Error(err))
+		return fmt.Errorf("MCP 服务器启动失败: %w", err)
+	}
+	if _, err := c.Initialize(ctx, mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			ClientInfo: mcp.Implementation{
+				Name:    "qavor",
+				Version: "0.7.1",
+			},
+		},
+	}); err != nil {
+		m.mu.Lock()
+		m.status[name] = StatusFailed
+		m.mu.Unlock()
+		logger.Warn("MCP 服务器初始化失败", zap.String("name", name), zap.Error(err))
+		return fmt.Errorf("MCP 服务器初始化失败: %w", err)
+	}
+
 	m.mu.Lock()
 	m.clients[name] = c
 	m.status[name] = StatusConnected
@@ -169,6 +201,35 @@ func (m *MCPManager) connect(name string, config *entity.MCPServerConfig) error 
 
 	logger.Info("MCP 服务器连接成功", zap.String("name", name))
 	return nil
+}
+
+// TestConnect 测试 MCP 服务器连通性：建立连接并完成握手后立即关闭
+// 不写状态机、不入连接池，仅用于表单"测试连接"按钮的预验证
+// 返回握手响应中的 ServerInfo（服务器名称/版本），供前端展示
+func (m *MCPManager) TestConnect(config *entity.MCPServerConfig) (*mcp.Implementation, error) {
+	c, err := m.newClient(config)
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+
+	ctx := context.Background()
+	if err := c.Start(ctx); err != nil {
+		return nil, fmt.Errorf("MCP 服务器启动失败: %w", err)
+	}
+	resp, err := c.Initialize(ctx, mcp.InitializeRequest{
+		Params: mcp.InitializeParams{
+			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
+			ClientInfo: mcp.Implementation{
+				Name:    "qavor",
+				Version: "0.7.1",
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("MCP 服务器初始化失败: %w", err)
+	}
+	return &resp.ServerInfo, nil
 }
 
 // GetToolsByServers 获取指定 MCP 服务器的工具
@@ -252,4 +313,36 @@ func (m *MCPManager) Has(name string) bool {
 	defer m.mu.RUnlock()
 	_, exists := m.status[name]
 	return exists
+}
+
+// Close 关闭指定服务器的连接并清理缓存（删除或禁用 MCP 时调用）
+func (m *MCPManager) Close(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var err error
+	if c, ok := m.clients[name]; ok && c != nil {
+		err = c.Close()
+	}
+	delete(m.clients, name)
+	delete(m.serverTools, name)
+	delete(m.status, name)
+	return err
+}
+
+// CloseAll 关闭所有 MCP 服务器连接并清理缓存（服务优雅关闭时调用）
+func (m *MCPManager) CloseAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for name, c := range m.clients {
+		if c != nil {
+			if err := c.Close(); err != nil {
+				logger.Warn("关闭 MCP 服务器连接失败", zap.String("name", name), zap.Error(err))
+			}
+		}
+	}
+	m.clients = make(map[string]*client.Client)
+	m.serverTools = make(map[string][]tool.BaseTool)
+	m.status = make(map[string]ConnectStatus)
 }

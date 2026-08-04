@@ -22,7 +22,9 @@ type AgentConfig struct {
 	ToolRetrievalEnabled   bool              `json:"tool_retrieval_enabled,omitempty"`
 	ToolRetrievalThreshold int               `json:"tool_retrieval_threshold,omitempty"`
 	ToolRetrievalTopK      int               `json:"tool_retrieval_top_k,omitempty"`
-	Skills                 []string          `json:"skills,omitempty"` // 选中的 Skill slug 列表
+	Skills                 []string          `json:"skills,omitempty"`     // 选中的 Skill slug 列表
+	Knowledges             []string          `json:"knowledges,omitempty"` // 选中的知识库 KBID 列表
+	Subagents              []string          `json:"subagents,omitempty"`  // 选中的子智能体 slug 列表
 }
 
 // Hash 计算配置哈希，用于缓存比较

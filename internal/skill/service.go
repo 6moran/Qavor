@@ -16,6 +16,27 @@ type SkillService interface {
 	GetOptions() ([]*SkillOption, error)
 	Import(slug string, data []byte) error
 	Export(slug string) ([]byte, error)
+	GetDependencyOptions(slug string) (*DependencyOptions, error)
+	ListBuiltinSkills() ([]*entity.Skill, error)
+	SyncBuiltinSkills() error
+}
+
+// DependencyOptions 依赖选项
+type DependencyOptions struct {
+	Tools []ToolOption `json:"tools"`
+	MCPs  []MCPOption  `json:"mcps"`
+}
+
+// ToolOption 工具选项
+type ToolOption struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// MCPOption MCP 选项
+type MCPOption struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // SkillOption 前端选项
@@ -122,6 +143,36 @@ func toStringSlice(arr entity.JSONArray) []string {
 		}
 	}
 	return result
+}
+
+// GetDependencyOptions 获取依赖选项
+func (s *skillService) GetDependencyOptions(slug string) (*DependencyOptions, error) {
+	options := &DependencyOptions{
+		Tools: []ToolOption{},
+		MCPs:  []MCPOption{},
+	}
+
+	// 如果指定了 slug，获取该 skill 的依赖信息
+	if slug != "" {
+		meta, err := s.loader.LoadMeta(slug)
+		if err == nil && meta != nil {
+			// 这里可以根据实际需求填充工具和 MCP 选项
+			// 目前返回空列表，后续可以集成工具注册表
+		}
+	}
+
+	return options, nil
+}
+
+// ListBuiltinSkills 列出内置 Skills
+func (s *skillService) ListBuiltinSkills() ([]*entity.Skill, error) {
+	return s.repo.ListAll()
+}
+
+// SyncBuiltinSkills 同步内置 Skills
+func (s *skillService) SyncBuiltinSkills() error {
+	// TODO: 实现内置 Skills 同步逻辑
+	return nil
 }
 
 // Import 导入 skill（从 zip 文件）
