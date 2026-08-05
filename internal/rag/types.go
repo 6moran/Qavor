@@ -2,10 +2,12 @@ package rag
 
 // IndexInput 文档索引入口。由 DocumentWorker 在解析完成后传递。
 type IndexInput struct {
-	KBID     string
-	FileID   string
-	Filename string
-	Markdown string
+	KBID          string
+	FileID        string
+	Filename      string
+	Markdown      string
+	ChunkTokens   int
+	OverlapTokens int
 }
 
 // IndexedChunk 分块索引结果，用于后续 Embedding 与持久化。

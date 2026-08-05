@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -42,8 +43,8 @@ type FileDownload struct {
 
 // KnowledgeFileService 知识文件服务接口，定义文件的业务操作
 type KnowledgeFileService interface {
-	// Upload 上传文件到知识库
-	Upload(kbID, parentID string, autoIndex bool, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error)
+	// Upload 上传文件到知识库（仅触发解析，不自动入库）
+	Upload(kbID, parentID string, file *multipart.FileHeader) (*response.KnowledgeFileResponse, error)
 	// Get 获取文件详情
 	Get(kbID, fileID string) (*response.KnowledgeFileResponse, error)
 	// List 分页获取知识库中的文件列表
@@ -55,4 +56,10 @@ type KnowledgeFileService interface {
 	Search(kbID, query string, offset, limit int) (*response.KnowledgeFileListResponse, error)
 	Preview(kbID, fileID string) (*response.KnowledgeFilePreviewResponse, error)
 	Download(kbID, fileID string) (*FileDownload, error)
+	// RetryParse 重试解析失败的单个文件。
+	RetryParse(ctx context.Context, kbID, fileID string) (*response.ProcessingJobEnqueueItem, error)
+	// IndexFiles 对指定文件执行手动入库。
+	IndexFiles(ctx context.Context, kbID string, req *request.IndexKnowledgeFilesRequest) (*response.ProcessingJobBatchResponse, error)
+	// IndexPending 将知识库中所有待入库文件批量入库。
+	IndexPending(ctx context.Context, kbID string, params request.ChunkParams) (*response.ProcessingJobBatchResponse, error)
 }

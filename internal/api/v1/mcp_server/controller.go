@@ -3,9 +3,12 @@ package mcp_server
 import (
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller MCP服务器控制器
@@ -30,7 +33,13 @@ func (ctrl *Controller) Create(c *gin.Context) {
 
 	resp, err := ctrl.mcpServerService.CreateMCPServer(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，创建MCP服务器失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("创建MCP服务器失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -43,7 +52,13 @@ func (ctrl *Controller) Get(c *gin.Context) {
 
 	resp, err := ctrl.mcpServerService.GetMCPServer(name)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -62,7 +77,13 @@ func (ctrl *Controller) Update(c *gin.Context) {
 
 	resp, err := ctrl.mcpServerService.UpdateMCPServer(name, &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，更新MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("更新MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -74,7 +95,13 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := ctrl.mcpServerService.DeleteMCPServer(name); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，删除MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("删除MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -91,7 +118,13 @@ func (ctrl *Controller) List(c *gin.Context) {
 
 	pageResp, err := ctrl.mcpServerService.ListMCPServers(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取MCP服务器列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取MCP服务器列表失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -103,7 +136,13 @@ func (ctrl *Controller) Enable(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := ctrl.mcpServerService.EnableMCPServer(name); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，启用MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("启用MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -115,7 +154,13 @@ func (ctrl *Controller) Disable(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := ctrl.mcpServerService.DisableMCPServer(name); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，停用MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("停用MCP服务器失败", zap.String("name", name), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -127,7 +172,13 @@ func (ctrl *Controller) Test(c *gin.Context) {
 	name := c.Param("name")
 
 	if err := ctrl.mcpServerService.TestMCPServer(name); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，测试MCP服务器连接失败", zap.String("name", name), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("测试MCP服务器连接失败", zap.String("name", name), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -144,7 +195,13 @@ func (ctrl *Controller) TestConfig(c *gin.Context) {
 
 	resp, err := ctrl.mcpServerService.TestMCPServerConfig(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，测试MCP配置失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("测试MCP配置失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -157,7 +214,13 @@ func (ctrl *Controller) GetTools(c *gin.Context) {
 
 	tools, err := ctrl.mcpServerService.GetMCPServerTools(name)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取MCP服务器工具列表失败", zap.String("name", name), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取MCP服务器工具列表失败", zap.String("name", name), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -170,7 +233,13 @@ func (ctrl *Controller) RefreshTools(c *gin.Context) {
 
 	tools, err := ctrl.mcpServerService.RefreshMCPServerTools(name)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，刷新MCP服务器工具列表失败", zap.String("name", name), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("刷新MCP服务器工具列表失败", zap.String("name", name), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -183,7 +252,13 @@ func (ctrl *Controller) ToggleTool(c *gin.Context) {
 	toolName := c.Param("toolName")
 
 	if err := ctrl.mcpServerService.ToggleMCPServerTool(serverName, toolName); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，切换工具状态失败", zap.String("server", serverName), zap.String("tool", toolName), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("切换工具状态失败", zap.String("server", serverName), zap.String("tool", toolName), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 

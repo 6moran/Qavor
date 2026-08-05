@@ -34,7 +34,7 @@
         </button>
         <div class="detail-title-area">
           <div class="detail-icon">
-            <component :is="kbTypeIcon" :size="18" />
+            <Database :size="18" />
           </div>
           <div class="detail-title-text">
             <h2>{{ database.name || '知识库加载中' }}</h2>
@@ -229,7 +229,7 @@
             </div>
           </div>
 
-          <div v-if="isMilvus && activeTab === 'graph'" class="tab-panel">
+          <div v-if="activeTab === 'graph'" class="tab-panel">
             <KnowledgeGraphSection
               :visible="true"
               :active="activeTab === 'graph'"
@@ -237,11 +237,11 @@
             />
           </div>
 
-          <div v-if="isMilvus && activeTab === 'mindmap'" class="tab-panel">
+          <div v-if="activeTab === 'mindmap'" class="tab-panel">
             <MindMapSection v-if="kbId" :kb-id="kbId" ref="mindmapSectionRef" />
           </div>
 
-          <div v-if="isMilvus && activeTab === 'evaluation'" class="tab-panel">
+          <div v-if="activeTab === 'evaluation'" class="tab-panel">
             <RAGEvaluationTab
               v-if="kbId"
               :kb-id="kbId"
@@ -249,7 +249,7 @@
             />
           </div>
 
-          <div v-if="isMilvus && activeTab === 'benchmarks'" class="tab-panel">
+          <div v-if="activeTab === 'benchmarks'" class="tab-panel">
             <div class="benchmark-management-container">
               <div class="benchmark-content">
                 <EvaluationBenchmarks
@@ -290,7 +290,7 @@
           />
         </a-form-item>
 
-        <a-form-item v-if="!isConnector" label="自动生成问题" name="auto_generate_questions">
+        <a-form-item label="自动生成问题" name="auto_generate_questions">
           <a-switch
             v-model:checked="editForm.auto_generate_questions"
             checked-children="开启"
@@ -301,7 +301,7 @@
           </span>
         </a-form-item>
 
-        <a-form-item v-if="!isConnector" name="chunk_preset_id">
+        <a-form-item name="chunk_preset_id">
           <template #label>
             <span class="chunk-preset-label">
               分块策略
@@ -316,45 +316,6 @@
             :loading="chunkPresetLoading"
           />
         </a-form-item>
-
-        <template v-if="isDifyKb">
-          <a-form-item label="Dify API URL" name="dify_api_url">
-            <a-input
-              v-model:value="editForm.dify_api_url"
-              placeholder="例如: https://api.dify.ai/v1"
-            />
-          </a-form-item>
-          <a-form-item label="Dify Token" name="dify_token">
-            <a-input-password
-              v-model:value="editForm.dify_token"
-              placeholder="请输入 Dify API Token"
-            />
-          </a-form-item>
-          <a-form-item label="Dataset ID" name="dify_dataset_id">
-            <a-input
-              v-model:value="editForm.dify_dataset_id"
-              placeholder="请输入 Dify dataset_id"
-            />
-          </a-form-item>
-        </template>
-
-        <template v-if="isNotionKb">
-          <a-form-item label="Notion Token" name="notion_token">
-            <a-input-password
-              v-model:value="editForm.notion_token"
-              placeholder="留空则保持现有 Token 或使用环境变量"
-            />
-          </a-form-item>
-          <a-form-item label="Data Source ID" name="notion_data_source_id">
-            <a-input
-              v-model:value="editForm.notion_data_source_id"
-              placeholder="请输入 Notion data_source_id"
-            />
-          </a-form-item>
-          <a-form-item label="Notion API Version" name="notion_version">
-            <a-input v-model:value="editForm.notion_version" placeholder="2026-03-11" />
-          </a-form-item>
-        </template>
 
       </a-form>
     </a-modal>
@@ -371,6 +332,7 @@ import {
   BarChart3,
   ClipboardList,
   Copy,
+  Database,
   Database as DatabaseIcon,
   FileUp,
   FileText,
@@ -385,7 +347,7 @@ import {
   Trash2
 } from 'lucide-vue-next'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import FileTable from '@/components/FileTable.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
 import FileUploadModal from '@/components/FileUploadModal.vue'
@@ -401,7 +363,6 @@ import { databaseApi } from '@/apis/knowledge_api'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
 import { formatFileSize } from '@/utils/file_utils'
-import { getKbTypeIcon, getKbTypeLabel, kbUtils } from '@/utils/kb_utils'
 
 const route = useRoute()
 const router = useRouter()
@@ -417,30 +378,16 @@ const {
 const kbId = computed(() => store.kbId)
 const database = computed(() => store.database)
 const isCurrentDatabaseLoaded = computed(() => database.value?.kb_id === kbId.value)
-const kbType = computed(() =>
-  isCurrentDatabaseLoaded.value ? database.value.kb_type?.toLowerCase() || 'milvus' : ''
-)
-const isMilvus = computed(() => kbType.value === 'milvus')
-const isDifyKb = computed(() => kbType.value === 'dify')
-const isNotionKb = computed(() => kbType.value === 'notion')
-const isConnector = computed(
-  () => isCurrentDatabaseLoaded.value && kbUtils.isReadOnlyDatabase(database.value)
-)
-const supportsFileManagement = computed(
-  () => isCurrentDatabaseLoaded.value && !isConnector.value
-)
-const isEvaluationSupported = computed(() => isMilvus.value)
-const kbTypeIcon = computed(() => getKbTypeIcon(kbType.value || 'milvus'))
+const supportsFileManagement = computed(() => isCurrentDatabaseLoaded.value)
+const isEvaluationSupported = computed(() => true)
 
 const databaseSubtitle = computed(() => {
-  const typeLabel = getKbTypeLabel(kbType.value || 'milvus')
   if (!isCurrentDatabaseLoaded.value) return '正在加载知识库信息'
 
   const description = database.value.description?.trim()
   if (description) return description
 
-  if (isConnector.value) return `${typeLabel} 连接器`
-  return `${typeLabel} 知识库 · ${database.value.row_count || 0} 文件`
+  return `知识库 · ${database.value.stats?.file_count || 0} 文件`
 })
 
 const tabs = computed(() => {
@@ -452,14 +399,12 @@ const tabs = computed(() => {
 
   result.push({ key: 'query', label: '检索测试', icon: Search })
 
-  if (isMilvus.value) {
-    result.push(
-      { key: 'graph', label: '知识图谱', icon: Network },
-      { key: 'mindmap', label: '知识导图', icon: MapIcon },
-      { key: 'evaluation', label: 'RAG 评估', icon: BarChart3 },
-      { key: 'benchmarks', label: '评估基准', icon: ClipboardList }
-    )
-  }
+  result.push(
+    { key: 'graph', label: '知识图谱', icon: Network },
+    { key: 'mindmap', label: '知识导图', icon: MapIcon },
+    { key: 'evaluation', label: 'RAG 评估', icon: BarChart3 },
+    { key: 'benchmarks', label: '评估基准', icon: ClipboardList }
+  )
 
   return result
 })
@@ -545,19 +490,7 @@ const pendingIndexCount = computed(() => {
 })
 
 const confirmBatchParse = () => {
-  const count = pendingParseCount.value
-  if (count <= 0) {
-    message.info('没有待解析文档')
-    return
-  }
-
-  Modal.confirm({
-    title: '解析待解析文件',
-    content: `将提交 ${formatStatNumber(count)} 个待解析文件，任务会在后台按批处理，可在任务中心查看进度。`,
-    okText: '提交解析',
-    cancelText: '取消',
-    onOk: () => store.parsePendingFiles(count)
-  })
+  message.info('当前版本不支持批量解析待解析文件，请在文件列表中逐个重试解析')
 }
 
 const confirmBatchIndex = () => {
@@ -740,13 +673,7 @@ const editForm = reactive({
   name: '',
   description: '',
   auto_generate_questions: false,
-  chunk_preset_id: DEFAULT_CHUNK_PRESET_ID,
-  dify_api_url: '',
-  dify_token: '',
-  dify_dataset_id: '',
-  notion_token: '',
-  notion_data_source_id: '',
-  notion_version: '2026-03-11'
+  chunk_preset_id: DEFAULT_CHUNK_PRESET_ID
 })
 
 const rules = {
@@ -765,12 +692,6 @@ const showEditModal = () => {
     database.value.additional_params?.auto_generate_questions || false
   editForm.chunk_preset_id =
     database.value.additional_params?.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
-  editForm.dify_api_url = database.value.additional_params?.dify_api_url || ''
-  editForm.dify_token = database.value.additional_params?.dify_token || ''
-  editForm.dify_dataset_id = database.value.additional_params?.dify_dataset_id || ''
-  editForm.notion_token = ''
-  editForm.notion_data_source_id = database.value.additional_params?.notion_data_source_id || ''
-  editForm.notion_version = database.value.additional_params?.notion_version || '2026-03-11'
   editModalVisible.value = true
 }
 
@@ -794,41 +715,9 @@ const handleEditSubmit = () => {
         additional_params: {}
       }
 
-      if (isDifyKb.value) {
-        if (
-          !editForm.dify_api_url?.trim() ||
-          !editForm.dify_token?.trim() ||
-          !editForm.dify_dataset_id?.trim()
-        ) {
-          message.error('请完整填写 Dify API URL、Token 和 Dataset ID')
-          return
-        }
-        if (!editForm.dify_api_url.trim().endsWith('/v1')) {
-          message.error('Dify API URL 必须以 /v1 结尾')
-          return
-        }
-        updateData.additional_params = {
-          dify_api_url: editForm.dify_api_url.trim(),
-          dify_token: editForm.dify_token.trim(),
-          dify_dataset_id: editForm.dify_dataset_id.trim()
-        }
-      } else if (isNotionKb.value) {
-        if (!editForm.notion_data_source_id?.trim()) {
-          message.error('请填写 Notion Data Source ID')
-          return
-        }
-        updateData.additional_params = {
-          notion_data_source_id: editForm.notion_data_source_id.trim(),
-          notion_version: editForm.notion_version?.trim() || '2026-03-11'
-        }
-        if (editForm.notion_token?.trim()) {
-          updateData.additional_params.notion_token = editForm.notion_token.trim()
-        }
-      } else {
-        updateData.additional_params = {
-          auto_generate_questions: editForm.auto_generate_questions,
-          chunk_preset_id: editForm.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
-        }
+      updateData.additional_params = {
+        auto_generate_questions: editForm.auto_generate_questions,
+        chunk_preset_id: editForm.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
       }
 
       await store.updateDatabaseInfo(updateData)

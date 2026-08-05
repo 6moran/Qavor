@@ -4,10 +4,13 @@ import (
 	"Qavor/internal/middleware"
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 	"Qavor/pkg/validator"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller 认证控制器
@@ -23,7 +26,13 @@ func (ctrl *Controller) Logout(c *gin.Context) {
 		return
 	}
 	if err := ctrl.authService.Logout(token); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，登出失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("登出失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 	response.Success(c, nil)
@@ -55,7 +64,13 @@ func (ctrl *Controller) Login(c *gin.Context) {
 
 	resp, err := ctrl.authService.Login(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，登录失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("登录失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 

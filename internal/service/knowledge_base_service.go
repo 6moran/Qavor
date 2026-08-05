@@ -11,9 +11,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// defaultKnowledgeBaseType 是未显式指定 kb_type 时使用的向量存储后端。
-const defaultKnowledgeBaseType = "pgvector"
-
 // knowledgeBaseService 知识库服务实现
 type knowledgeBaseService struct {
 	repo      repository.KnowledgeBaseRepository
@@ -31,7 +28,25 @@ func (s *knowledgeBaseService) Get(kbID string) (*response.KnowledgeBaseResponse
 	if base == nil {
 		return nil, knowledgeBaseNotFoundError()
 	}
-	return knowledgeBaseResponse(base), nil
+	resp := knowledgeBaseResponse(base)
+
+	// 获取统计信息
+	statsMap, err := s.repo.GetStatsByKBIDs([]string{kbID})
+	if err == nil {
+		if stats, ok := statsMap[kbID]; ok {
+			resp.Stats = &response.KnowledgeBaseStats{
+				FileCount:         stats.FileCount,
+				ChunkCount:        stats.ChunkCount,
+				TokenCount:        stats.TokenCount,
+				TotalSize:         stats.TotalSize,
+				ProcessingCount:   stats.ProcessingCount,
+				PendingParseCount: stats.PendingParseCount,
+				PendingIndexCount: stats.PendingIndexCount,
+			}
+		}
+	}
+
+	return resp, nil
 }
 
 // List 分页获取知识库列表
@@ -50,14 +65,34 @@ func (s *knowledgeBaseService) List(req *request.KnowledgeBaseListRequest) (*res
 	}
 
 	// 查询知识库列表
-	bases, total, err := s.repo.List((page-1)*pageSize, pageSize, req.Keyword, req.KBType)
+	bases, total, err := s.repo.List((page-1)*pageSize, pageSize, req.Keyword)
 	if err != nil {
 		return nil, err
 	}
+
+	// 批量获取统计信息
+	kbIDs := make([]string, 0, len(bases))
+	for _, base := range bases {
+		kbIDs = append(kbIDs, base.KBID)
+	}
+	statsMap, _ := s.repo.GetStatsByKBIDs(kbIDs)
+
 	// 转换为响应格式
 	items := make([]response.KnowledgeBaseResponse, 0, len(bases))
 	for _, base := range bases {
-		items = append(items, *knowledgeBaseResponse(base))
+		resp := knowledgeBaseResponse(base)
+		if stats, ok := statsMap[base.KBID]; ok {
+			resp.Stats = &response.KnowledgeBaseStats{
+				FileCount:         stats.FileCount,
+				ChunkCount:        stats.ChunkCount,
+				TokenCount:        stats.TokenCount,
+				TotalSize:         stats.TotalSize,
+				ProcessingCount:   stats.ProcessingCount,
+				PendingParseCount: stats.PendingParseCount,
+				PendingIndexCount: stats.PendingIndexCount,
+			}
+		}
+		items = append(items, *resp)
 	}
 	return &response.KnowledgeBaseListResponse{Total: total, Items: items}, nil
 }
@@ -80,10 +115,10 @@ func (s *knowledgeBaseService) Update(kbID string, req *request.UpdateKnowledgeB
 		base.Description = req.Description
 	}
 	if req.EmbeddingModelID > 0 {
-		if err := validateKnowledgeBaseModel(s.modelRepo, req.EmbeddingModelID, "embedding"); err != nil {
-			return nil, err
+		if req.EmbeddingModelID != base.EmbeddingModelID {
+			return nil, bizerrors.New(bizerrors.CodeConflict,
+				"知识库的 Embedding 模型创建后不可修改；请新建知识库并重新入库")
 		}
-		base.EmbeddingModelID = req.EmbeddingModelID
 	}
 	if req.ChatModelID > 0 {
 		if err := validateKnowledgeBaseModel(s.modelRepo, req.ChatModelID, "chat"); err != nil {
@@ -130,10 +165,6 @@ func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository, modelRepo 
 
 // Create 创建知识库
 func (s *knowledgeBaseService) Create(req *request.CreateKnowledgeBaseRequest) (*response.KnowledgeBaseResponse, error) {
-	kbType := req.KBType
-	if kbType == "" {
-		kbType = defaultKnowledgeBaseType
-	}
 	if err := validateKnowledgeBaseModel(s.modelRepo, req.EmbeddingModelID, "embedding"); err != nil {
 		return nil, err
 	}
@@ -145,7 +176,6 @@ func (s *knowledgeBaseService) Create(req *request.CreateKnowledgeBaseRequest) (
 		KBID:               uuid.NewString(), // 生成唯一标识
 		Name:               req.DatabaseName,
 		Description:        req.Description,
-		KBType:             kbType,
 		EmbeddingModelID:   req.EmbeddingModelID,
 		ChatModelID:        req.ChatModelID,
 		EmbeddingModelSpec: req.EmbeddingModelSpec,
@@ -168,7 +198,6 @@ func knowledgeBaseResponse(base *entity.KnowledgeBase) *response.KnowledgeBaseRe
 		KBID:               base.KBID,
 		Name:               base.Name,
 		Description:        base.Description,
-		KBType:             base.KBType,
 		EmbeddingModelID:   base.EmbeddingModelID,
 		ChatModelID:        base.ChatModelID,
 		EmbeddingModelSpec: base.EmbeddingModelSpec,

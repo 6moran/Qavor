@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { taskerApi } from '@/apis/tasker'
 import { processingJobApi } from '@/apis/knowledge_api'
 import { useUserStore } from '@/stores/user'
 import { parseToShanghai } from '@/utils/time'
@@ -104,29 +103,11 @@ export const useTaskerStore = defineStore('tasker', () => {
     loading.value = true
     lastError.value = null
     try {
-      const [legacyResult, processingResult] = await Promise.allSettled([
-        taskerApi.fetchTasks(params),
-        processingJobApi.list(100)
-      ])
-      const legacyTasks =
-        legacyResult.status === 'fulfilled'
-          ? (legacyResult.value?.tasks || []).map(toTask)
-          : []
-      const processingJobs =
-        processingResult.status === 'fulfilled' ? processingResult.value?.items || [] : []
+      const response = await processingJobApi.list(100)
+      const processingJobs = response?.items || []
 
-      tasks.value = mergeTaskSources(legacyTasks, processingJobs).map(toTask)
+      tasks.value = mergeTaskSources([], processingJobs).map(toTask)
       summary.value = summarizeTasks(tasks.value)
-
-      if (legacyResult.status === 'rejected') {
-        console.warn('旧任务列表加载失败，继续展示文档解析任务', legacyResult.reason)
-      }
-      if (processingResult.status === 'rejected') {
-        console.warn('文档解析任务列表加载失败，继续展示旧任务', processingResult.reason)
-      }
-      if (legacyResult.status === 'rejected' && processingResult.status === 'rejected') {
-        lastError.value = processingResult.reason || legacyResult.reason
-      }
     } catch (error) {
       console.error('加载任务列表失败', error)
       lastError.value = error

@@ -39,18 +39,13 @@ func (r *knowledgeBaseRepository) FindByKBID(kbID string) (*entity.KnowledgeBase
 }
 
 // List 分页查询知识库列表
-func (r *knowledgeBaseRepository) List(offset, limit int, keyword, kbType string) ([]*entity.KnowledgeBase, int64, error) {
+func (r *knowledgeBaseRepository) List(offset, limit int, keyword string) ([]*entity.KnowledgeBase, int64, error) {
 	// 构建查询条件
 	query := r.db.Model(&entity.KnowledgeBase{})
 	// 关键词搜索（模糊匹配名称和描述）
 	if keyword = strings.TrimSpace(keyword); keyword != "" {
 		query = query.Where("name ILIKE ? OR description ILIKE ?", "%"+keyword+"%", "%"+keyword+"%")
 	}
-	// 按类型过滤
-	if kbType = strings.TrimSpace(kbType); kbType != "" {
-		query = query.Where("kb_type = ?", kbType)
-	}
-
 	// 查询总数
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
@@ -72,4 +67,61 @@ func (r *knowledgeBaseRepository) Update(base *entity.KnowledgeBase) error {
 // DeleteByKBID 根据知识库ID删除
 func (r *knowledgeBaseRepository) DeleteByKBID(kbID string) error {
 	return r.db.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeBase{}).Error
+}
+
+// GetStatsByKBIDs 批量获取知识库统计信息
+func (r *knowledgeBaseRepository) GetStatsByKBIDs(kbIDs []string) (map[string]*KnowledgeBaseStats, error) {
+	if len(kbIDs) == 0 {
+		return make(map[string]*KnowledgeBaseStats), nil
+	}
+
+	statsMap := make(map[string]*KnowledgeBaseStats, len(kbIDs))
+	for _, kbID := range kbIDs {
+		statsMap[kbID] = &KnowledgeBaseStats{}
+	}
+
+	// 统计文件数量和大小
+	type fileStats struct {
+		KBID          string
+		FileCount     int64
+		TotalSize     int64
+		ChunkCount    int64
+		TokenCount    int64
+		ProcessingCnt int
+		PendingParse  int
+		PendingIndex  int
+	}
+
+	var fileResults []fileStats
+	err := r.db.Model(&entity.KnowledgeFile{}).
+		Select(`
+			kb_id,
+			COUNT(*) as file_count,
+			COALESCE(SUM(file_size), 0) as total_size,
+			COALESCE(SUM(chunk_count), 0) as chunk_count,
+			COALESCE(SUM(token_count), 0) as token_count,
+			SUM(CASE WHEN status IN ('parsing', 'indexing') THEN 1 ELSE 0 END) as processing_cnt,
+			SUM(CASE WHEN status = 'parse_queued' THEN 1 ELSE 0 END) as pending_parse,
+			SUM(CASE WHEN status = 'index_queued' THEN 1 ELSE 0 END) as pending_index
+		`).
+		Where("kb_id IN ?", kbIDs).
+		Group("kb_id").
+		Find(&fileResults).Error
+	if err != nil {
+		return nil, err
+	}
+
+	for _, result := range fileResults {
+		if stats, ok := statsMap[result.KBID]; ok {
+			stats.FileCount = result.FileCount
+			stats.TotalSize = result.TotalSize
+			stats.ChunkCount = result.ChunkCount
+			stats.TokenCount = result.TokenCount
+			stats.ProcessingCount = result.ProcessingCnt
+			stats.PendingParseCount = result.PendingParse
+			stats.PendingIndexCount = result.PendingIndex
+		}
+	}
+
+	return statsMap, nil
 }

@@ -73,7 +73,8 @@ func (c *RAGConfig) ApplyDefaults() {
 		c.RequestTimeoutSeconds = 60
 	}
 	if c.Embedding.BatchSize <= 0 {
-		c.Embedding.BatchSize = 32
+		// 模型目前最大只支持到20
+		c.Embedding.BatchSize = 19
 	}
 	if c.Reranker.TimeoutSeconds <= 0 {
 		c.Reranker.TimeoutSeconds = 20

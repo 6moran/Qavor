@@ -8,13 +8,14 @@ const STATUS_MAP = {
 
 export const normalizeDocumentProcessingJob = (job = {}) => {
   const mapped = STATUS_MAP[job.status] || STATUS_MAP.pending
-  // 优先使用后端返回的 filename，否则回退到 file_id
   const displayName = job.filename || job.file_id || '未知文件'
+  const taskLabel = job.job_type === 'index' ? '文档入库' : '文档解析'
+  const taskType = job.job_type === 'index' ? 'knowledge_index' : 'knowledge_parse'
   return {
     id: job.job_id,
-    name: `文档解析 (${displayName})`,
-    type: 'knowledge_parse',
-    task_type: 'knowledge_parse',
+    name: `${taskLabel} (${displayName})`,
+    type: taskType,
+    task_type: taskType,
     source: 'document_processing',
     status: mapped.status,
     progress: mapped.progress,
@@ -28,6 +29,7 @@ export const normalizeDocumentProcessingJob = (job = {}) => {
       kb_id: job.kb_id,
       file_id: job.file_id,
       filename: job.filename,
+      job_type: job.job_type,
       attempt: job.attempt,
       max_attempts: job.max_attempts,
       error_code: job.error_code

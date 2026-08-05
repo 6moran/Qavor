@@ -16,7 +16,7 @@ type AgentRun struct {
 	InputMessageID           *uint      `gorm:"comment:输入消息ID" json:"input_message_id,omitempty"`
 	OutputMessageID          *uint      `gorm:"comment:输出消息ID" json:"output_message_id,omitempty"`
 	LastEventID              string     `gorm:"type:varchar(64);comment:Redis Stream最后事件ID" json:"last_event_id,omitempty"`
-	InputPayload             JSON       `gorm:"type:json;not null;default:{};comment:原始输入payload" json:"input_payload"`
+	InputPayload             JSON       `gorm:"type:json;not null;default:'{}';comment:原始输入payload" json:"input_payload"`
 	ErrorType                string     `gorm:"type:varchar(64);comment:错误类型" json:"error_type,omitempty"`
 	ErrorMessage             string     `gorm:"type:text;comment:错误信息" json:"error_message,omitempty"`
 	StartedAt                *time.Time `gorm:"comment:开始时间" json:"started_at,omitempty"`
