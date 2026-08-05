@@ -2,6 +2,7 @@ package skill
 
 import (
 	"fmt"
+	"os"
 
 	"Qavor/internal/model/entity"
 )
@@ -97,6 +98,15 @@ func (s *skillService) Delete(slug string) error {
 	if existing == nil {
 		return fmt.Errorf("Skill '%s' 不存在", slug)
 	}
+
+	// 删除文件
+	skillDir := s.loader.GetSkillDir(slug)
+	if _, statErr := os.Stat(skillDir); statErr == nil {
+		if err := os.RemoveAll(skillDir); err != nil {
+			return fmt.Errorf("删除 Skill 目录失败: %w", err)
+		}
+	}
+
 	return s.repo.Delete(slug)
 }
 

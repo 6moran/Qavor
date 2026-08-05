@@ -89,11 +89,7 @@
             }"
           >
             <a-checkbox
-              v-if="
-                isBatchDeleteMode &&
-                canManageSkill(skill) &&
-                skill.sourceType !== 'builtin'
-              "
+              v-if="isBatchDeleteMode && skill.sourceType !== 'builtin'"
               :checked="selectedCardSlugs.includes(skill.slug)"
               @change="handleToggleCardSelect(skill.slug)"
               class="card-select-checkbox"
@@ -113,16 +109,12 @@
                 <button
                   type="button"
                   class="skill-enabled-action"
-                  :class="{ enabled: skill.enabled !== false }"
-                  :disabled="!canManageSkill(skill) || isSkillToggling(skill.slug)"
+                  :disabled="isSkillToggling(skill.slug)"
                   :aria-label="skill.enabled === false ? '启用 Skill' : '禁用 Skill'"
                   @click.stop="handleToggleSkillEnabled(skill)"
                 >
-                  <Plus v-if="skill.enabled === false" :size="15" class="action-icon" />
-                  <template v-else>
-                    <Check :size="15" class="action-icon action-icon-check" />
-                    <Minus :size="15" class="action-icon action-icon-minus" />
-                  </template>
+                  <Plus v-if="skill.enabled === false" :size="15" class="action-icon action-icon--enable" />
+                  <Minus v-else :size="15" class="action-icon action-icon--disable" />
                 </button>
               </template>
             </InfoCard>
@@ -166,7 +158,7 @@
           <div class="skill-preview-actions">
             <a-switch
               :checked="previewSkill.enabled !== false"
-              :disabled="!canManageSkill(previewSkill) || isSkillToggling(previewSkill.slug)"
+              :disabled="isSkillToggling(previewSkill.slug)"
               :loading="isSkillToggling(previewSkill.slug)"
               size="small"
               @change="handlePreviewToggle"
@@ -408,7 +400,6 @@ import {
   WandSparkles,
   History,
   Trash2,
-  Check,
   Plus,
   Minus
 } from 'lucide-vue-next'
@@ -416,7 +407,6 @@ import { skillApi } from '@/apis/skill_api'
 import ExtensionCardGrid from './ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import { formatExtensionCardTitle } from '@/utils/extensionDisplayName'
 
@@ -455,7 +445,6 @@ const singleRepoSkill = computed(() => remoteSkillOptions.value[0] || null)
 
 
 const repoHistory = ref([])
-const allowedSkillAccessLevels = ref(['user'])
 
 const matchesSearch = (skill) => {
   if (!searchQuery.value) return true
@@ -487,13 +476,12 @@ const skillGroups = computed(() => [
 const visibleSkillGroups = computed(() => skillGroups.value.filter((group) => group.skills.length))
 const filteredDeletableSkills = computed(() =>
   filteredInstalledSkills.value.filter(
-    (skill) => canManageSkill(skill) && skill.sourceType !== 'builtin'
+    (skill) => skill.sourceType !== 'builtin'
   )
 )
 const canDeletePreviewSkill = computed(
   () =>
     !!previewSkill.value &&
-    canManageSkill(previewSkill.value) &&
     previewSkill.value.sourceType !== 'builtin'
 )
 
@@ -544,7 +532,6 @@ const sourceTypeLabel = (sourceType) => {
   return '上传'
 }
 
-const canManageSkill = (skill) => skill?.can_manage !== false
 const isSkillToggling = (slug) => togglingSkillSlugs.value.includes(slug)
 
 const navigateToDetail = (skill) => {
@@ -591,7 +578,7 @@ const handleCardClick = (skill) => {
 
 const handleToggleCardSelect = (slug) => {
   const target = installedSkillCards.value.find((skill) => skill.slug === slug)
-  if (!canManageSkill(target) || target?.sourceType === 'builtin') return
+  if (target?.sourceType === 'builtin') return
   const idx = selectedCardSlugs.value.indexOf(slug)
   if (idx > -1) {
     selectedCardSlugs.value.splice(idx, 1)
@@ -601,7 +588,7 @@ const handleToggleCardSelect = (slug) => {
 }
 
 const handleToggleSkillEnabled = async (skill) => {
-  if (!skill || !canManageSkill(skill) || isSkillToggling(skill.slug)) return
+  if (!skill || isSkillToggling(skill.slug)) return
   const enabled = skill.enabled === false
   togglingSkillSlugs.value.push(skill.slug)
   try {
@@ -660,7 +647,7 @@ const confirmDeletePreviewSkill = () => {
 
 const handleBatchSelectAll = () => {
   selectedCardSlugs.value = filteredInstalledSkills.value
-    .filter((skill) => canManageSkill(skill) && skill.sourceType !== 'builtin')
+    .filter((skill) => skill.sourceType !== 'builtin')
     .map((skill) => skill.slug)
 }
 
@@ -672,7 +659,7 @@ const handleBatchSelectInvert = () => {
   const currentSet = new Set(selectedCardSlugs.value)
   const nextSelected = []
   filteredInstalledSkills.value.forEach((skill) => {
-    if (canManageSkill(skill) && skill.sourceType !== 'builtin' && !currentSet.has(skill.slug)) {
+    if (skill.sourceType !== 'builtin' && !currentSet.has(skill.slug)) {
       nextSelected.push(skill.slug)
     }
   })
@@ -687,7 +674,7 @@ const exitBatchDeleteMode = () => {
 const handleBatchDelete = () => {
   const deletableSlugs = selectedCardSlugs.value.filter((slug) => {
     const target = installedSkillCards.value.find((skill) => skill.slug === slug)
-    return canManageSkill(target) && target?.sourceType !== 'builtin'
+    return target?.sourceType !== 'builtin'
   })
   if (deletableSlugs.length === 0) return
 
@@ -727,7 +714,6 @@ const fetchSkills = async () => {
   try {
     const skillResult = await skillApi.listSkills()
     skills.value = skillResult?.data || []
-    allowedSkillAccessLevels.value = skillResult?.allowed_access_levels || ['user']
   } catch {
     message.error('加载失败')
   } finally {
@@ -1052,33 +1038,18 @@ defineExpose({
     cursor: wait;
     opacity: 1;
   }
-
-  &.enabled {
-    color: var(--color-success-700);
-
-    .action-icon-minus {
-      display: none;
-    }
-
-    &:hover,
-    &:focus {
-      border-color: var(--color-error-200, #ffccc7);
-      background: var(--color-error-50, #fff2f0);
-      color: var(--color-error-700, #cf1322);
-
-      .action-icon-check {
-        display: none;
-      }
-
-      .action-icon-minus {
-        display: block;
-      }
-    }
-  }
 }
 
 .action-icon {
   flex-shrink: 0;
+
+  &--enable {
+    color: var(--color-success-700);
+  }
+
+  &--disable {
+    color: var(--color-error-700);
+  }
 }
 
 .action-icon-spin {

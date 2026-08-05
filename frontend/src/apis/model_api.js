@@ -1,4 +1,4 @@
-import { apiAdminDelete, apiAdminPost, apiAdminPut, apiGet } from './base.js'
+import { apiDelete, apiGet, apiPost, apiPut } from './base.js'
 
 export const buildModelQuery = ({ page, page_size, keyword, model_type } = {}) => {
   const params = new URLSearchParams()
@@ -15,8 +15,8 @@ export const unwrapModelList = (response) => response?.data || { total: 0, items
 export const modelApi = {
   list: (params = {}) => apiGet(`/api/v1/models${buildModelQuery(params)}`),
   get: (id) => apiGet(`/api/v1/models/${encodeURIComponent(id)}`),
-  create: (payload) => apiAdminPost('/api/v1/models', payload),
-  update: (id, payload) => apiAdminPut(`/api/v1/models/${encodeURIComponent(id)}`, payload),
-  remove: (id) => apiAdminDelete(`/api/v1/models/${encodeURIComponent(id)}`),
-  testConnection: (payload) => apiAdminPost('/api/v1/models/test', payload)
+  create: (payload) => apiPost('/api/v1/models', payload),
+  update: (id, payload) => apiPut(`/api/v1/models/${encodeURIComponent(id)}`, payload),
+  remove: (id) => apiDelete(`/api/v1/models/${encodeURIComponent(id)}`),
+  testConnection: (payload) => apiPost('/api/v1/models/test', payload)
 }

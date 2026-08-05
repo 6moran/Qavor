@@ -2,39 +2,22 @@ package request
 
 import "Qavor/internal/model/entity"
 
-// CreateAgentRequest 创建智能体请求
+// CreateAgentRequest 创建智能体请求（只提交基本信息，配置通过后续编辑设置）
 type CreateAgentRequest struct {
-	Slug          string            `json:"slug" binding:"omitempty,max=80"`
-	Name          string            `json:"name" binding:"required,max=100"`
-	Description   string            `json:"description"`
-	Icon          string            `json:"icon"`
-	Instruction   string            `json:"instruction"`
-	ProviderID    string            `json:"provider_id"`
-	ModelName     string            `json:"model_name"`
-	Tools         []string          `json:"tools"`
-	DisabledTools []string          `json:"disabled_tools"`
-	MaxTokens     int               `json:"max_tokens"`
-	Temperature   float64           `json:"temperature"`
-	Metadata      map[string]string `json:"metadata"`
-	IsDefault     bool              `json:"is_default"`
-	BackendID     string            `json:"backend_id"`
-	IsSubagent    bool              `json:"is_subagent"`
+	Name        string `json:"name" binding:"required,max=100"`
+	Description string `json:"description"`
+	Instruction string `json:"instruction"`
+	ModelID     string `json:"model_id"`
+	BackendID   string `json:"backend_id" binding:"required"`
 }
 
-// UpdateAgentRequest 更新智能体请求
+// UpdateAgentRequest 更新智能体请求（基本信息 + 配置分离）
 type UpdateAgentRequest struct {
-	Name          *string           `json:"name"`
-	Description   *string           `json:"description"`
-	Icon          *string           `json:"icon"`
-	Instruction   *string           `json:"instruction"`
-	ProviderID    *string           `json:"provider_id"`
-	ModelName     *string           `json:"model_name"`
-	Tools         []string          `json:"tools"`
-	DisabledTools []string          `json:"disabled_tools"`
-	MaxTokens     *int              `json:"max_tokens"`
-	Temperature   *float64          `json:"temperature"`
-	Metadata      map[string]string `json:"metadata"`
-	ConfigJSON    entity.JSON       `json:"config_json"`
+	Name        *string     `json:"name"`
+	Description *string     `json:"description"`
+	Instruction *string     `json:"instruction"`
+	ModelID     *string     `json:"model_id"`
+	ConfigJSON  entity.JSON `json:"config_json"`
 }
 
 // AgentListRequest 智能体列表请求

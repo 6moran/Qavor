@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 
-	einotool "github.com/cloudwego/eino/components/tool"
-
 	"Qavor/internal/mcp"
 	"Qavor/internal/skill"
 	"Qavor/internal/tool"
@@ -28,19 +26,17 @@ type AgentManager struct {
 	vectorizer       *mcp.ToolVectorizer
 	toolRegistry     *tool.Registry
 	skillsMiddleware *skill.SkillsMiddleware
-	skillResolver    skill.SkillResolver
 	configFetcher    ConfigFetcher
 	agents           sync.Map
 }
 
 // NewAgentManager 创建 AgentManager
-func NewAgentManager(mcpManager *mcp.MCPManager, vectorizer *mcp.ToolVectorizer, toolRegistry *tool.Registry, skillsMiddleware *skill.SkillsMiddleware, skillResolver skill.SkillResolver, configFetcher ConfigFetcher) *AgentManager {
+func NewAgentManager(mcpManager *mcp.MCPManager, vectorizer *mcp.ToolVectorizer, toolRegistry *tool.Registry, skillsMiddleware *skill.SkillsMiddleware, configFetcher ConfigFetcher) *AgentManager {
 	return &AgentManager{
 		mcpManager:       mcpManager,
 		vectorizer:       vectorizer,
 		toolRegistry:     toolRegistry,
 		skillsMiddleware: skillsMiddleware,
-		skillResolver:    skillResolver,
 		configFetcher:    configFetcher,
 	}
 }
@@ -70,29 +66,17 @@ func (m *AgentManager) GetOrCreate(ctx context.Context, slug string, llm model.T
 		return nil, err
 	}
 
-	// 3. 技能解析 + 收集依赖工具
-	skillTools := make(map[string][]einotool.BaseTool)
-	if len(cfg.Skills) > 0 && m.skillResolver != nil {
-		skillIndex, toolOwnership, err := m.skillResolver.DFSClosure(cfg.Skills)
-		if err != nil {
-			logger.Warn("Skill 依赖解析失败", zap.Error(err))
-		} else if len(skillIndex) > 0 {
-			// 增强 instruction
-			if m.skillsMiddleware != nil {
-				var skills []*skill.SkillMeta
-				for _, meta := range skillIndex {
-					skills = append(skills, meta)
-				}
-				cfg.Instruction, _ = m.skillsMiddleware.BuildPrompt(ctx, cfg.Instruction, skills)
+	// 3. 技能渐进式披露：注入 skill 名称列表到 instruction
+	if len(cfg.Skills) > 0 && m.skillsMiddleware != nil {
+		var skills []*skill.SkillMeta
+		for _, slug := range cfg.Skills {
+			meta, err := m.skillsMiddleware.GetLoader().LoadMeta(slug)
+			if err != nil {
+				continue
 			}
-			// 收集每个技能的依赖工具
-			for toolName, ownerSlug := range toolOwnership {
-				if t, ok := m.toolRegistry.Get(toolName); ok {
-					einoTool := tool.NewBuiltinToolAdapter(t)
-					skillTools[ownerSlug] = append(skillTools[ownerSlug], einoTool)
-				}
-			}
+			skills = append(skills, meta)
 		}
+		cfg.Instruction, _ = m.skillsMiddleware.BuildPrompt(ctx, cfg.Instruction, skills)
 	}
 
 	// 4. 按需连接 MCP 服务器
@@ -101,7 +85,7 @@ func (m *AgentManager) GetOrCreate(ctx context.Context, slug string, llm model.T
 	}
 
 	// 5. 创建 Agent
-	a, err := NewAgent(cfg, llm, m.mcpManager, m.toolRegistry, m.vectorizer, skillTools)
+	a, err := NewAgent(cfg, llm, m.mcpManager, m.toolRegistry, m.vectorizer, m.skillsMiddleware)
 	if err != nil {
 		logger.Error("创建 Agent 失败", zap.String("slug", slug), zap.Error(err))
 		return nil, err

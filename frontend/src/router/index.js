@@ -57,7 +57,7 @@ const router = createRouter({
           path: '',
           name: 'DashboardComp',
           component: () => import('../views/DashboardView.vue'),
-          meta: { keepAlive: false, requiresAuth: true, requiresSuperAdmin: true }
+          meta: { keepAlive: false, requiresAuth: true }
         }
       ]
     },
@@ -94,8 +94,7 @@ const router = createRouter({
               component: () => import('../views/DataBaseInfoView.vue'),
               meta: {
                 keepAlive: false,
-                requiresAuth: true,
-                requiresAdmin: true
+                requiresAuth: true
               }
             }
           ]
@@ -122,8 +121,7 @@ const router = createRouter({
               component: () => import('../components/extensions/McpDetailView.vue'),
               meta: {
                 keepAlive: false,
-                requiresAuth: true,
-                requiresAdmin: true
+                requiresAuth: true
               }
             },
             {
@@ -152,28 +150,15 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   // 检查路由是否需要认证
   const requiresAuth = to.matched.some((record) => record.meta.requiresAuth === true)
-  const requiresAdmin = to.matched.some((record) => record.meta.requiresAdmin)
-  const requiresSuperAdmin = to.matched.some((record) => record.meta.requiresSuperAdmin)
 
   const userStore = useUserStore()
 
   const isLoggedIn = userStore.isLoggedIn
-  const isAdmin = userStore.isAdmin
-  const isSuperAdmin = userStore.isSuperAdmin
 
   // 如果路由需要认证但用户未登录
   if (requiresAuth && !isLoggedIn) {
     // 保存尝试访问的路径，登录后跳转
     sessionStorage.setItem('redirect', to.fullPath)
-    return '/login'
-  }
-
-  // 单实例中，已登录会话即管理员会话。
-  if (requiresAdmin && !isAdmin) {
-    return '/login'
-  }
-
-  if (requiresSuperAdmin && !isSuperAdmin) {
     return '/login'
   }
 

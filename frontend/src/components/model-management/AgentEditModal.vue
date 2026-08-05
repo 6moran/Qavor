@@ -1,21 +1,13 @@
 <script setup>
 import { computed, nextTick, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import {
-  Info,
-  RefreshCw,
-  Settings2,
-  SlidersHorizontal,
-  Upload,
-  Wrench
-} from 'lucide-vue-next'
+import { BookA, Info, Settings2, SlidersHorizontal, Wrench } from 'lucide-vue-next'
 
-import { userApi } from '@/apis/user_api'
 import AgentRuntimeConfigForm from '@/components/AgentRuntimeConfigForm.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
+import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { useAgentStore } from '@/stores/agent'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
-import { MAX_IMAGE_UPLOAD_SIZE_BYTES, MAX_IMAGE_UPLOAD_SIZE_MB } from '@/utils/upload_limits'
 
 const props = defineProps({
   backendOptions: { type: Array, default: () => [] }
@@ -27,12 +19,11 @@ const agentStore = useAgentStore()
 
 const DEFAULT_AGENT_BACKEND_ID = 'ChatbotAgent'
 const SUB_AGENT_BACKEND_ID = 'SubAgentBackend'
-const runtimeAgentModalTabs = ['model', 'tools', 'other']
+const runtimeAgentModalTabs = ['model', 'tools', 'knowledge', 'subagents', 'other']
 
 const showAgentModal = ref(false)
 const editingAgentId = ref(null)
 const agentModalActiveTab = ref('basic')
-const agentIconUploading = ref(false)
 const saving = ref(false)
 const runtimeConfigFormRef = ref(null)
 const agentNameInputRef = ref(null)
@@ -41,7 +32,8 @@ const agentForm = reactive({
   name: '',
   backend_id: DEFAULT_AGENT_BACKEND_ID,
   description: '',
-  icon: ''
+  instruction: '',
+  model_id: ''
 })
 
 const normalizeAgent = (agent) => {
@@ -57,8 +49,13 @@ const agentModalMenuItems = computed(() => {
     items.push(
       { key: 'model', label: '模型配置', icon: SlidersHorizontal },
       { key: 'tools', label: '工具配置', icon: Wrench },
-      { key: 'other', label: '其他配置', icon: Settings2 }
+      { key: 'knowledge', label: '知识库配置', icon: BookA }
     )
+    // 子智能体不显示子智能体配置
+    if (!isSubAgentBackend(agentForm.backend_id)) {
+      items.push({ key: 'subagents', label: '子智能体配置', icon: Settings2 })
+    }
+    items.push({ key: 'other', label: '其他配置', icon: Settings2 })
   }
   return items
 })
@@ -72,9 +69,10 @@ const getDefaultBackendId = () => DEFAULT_AGENT_BACKEND_ID
 const isSubAgentBackend = (backendId) => backendId === SUB_AGENT_BACKEND_ID
 
 const agentModalTitle = computed(() => (editingAgentId.value ? '编辑智能体' : '新增智能体'))
-const agentPreviewDefaultIcon = computed(() =>
-  editingAgentId.value ? generatePixelAvatar(editingAgentId.value) : ''
-)
+const agentPreviewDefaultIcon = computed(() => {
+  const seed = editingAgentId.value || agentForm.slug || agentForm.name || 'agent'
+  return generatePixelAvatar(seed)
+})
 const agentPreviewName = computed(() => agentForm.name || editingAgentId.value || '智能体')
 const selectedBackendOption = computed(() =>
   props.backendOptions.find((backend) => backend.value === agentForm.backend_id)
@@ -88,8 +86,7 @@ const resetAgentForm = () => {
     slug: '',
     name: '',
     backend_id: getDefaultBackendId(),
-    description: '',
-    icon: ''
+    description: ''
   })
 }
 
@@ -126,8 +123,7 @@ const openEdit = async (agent) => {
     slug: detail.id || detail.slug || '',
     name: detail.name || '',
     backend_id: detail.backend_id || DEFAULT_AGENT_BACKEND_ID,
-    description: detail.description || '',
-    icon: detail.icon || ''
+    description: detail.description || ''
   })
   await agentStore.selectAgent(detail.id, { allowSubagent: true })
   showAgentModal.value = true
@@ -140,49 +136,18 @@ const restoreChatAgentSelectionIfNeeded = async () => {
 }
 
 const closeAgentModal = async () => {
-  if (saving.value || agentIconUploading.value) return
+  if (saving.value) return
   showAgentModal.value = false
   await restoreChatAgentSelectionIfNeeded()
-}
-
-const beforeAgentIconUpload = (file) => {
-  if (!file.type.startsWith('image/')) {
-    message.error('只能上传图片文件')
-    return false
-  }
-
-  if (file.size > MAX_IMAGE_UPLOAD_SIZE_BYTES) {
-    message.error(`图片大小不能超过 ${MAX_IMAGE_UPLOAD_SIZE_MB}MB`)
-    return false
-  }
-
-  uploadAgentIcon(file)
-  return false
-}
-
-const uploadAgentIcon = async (file) => {
-  agentIconUploading.value = true
-  try {
-    const data = await userApi.uploadImage(file)
-    agentForm.icon = data.image_url || data.url || ''
-    message.success('图标上传成功')
-  } catch (error) {
-    message.error(error.message || '图标上传失败')
-  } finally {
-    agentIconUploading.value = false
-  }
 }
 
 const buildAgentPayload = () => {
   const payload = {
     name: agentForm.name.trim(),
     description: agentForm.description.trim() || null,
-    icon: agentForm.icon.trim() || null,
-    is_subagent: isSubAgentBackend(agentForm.backend_id)
-  }
-
-  if (!editingAgentId.value) {
-    payload.backend_id = agentForm.backend_id
+    instruction: agentForm.instruction.trim() || null,
+    model_id: agentForm.model_id.trim() || null,
+    backend_id: agentForm.backend_id
   }
 
   return payload
@@ -200,6 +165,10 @@ const saveAgent = async () => {
     const payload = buildAgentPayload()
     if (editingAgentId.value) {
       const updated = await agentStore.updateAgentProfile(editingAgentId.value, payload)
+      // 如果有配置变更，保存运行时配置
+      if (agentStore.hasConfigChanges) {
+        await agentStore.saveAgentConfig()
+      }
       agentStore.originalAgentConfig = { ...agentStore.agentConfig }
       emit('saved', { mode: 'edit', agent: updated })
       message.success('智能体已保存')
@@ -274,39 +243,19 @@ defineExpose({
           <div class="agent-profile-header">
             <div class="agent-icon-preview" aria-label="智能体图标与名称">
               <div class="agent-profile-main">
-                <a-upload
-                  :show-upload-list="false"
-                  :before-upload="beforeAgentIconUpload"
-                  :disabled="agentIconUploading"
-                  accept="image/*"
-                >
-                  <div
-                    class="agent-icon-upload"
-                    :class="{
-                      uploading: agentIconUploading,
-                      'is-empty': !agentForm.icon && !editingAgentId
-                    }"
-                  >
-                    <FallbackAvatar
-                      v-if="agentForm.icon || editingAgentId"
-                      :src="agentForm.icon"
-                      :default-src="agentPreviewDefaultIcon"
-                      :name="agentPreviewName"
-                      :seed="editingAgentId || agentForm.slug || agentForm.name"
-                      kind="agent"
-                      :size="56"
-                      shape="rounded"
-                      :alt="`${agentForm.name || '智能体'}图标`"
-                      class="agent-icon-preview-avatar"
-                    />
-                    <div class="agent-icon-mask">
-                      <RefreshCw v-if="agentIconUploading" :size="16" class="spinning" />
-                      <Upload v-else :size="16" />
-                      <span>{{ agentForm.icon ? '更换图标' : '上传图标' }}</span>
-                    </div>
-                  </div>
-                </a-upload>
+                <FallbackAvatar
+                  v-if="editingAgentId"
+                  :default-src="agentPreviewDefaultIcon"
+                  :name="agentPreviewName"
+                  :seed="editingAgentId || agentForm.slug || agentForm.name"
+                  kind="agent"
+                  :size="56"
+                  shape="rounded"
+                  :alt="`${agentForm.name || '智能体'}图标`"
+                  class="agent-icon-preview-avatar"
+                />
                 <div class="agent-icon-preview-text">
+                  <div v-if="!editingAgentId" class="agent-name-label">智能体名称</div>
                   <div class="agent-name-field">
                     <span class="required-mark" aria-hidden="true">*</span>
                     <input
@@ -343,6 +292,24 @@ defineExpose({
                 class="agent-description-textarea"
                 :rows="3"
                 placeholder="可选"
+              />
+            </label>
+            <label class="form-label full-width">
+              <span>系统提示词</span>
+              <a-textarea
+                v-model:value="agentForm.instruction"
+                class="agent-description-textarea"
+                :rows="4"
+                placeholder="定义智能体的角色和行为规则"
+              />
+            </label>
+            <!-- 模型配置：仅新增时显示，编辑时在运行时配置页面设置 -->
+            <label v-if="!editingAgentId" class="form-label full-width">
+              <span>模型</span>
+              <ModelSelectorComponent
+                :model_spec="agentForm.model_id"
+                @select-model="(spec) => { agentForm.model_id = spec }"
+                placeholder="选择模型"
               />
             </label>
           </div>
@@ -443,7 +410,7 @@ defineExpose({
   border-radius: 7px;
   background: transparent;
   color: var(--gray-800);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -564,10 +531,6 @@ defineExpose({
   width: 100%;
   min-width: 0;
   gap: 16px;
-
-  :deep(.ant-upload) {
-    display: block;
-  }
 }
 
 .agent-profile-main {
@@ -577,67 +540,10 @@ defineExpose({
   gap: 10px;
 }
 
-.agent-icon-upload {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.agent-icon-preview-avatar {
   width: 56px;
   height: 56px;
-  overflow: hidden;
-  border: 1px solid var(--gray-200);
   border-radius: 12px;
-  background: var(--main-30);
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease;
-
-  .agent-icon-preview-avatar {
-    width: 100%;
-    height: 100%;
-    border: 0;
-  }
-
-  &:hover,
-  &:focus-within,
-  &.uploading {
-    border-color: var(--main-300);
-    box-shadow: 0 0 0 3px var(--main-50);
-  }
-
-  &:hover .agent-icon-mask,
-  &:focus-within .agent-icon-mask,
-  &.uploading .agent-icon-mask,
-  &.is-empty .agent-icon-mask {
-    opacity: 1;
-  }
-
-  &.is-empty {
-    border-style: dashed;
-    background: var(--gray-0);
-  }
-}
-
-.agent-icon-mask {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  background: color-mix(in srgb, var(--gray-900) 62%, transparent);
-  color: var(--gray-0);
-  font-size: 11px;
-  font-weight: 600;
-  opacity: 0;
-  transition: opacity 0.16s ease;
-}
-
-.agent-icon-upload.is-empty .agent-icon-mask {
-  background: transparent;
-  color: var(--gray-600);
 }
 
 .agent-icon-preview-text {
@@ -646,6 +552,12 @@ defineExpose({
   min-width: 0;
   gap: 4px;
   line-height: 1.25;
+}
+
+.agent-name-label {
+  color: var(--gray-700);
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .agent-name-field {
@@ -702,7 +614,7 @@ defineExpose({
   max-width: 100%;
   overflow: hidden;
   color: var(--gray-500);
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -711,7 +623,7 @@ defineExpose({
   max-width: 320px;
   overflow: hidden;
   color: var(--gray-900);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -745,7 +657,7 @@ defineExpose({
 
   > span {
     color: var(--gray-700);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 500;
   }
 }
@@ -757,7 +669,7 @@ defineExpose({
   border-radius: 8px;
   background: var(--gray-10);
   color: var(--gray-900);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
   resize: vertical;
   transition:
@@ -783,19 +695,6 @@ defineExpose({
 
 .full-width {
   grid-column: 1 / -1;
-}
-
-.spinning {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @media (max-width: 768px) {

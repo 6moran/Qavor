@@ -140,16 +140,13 @@ export const useAgentStore = defineStore(
       }
     }
 
-    function applyConfigDefaults(loadedConfig, configItems = configurableItems.value) {
+    // 校正配置值类型（JSON 反序列化后数值可能变成 float64）
+    function normalizeConfigTypes(loadedConfig, configItems = configurableItems.value) {
       const items = { ...configItems }
       Object.keys(items).forEach((key) => {
         const item = items[key]?.x_oap_ui_config
           ? { ...items[key], ...items[key].x_oap_ui_config }
           : items[key]
-        const isDefaultAllList = isDefaultAllAgentResourceKind(item?.kind)
-        if (loadedConfig[key] === undefined || (loadedConfig[key] === null && !isDefaultAllList)) {
-          if (item.default !== undefined) loadedConfig[key] = item.default
-        }
         if (
           loadedConfig[key] !== undefined &&
           loadedConfig[key] !== null &&
@@ -196,7 +193,7 @@ export const useAgentStore = defineStore(
       isLoadingConfig.value = true
       try {
         const detail = agentDetails.value[agentId] || (await fetchAgentDetail(agentId))
-        const loadedConfig = applyConfigDefaults(
+        const loadedConfig = normalizeConfigTypes(
           extractContext(detail),
           detail?.configurable_items || {}
         )

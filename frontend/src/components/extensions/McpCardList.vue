@@ -47,8 +47,8 @@
             :aria-label="server.enabled ? '禁用 MCP' : '启用 MCP'"
             @click.stop="server.enabled ? handleSetServerEnabled(server, false) : handleSetServerEnabled(server, true)"
           >
-            <Minus v-if="server.enabled" :size="15" class="action-icon" />
-            <Plus v-else :size="15" class="action-icon" />
+            <Minus v-if="server.enabled" :size="15" class="action-icon action-icon--disable" />
+            <Plus v-else :size="15" class="action-icon action-icon--enable" />
           </button>
         </template>
       </InfoCard>
@@ -270,33 +270,18 @@ defineExpose({ fetchServers, loading })
     cursor: not-allowed;
     opacity: 0.45;
   }
-
-  &.mcp-card-action-danger {
-    color: var(--color-success-700);
-
-    .action-icon-trash {
-      display: none;
-    }
-
-    &:hover,
-    &:focus {
-      border-color: var(--color-error-100);
-      background: var(--color-error-50);
-      color: var(--color-error-700);
-
-      .action-icon-check {
-        display: none;
-      }
-
-      .action-icon-trash {
-        display: block;
-      }
-    }
-  }
 }
 
 .action-icon {
   flex-shrink: 0;
+
+  &--enable {
+    color: var(--color-success-700);
+  }
+
+  &--disable {
+    color: var(--color-error-700);
+  }
 }
 
 .mcp-filter-select {

@@ -2,7 +2,7 @@
  * 认证相关 API
  */
 
-import { apiAdminGet, apiGet, apiPost, normalizeApiUrl } from './base'
+import { apiGet, apiPost, normalizeApiUrl } from './base'
 
 async function parseErrorDetail(response, fallbackMessage) {
   const contentType = response.headers.get('content-type') || ''
@@ -60,7 +60,7 @@ async function getOIDCLoginUrl(redirectPath = '/') {
  * }>}
  */
 async function getUserAccessOptions() {
-  return apiAdminGet('/api/auth/users/access-options')
+  return apiGet('/api/auth/users/access-options')
 }
 
 async function exchangeOIDCCode(code) {

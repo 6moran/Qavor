@@ -56,12 +56,6 @@
                 <div class="tree-header">
                   <span class="label">项目结构</span>
                   <div class="tree-actions">
-                    <a-tooltip v-if="canEditSkillFiles" title="新建文件"
-                      ><button @click="openCreateModal(false)"><FilePlus :size="14" /></button
-                    ></a-tooltip>
-                    <a-tooltip v-if="canEditSkillFiles" title="新建目录"
-                      ><button @click="openCreateModal(true)"><FolderPlus :size="14" /></button
-                    ></a-tooltip>
                     <a-tooltip title="刷新"
                       ><button @click="reloadTree"><RotateCw :size="14" /></button
                     ></a-tooltip>
@@ -99,68 +93,6 @@
                     />
                   </template>
                 </div>
-              </div>
-            </div>
-          </a-tab-pane>
-
-          <a-tab-pane key="settings">
-            <template #tab>
-              <span class="tab-title"><Settings :size="14" />生效范围</span>
-            </template>
-            <div class="config-view">
-              <div class="config-header">
-                <div class="text">
-                  <h3>共享与启用状态</h3>
-                  <p>控制此 Skill 是否可用，以及哪些用户可以选择和运行它。</p>
-                </div>
-                <a-button
-                  v-if="canManageCurrentSkill"
-                  type="primary"
-                  :loading="savingShareConfig"
-                  @click="saveShareConfig"
-                  class="lucide-icon-btn"
-                >
-                  <Save :size="14" />
-                  <span>保存设置</span>
-                </a-button>
-              </div>
-              <div class="settings-stack">
-                <section class="settings-card">
-                  <div class="settings-card-main">
-                    <div class="settings-card-title">启用状态</div>
-                    <div class="settings-card-desc">
-                      禁用后此 Skill 不会出现在可选资源中，也不会参与 Agent 运行时加载。
-                    </div>
-                  </div>
-                  <div class="settings-card-action">
-                    <span class="status-pill" :class="enabledForm ? 'enabled' : 'disabled'">
-                      {{ enabledForm ? '已启用' : '已禁用' }}
-                    </span>
-                    <a-switch v-model:checked="enabledForm" :disabled="!canManageCurrentSkill" />
-                  </div>
-                </section>
-
-                <section class="settings-card scope-card">
-                  <div class="settings-card-main">
-                    <div class="settings-card-title">生效范围</div>
-                    <div class="settings-card-desc">
-                      控制哪些用户可以选择并在运行时使用此 Skill。
-                    </div>
-                  </div>
-                  <div v-if="isBuiltinInstalledSkill" class="readonly-scope-hint">
-                    内置 Skill 固定为全局生效范围，可通过启用状态控制是否参与运行时。
-                  </div>
-                  <div v-else-if="isReadOnlySkill" class="readonly-scope-hint">
-                    当前 Skill 对你只读，不能修改生效范围。
-                  </div>
-                  <ShareConfigForm
-                    v-else
-                    ref="shareConfigFormRef"
-                    v-model="shareConfigForm"
-                    :auto-select-user-dept="true"
-                    :allowed-access-levels="allowedSkillAccessLevels"
-                  />
-                </section>
               </div>
             </div>
           </a-tab-pane>
@@ -317,23 +249,6 @@
         <a-empty description="未找到 Skill" />
       </div>
     </div>
-
-    <a-modal
-      v-model:open="createModalVisible"
-      :title="createForm.isDir ? '新建目录' : '新建文件'"
-      @ok="handleCreateNode"
-      :confirm-loading="creatingNode"
-      width="400px"
-    >
-      <a-form layout="vertical" class="pt-12">
-        <a-form-item label="路径 (相对于根目录)" required>
-          <a-input v-model:value="createForm.path" placeholder="src/main.py" />
-        </a-form-item>
-        <a-form-item v-if="!createForm.isDir" label="内容">
-          <a-textarea v-model:value="createForm.content" :rows="5" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
   </div>
 </template>
 
@@ -349,10 +264,7 @@ import {
   Save,
   FileText,
   Layers,
-  FilePlus,
-  FolderPlus,
   RotateCw,
-  Settings,
   X,
   Plus,
   ChevronDown
@@ -360,7 +272,6 @@ import {
 import { skillApi } from '@/apis/skill_api'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
 import FileTreeComponent from '@/components/FileTreeComponent.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -375,18 +286,10 @@ const selectedPath = ref('')
 const selectedIsDir = ref(false)
 const fileContent = ref('')
 const savingFile = ref(false)
-const creatingNode = ref(false)
 const savingDependencies = ref(false)
-const savingShareConfig = ref(false)
 const activeTab = ref('editor')
 
 const skills = ref([])
-const createModalVisible = ref(false)
-const createForm = reactive({ path: '', isDir: false, content: '' })
-const allowedSkillAccessLevels = ref(['user'])
-const enabledForm = ref(true)
-const shareConfigFormRef = ref(null)
-const shareConfigForm = ref({ access_level: 'user', department_ids: [], user_uids: [] })
 const dependencyOptions = reactive({ tools: [], mcps: [], skills: [] })
 const dependencyForm = reactive({
   tool_dependencies: [],
@@ -516,29 +419,15 @@ const goBack = () => {
   router.push({ path: '/tools', query: { tab: 'skills' } })
 }
 
-const cloneShareConfig = (config) => ({
-  access_level: config?.access_level || 'user',
-  department_ids: [...(config?.department_ids || [])],
-  user_uids: [...(config?.user_uids || [])]
-})
-
-const syncShareConfigFromSkill = (skillRecord) => {
-  enabledForm.value = skillRecord?.enabled !== false
-  shareConfigForm.value = cloneShareConfig(skillRecord?.share_config)
-}
-
 const fetchSkillDetail = async () => {
   loading.value = true
   try {
     const skillResult = await skillApi.listSkills()
     skills.value = skillResult?.data || []
-    allowedSkillAccessLevels.value = skillResult?.allowed_access_levels || ['user']
-
     const found = skills.value.find((s) => s.slug === slug.value)
     if (found) {
       currentSkill.value = found
       syncDependencyFormFromSkill(found)
-      syncShareConfigFromSkill(found)
       await reloadTree()
       await loadSkillFile(found.slug)
     }
@@ -568,15 +457,22 @@ const syncDependencyFormFromSkill = (skillRecord) => {
   dependencyForm.skill_dependencies = [...(skillRecord?.skill_dependencies || [])]
 }
 
-const normalizeTree = (nodes) =>
-  (nodes || []).map((node) => ({
+const normalizeTree = (node) => {
+  if (!node) return []
+  // 如果是数组，递归处理每个元素
+  if (Array.isArray(node)) {
+    return node.map(normalizeTree).flat()
+  }
+  // 单个节点对象
+  return [{
     title: node.name,
     key: node.path,
     isLeaf: !node.is_dir,
     path: node.path,
     is_dir: node.is_dir,
     children: node.is_dir ? normalizeTree(node.children || []) : undefined
-  }))
+  }]
+}
 
 const resetFileState = () => {
   selectedPath.value = ''
@@ -695,61 +591,6 @@ const handleExport = async () => {
     URL.revokeObjectURL(url)
   } catch {
     message.error('导出失败')
-  }
-}
-
-const openCreateModal = (isDir) => {
-  if (!currentSkill.value || !canEditSkillFiles.value) return
-  createForm.path = ''
-  createForm.content = ''
-  createForm.isDir = isDir
-  createModalVisible.value = true
-}
-
-const handleCreateNode = async () => {
-  if (!currentSkill.value || !createForm.path.trim() || !canEditSkillFiles.value) return
-  creatingNode.value = true
-  try {
-    await skillApi.createSkillFile(currentSkill.value.slug, {
-      path: createForm.path.trim(),
-      is_dir: createForm.isDir,
-      content: createForm.content
-    })
-    createModalVisible.value = false
-    await reloadTree()
-    message.success('创建成功')
-  } catch {
-    message.error('创建失败')
-  } finally {
-    creatingNode.value = false
-  }
-}
-
-const saveShareConfig = async () => {
-  if (!currentSkill.value || !isInstalledSkill.value || !canManageCurrentSkill.value) return
-  if (!isBuiltinInstalledSkill.value) {
-    const validation = shareConfigFormRef.value?.validate?.()
-    if (validation && !validation.valid) {
-      message.warning(validation.message || '请完善 Skill 生效范围')
-      return
-    }
-  }
-
-  savingShareConfig.value = true
-  try {
-    if (!isBuiltinInstalledSkill.value) {
-      await skillApi.updateSkillShareConfig(currentSkill.value.slug, shareConfigForm.value)
-    }
-    const result = await skillApi.updateSkillEnabled(currentSkill.value.slug, enabledForm.value)
-    if (result?.data) {
-      currentSkill.value = result.data
-      syncShareConfigFromSkill(result.data)
-    }
-    message.success('设置已保存')
-  } catch (error) {
-    message.error(error?.response?.data?.detail || error.message || '保存设置失败')
-  } finally {
-    savingShareConfig.value = false
   }
 }
 

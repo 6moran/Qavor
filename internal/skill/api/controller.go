@@ -457,22 +457,6 @@ func (ctrl *Controller) UpdateSkillDependencies(c *gin.Context) {
 	response.Success(c, nil)
 }
 
-// UpdateSkillShareConfig 更新 Skill 分享配置
-func (ctrl *Controller) UpdateSkillShareConfig(c *gin.Context) {
-	_ = c.Param("slug")
-
-	var req struct {
-		ShareConfig map[string]interface{} `json:"share_config"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	// TODO: 实现分享配置更新逻辑
-	response.Success(c, nil)
-}
-
 // UpdateSkillEnabled 更新 Skill 启用状态
 func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 	slug := c.Param("slug")
