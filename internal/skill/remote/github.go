@@ -287,10 +287,8 @@ func ZipSkillDir(slug string, entries map[string][]byte, isRoot ...bool) ([]byte
 			// 根目录模式：包含所有文件
 			paths = append(paths, rel)
 		} else {
-			// 子目录模式：包含 SKILL.md 文件
-			if strings.HasSuffix(rel, "/SKILL.md") || rel == "SKILL.md" {
-				paths = append(paths, rel)
-			}
+			// 子目录模式：包含所有文件（entries 已经是该 skill 的文件）
+			paths = append(paths, rel)
 		}
 	}
 	sort.Strings(paths)
@@ -300,12 +298,8 @@ func ZipSkillDir(slug string, entries map[string][]byte, isRoot ...bool) ([]byte
 			// 根目录模式：保持原路径
 			zipPath = rel
 		} else {
-			// 子目录模式：提取 SKILL.md 作为文件名
-			if strings.HasSuffix(rel, "/SKILL.md") {
-				zipPath = "SKILL.md"
-			} else {
-				zipPath = rel
-			}
+			// 子目录模式：直接使用文件名
+			zipPath = rel
 		}
 		w, err := zw.Create(zipPath)
 		if err != nil {

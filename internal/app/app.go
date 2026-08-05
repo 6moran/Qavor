@@ -19,8 +19,9 @@ import (
 	"Qavor/internal/service"
 	"Qavor/internal/skill"
 	skillapi "Qavor/internal/skill/api"
-	"Qavor/internal/sse"
 	"Qavor/internal/skill/remote"
+	"Qavor/internal/sse"
+	
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
@@ -356,9 +357,8 @@ func (a *App) initDependencies() error {
 		}
 	}
 	skillLoader := skill.NewLoader(skillsDir)
-	skillResolver := skill.NewResolver(skillLoader, toolRegistry, mcpManager)
 	activation := skill.NewActivationState()
-	skillsMiddleware := skill.NewSkillsMiddleware(skillLoader, skillResolver, activation)
+	skillsMiddleware := skill.NewSkillsMiddleware(skillLoader, activation)
 	skillRepo := skill.NewSkillRepository(a.postgresDB)
 	skillSvc := skill.NewSkillService(skillRepo, skillLoader)
 	installSvc := skill.NewInstallService(skillRepo, skillLoader)
@@ -369,7 +369,7 @@ func (a *App) initDependencies() error {
 	skillCtrl := skillapi.NewController(skillSvc, skillLoader, installSvc)
 
 	// 创建 AgentManager
-	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, skillResolver, agentSvc)
+	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, agentSvc)
 
 	// 创建 Service
 	conversationSvc := service.NewConversationService(conversationRepo)

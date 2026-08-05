@@ -245,7 +245,7 @@ const normalizedTags = computed(() => {
   }
 
   &-name {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     color: var(--gray-900);
     overflow: hidden;
@@ -254,7 +254,7 @@ const normalizedTags = computed(() => {
   }
 
   &-subtitle {
-    font-size: 12px;
+    font-size: 14px;
     color: var(--gray-600);
     font-family: monospace;
     overflow: hidden;
@@ -271,7 +271,7 @@ const normalizedTags = computed(() => {
   }
 
   &-desc {
-    font-size: 13px;
+    font-size: 14px;
     color: var(--gray-600);
     line-height: 1.4;
     display: -webkit-box;
@@ -291,7 +291,7 @@ const normalizedTags = computed(() => {
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .info-label {
@@ -349,8 +349,8 @@ const normalizedTags = computed(() => {
   &-mini-desc {
     margin-top: 2px;
     color: var(--gray-500);
-    font-size: 13px;
-    line-height: 18px;
+    font-size: 14px;
+    line-height: 20px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -403,7 +403,7 @@ const normalizedTags = computed(() => {
   padding: 0 9px;
   border: 1px solid transparent;
   box-shadow: none;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1;
   transition:
@@ -445,7 +445,7 @@ const normalizedTags = computed(() => {
   border-radius: 4px;
   background: var(--gray-100);
   color: var(--gray-600);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 600;
 
   &--success,

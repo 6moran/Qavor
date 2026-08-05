@@ -1,9 +1,8 @@
 package main
 
 import (
-	"fmt"
-
 	"Qavor/internal/app"
+	"fmt"
 )
 
 func main() {

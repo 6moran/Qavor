@@ -22,6 +22,8 @@
             />
             <!-- 统一显示所有配置项 -->
             <a-empty v-if="isCurrentSegmentEmpty" description="暂无配置项" class="config-empty" />
+
+            <!-- 其他配置项（排除工具检索相关） -->
             <template v-for="(value, key) in filteredConfigurableItems" :key="key">
               <a-form-item :label="getConfigLabel(key, value)" :name="key" class="config-item">
                 <p v-if="value.description" class="config-description">{{ value.description }}</p>
@@ -204,11 +206,9 @@
 
                 <!-- 数字 -->
                 <a-input-number
-                  v-else-if="
-                    value?.type === 'number' || value?.type === 'int' || value?.type === 'float'
-                  "
+                  v-else-if="value?.type === 'number' || value?.type === 'int' || value?.type === 'float'"
                   :value="agentConfig[key]"
-                  :disabled="isReadOnlyConfig"
+                  :disabled="isReadOnlyConfig || (key === 'tool_retrieval_threshold' || key === 'tool_retrieval_top_k') && !agentConfig.tool_retrieval_enabled"
                   @update:value="(val) => updateConfigValue(key, val)"
                   :placeholder="getPlaceholder(key, value)"
                   class="config-input-number"
@@ -430,6 +430,8 @@ const currentSegment = ref('model')
 const segmentOptions = [
   { label: '模型', value: 'model' },
   { label: '工具', value: 'tools' },
+  { label: '知识库', value: 'knowledge' },
+  { label: '子智能体', value: 'subagents' },
   { label: '其他', value: 'other' }
 ]
 const activeSegment = computed(() => (props.showSegmented ? currentSegment.value : props.segment))
@@ -443,20 +445,30 @@ const isEmptyConfig = computed(() => {
 const canManageCurrentAgent = computed(() => !!selectedAgent.value?.can_manage)
 const isReadOnlyConfig = computed(() => !canManageCurrentAgent.value)
 
+// 模型配置分组的固定顺序：温度 -> token数 -> 模型
+const MODEL_CONFIG_ORDER = ['temperature', 'max_tokens', 'model_id']
+
 const segmentConfigKeys = computed(() => {
   const keys = Object.keys(configurableItems.value)
   return {
-    model: keys.filter((key) => {
-      const meta = configurableItems.value[key]?.kind
-      return meta === 'llm' || meta === 'prompt'
-    }),
+    model: MODEL_CONFIG_ORDER.filter((key) => keys.includes(key)),
     tools: keys.filter((key) => {
       const meta = configurableItems.value[key]?.kind
-      return isToolResourceKind(meta)
+      return isToolResourceKind(meta) && meta !== 'knowledges' && key !== 'subagents'
+    }),
+    knowledge: keys.filter((key) => {
+      const meta = configurableItems.value[key]?.kind
+      return meta === 'knowledges'
+    }),
+    subagents: keys.filter((key) => {
+      const meta = configurableItems.value[key]?.kind
+      return meta === 'subagents' || key === 'enable_general_subagent'
     }),
     other: keys.filter((key) => {
       const meta = configurableItems.value[key]?.kind
-      return meta !== 'llm' && meta !== 'prompt' && !isToolResourceKind(meta)
+      const isToolRetrieval = key === 'tool_retrieval_threshold' || key === 'tool_retrieval_top_k'
+      const isModelParam = key === 'temperature' || key === 'max_tokens'
+      return (meta !== 'llm' && meta !== 'prompt' && !isToolResourceKind(meta) && meta !== 'subagents' && key !== 'enable_general_subagent' && !isModelParam) || isToolRetrieval
     })
   }
 })
@@ -613,9 +625,7 @@ const getConfigLabel = (key, value) => {
   return key
 }
 
-const getPlaceholder = (_key, value) => {
-  return `（默认: ${value.default}）`
-}
+const getPlaceholder = () => '请输入内容'
 
 const handleModelChange = (key, spec) => {
   if (isReadOnlyConfig.value) return
@@ -874,7 +884,7 @@ defineExpose({ validateAndFilterConfig })
 
           .config-description {
             margin: 4px 0 8px 0;
-            font-size: 12px;
+            font-size: 14px;
             color: var(--gray-600);
             line-height: 1.4;
           }
@@ -910,7 +920,7 @@ defineExpose({ validateAndFilterConfig })
               word-break: break-word;
               line-height: 1.5;
               color: var(--gray-900);
-              font-size: 13px;
+              font-size: 14px;
               display: -webkit-box;
               line-clamp: 4;
               -webkit-line-clamp: 4;
@@ -927,7 +937,7 @@ defineExpose({ validateAndFilterConfig })
               position: absolute;
               top: -32px;
               right: 0px;
-              font-size: 12px;
+              font-size: 14px;
               color: var(--main-800);
               opacity: 0;
               transition: opacity 0.2s ease;
@@ -957,7 +967,7 @@ defineExpose({ validateAndFilterConfig })
             border-radius: 6px;
             background: var(--color-warning-50);
             color: var(--color-warning-900);
-            font-size: 12px;
+            font-size: 14px;
             line-height: 1.5;
 
             svg {
@@ -993,7 +1003,7 @@ defineExpose({ validateAndFilterConfig })
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 13px;
+      font-size: 14px;
       color: var(--gray-900);
 
       .selection-count {
@@ -1005,7 +1015,7 @@ defineExpose({ validateAndFilterConfig })
     .selection-trigger-btn {
       border-radius: 4px;
       height: 28px;
-      font-size: 12px;
+      font-size: 14px;
       font-weight: 500;
     }
   }
@@ -1022,7 +1032,7 @@ defineExpose({ validateAndFilterConfig })
       background: var(--gray-150);
       border: none;
       color: var(--gray-900);
-      font-size: 12px;
+      font-size: 14px;
 
       :deep(.anticon-close) {
         color: var(--gray-600);
@@ -1043,7 +1053,7 @@ defineExpose({ validateAndFilterConfig })
     justify-content: space-between;
     align-items: center;
     margin-bottom: 12px;
-    font-size: 12px;
+    font-size: 14px;
     color: var(--gray-600);
 
     .label-actions {
@@ -1106,7 +1116,7 @@ defineExpose({ validateAndFilterConfig })
       .option-text {
         flex: 1;
         min-width: 0;
-        font-size: 13px;
+        font-size: 14px;
         line-height: 1.4;
         overflow-wrap: anywhere;
       }
@@ -1210,7 +1220,7 @@ defineExpose({ validateAndFilterConfig })
           }
 
           .selection-item-description {
-            font-size: 12px;
+            font-size: 14px;
             color: var(--gray-600);
             line-height: 1.4;
             margin-top: 6px;
@@ -1302,7 +1312,7 @@ defineExpose({ validateAndFilterConfig })
   .system-prompt-modal-content {
     .system-prompt-modal-input {
       resize: vertical;
-      font-size: 13px;
+      font-size: 14px;
       line-height: 1.6;
       border-radius: 8px;
     }
@@ -1333,7 +1343,7 @@ defineExpose({ validateAndFilterConfig })
 .clear-btn {
   padding: 0;
   height: auto;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--main-700);
 
@@ -1346,7 +1356,7 @@ defineExpose({ validateAndFilterConfig })
   padding: 2px 6px;
   height: auto;
   line-height: 1;
-  font-size: 12px;
+  font-size: 14px;
   color: var(--gray-600);
   white-space: nowrap;
 
@@ -1356,6 +1366,6 @@ defineExpose({ validateAndFilterConfig })
 }
 
 .selection-search .inline-action-btn {
-  font-size: 13px;
+  font-size: 14px;
 }
 </style>

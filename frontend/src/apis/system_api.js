@@ -1,4 +1,4 @@
-import { apiGet, apiAdminGet, apiAdminPost, apiAdminPut, apiAdminDelete } from './base'
+import { apiGet, apiPost, apiPut, apiDelete } from './base'
 
 /**
  * 系统管理API模块
@@ -38,14 +38,14 @@ export const configApi = {
    * @param {any} value - 配置值
    * @returns {Promise} - 更新结果
    */
-  updateConfig: async (key, value) => apiAdminPost('/api/system/config', { key, value }),
+  updateConfig: async (key, value) => apiPost('/api/system/config', { key, value }),
 
   /**
    * 批量更新配置项
    * @param {Object} items - 配置项对象
    * @returns {Promise} - 更新结果
    */
-  updateConfigBatch: async (items) => apiAdminPost('/api/system/config/update', items),
+  updateConfigBatch: async (items) => apiPost('/api/system/config/update', items),
 
   /**
    * 获取系统日志
@@ -56,15 +56,15 @@ export const configApi = {
     const url = levels
       ? `/api/system/logs?levels=${encodeURIComponent(levels)}`
       : '/api/system/logs'
-    return apiAdminGet(url)
+    return apiGet(url)
   }
 }
 
 export const configOptionsApi = {
-  getOptions: async () => apiAdminGet('/api/system/config/options'),
+  getOptions: async () => apiGet('/api/system/config/options'),
 
   updateOption: async (key, value) =>
-    apiAdminPut(`/api/system/config/options/${encodeURIComponent(key)}`, { value })
+    apiPut(`/api/system/config/options/${encodeURIComponent(key)}`, { value })
 }
 
 // =============================================================================
@@ -102,7 +102,7 @@ export const chatModelApi = {}
 
 export const modelProviderApi = {
   getProviders: async () => {
-    return apiAdminGet('/api/system/model-providers')
+    return apiGet('/api/system/model-providers')
   },
 
   getV2Models: async (modelType = 'chat') => {
@@ -110,27 +110,27 @@ export const modelProviderApi = {
   },
 
   refreshModelCache: async () => {
-    return apiAdminPost('/api/system/model-providers/models/cache/refresh')
+    return apiPost('/api/system/model-providers/models/cache/refresh')
   },
 
   getModelStatusBySpec: async (spec) => {
-    return apiAdminGet(`/api/system/model-providers/models/status?spec=${encodeURIComponent(spec)}`)
+    return apiGet(`/api/system/model-providers/models/status?spec=${encodeURIComponent(spec)}`)
   },
 
   createProvider: async (payload) => {
-    return apiAdminPost('/api/system/model-providers', payload)
+    return apiPost('/api/system/model-providers', payload)
   },
 
   updateProvider: async (providerId, payload) => {
-    return apiAdminPut(`/api/system/model-providers/${encodeURIComponent(providerId)}`, payload)
+    return apiPut(`/api/system/model-providers/${encodeURIComponent(providerId)}`, payload)
   },
 
   deleteProvider: async (providerId) => {
-    return apiAdminDelete(`/api/system/model-providers/${encodeURIComponent(providerId)}`)
+    return apiDelete(`/api/system/model-providers/${encodeURIComponent(providerId)}`)
   },
 
   fetchRemoteModels: async (providerId) => {
-    return apiAdminGet(
+    return apiGet(
       `/api/system/model-providers/${encodeURIComponent(providerId)}/remote-models`
     )
   }

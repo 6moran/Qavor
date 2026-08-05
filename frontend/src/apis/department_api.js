@@ -3,11 +3,10 @@
  */
 
 import {
-  apiAdminGet,
-  apiSuperAdminGet,
-  apiSuperAdminPost,
-  apiSuperAdminPut,
-  apiSuperAdminDelete
+  apiGet,
+  apiPost,
+  apiPut,
+  apiDelete
 } from './base'
 
 const BASE_URL = '/api/departments'
@@ -17,7 +16,7 @@ const BASE_URL = '/api/departments'
  * @returns {Promise<Array>} 部门列表
  */
 export const getDepartments = () => {
-  return apiAdminGet(BASE_URL)
+  return apiGet(BASE_URL)
 }
 
 /**
@@ -26,7 +25,7 @@ export const getDepartments = () => {
  * @returns {Promise<Object>} 部门详情
  */
 export const getDepartment = (departmentId) => {
-  return apiSuperAdminGet(`${BASE_URL}/${departmentId}`)
+  return apiGet(`${BASE_URL}/${departmentId}`)
 }
 
 /**
@@ -37,7 +36,7 @@ export const getDepartment = (departmentId) => {
  * @returns {Promise<Object>} 创建的部门
  */
 export const createDepartment = (data) => {
-  return apiSuperAdminPost(BASE_URL, data)
+  return apiPost(BASE_URL, data)
 }
 
 /**
@@ -49,7 +48,7 @@ export const createDepartment = (data) => {
  * @returns {Promise<Object>} 更新后的部门
  */
 export const updateDepartment = (departmentId, data) => {
-  return apiSuperAdminPut(`${BASE_URL}/${departmentId}`, data)
+  return apiPut(`${BASE_URL}/${departmentId}`, data)
 }
 
 /**
@@ -58,7 +57,7 @@ export const updateDepartment = (departmentId, data) => {
  * @returns {Promise<Object>} 删除结果
  */
 export const deleteDepartment = (departmentId) => {
-  return apiSuperAdminDelete(`${BASE_URL}/${departmentId}`)
+  return apiDelete(`${BASE_URL}/${departmentId}`)
 }
 
 export const departmentApi = {

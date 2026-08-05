@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
+	"regexp"
+	"runtime"
 	"strings"
 
 	"Qavor/internal/model/entity"
-	"Qavor/internal/skill/remote"
 )
 
 // InstallResult 安装结果
@@ -23,7 +24,7 @@ type InstallResult struct {
 	Error       string `json:"error,omitempty"`
 }
 
-// InstallService Skill 安装服务：zip 上传 + GitHub 远程拉取
+// InstallService Skill 安装服务
 type InstallService struct {
 	repo   SkillRepository
 	loader SkillLoader
@@ -105,39 +106,6 @@ func commonTopDir(names []string) string {
 	return cand + "/"
 }
 
-// skillItemsFromLayout 从解压结果生成草稿条目，并校验 SKILL.md
-func skillItemsFromLayout(layout map[string]map[string][]byte, sourceType string) ([]*InstallResult, map[string]map[string][]byte) {
-	var items []*InstallResult
-	valid := map[string]map[string][]byte{}
-	slugs := make([]string, 0, len(layout))
-	for slug := range layout {
-		slugs = append(slugs, slug)
-	}
-	sort.Strings(slugs)
-	for _, slug := range slugs {
-		entries := layout[slug]
-		md, ok := entries["SKILL.md"]
-		if !ok {
-			items = append(items, &InstallResult{
-				Name:    slug,
-				Slug:    slug,
-				Success: false,
-				Error:   "缺少 SKILL.md，已跳过",
-			})
-			continue
-		}
-		name, desc := frontmatterNameDesc(string(md))
-		items = append(items, &InstallResult{
-			Name:        name,
-			Slug:        slug,
-			Description: desc,
-			Success:     true,
-		})
-		valid[slug] = entries
-	}
-	return items, valid
-}
-
 // frontmatterNameDesc 从 SKILL.md frontmatter 提取 name/description
 func frontmatterNameDesc(content string) (string, string) {
 	var name, desc string
@@ -160,77 +128,22 @@ func (s *InstallService) InstallFromZip(fileData []byte, filename string) ([]*In
 	if err != nil {
 		return nil, err
 	}
-	items, valid := skillItemsFromLayout(layout, "upload")
-	if len(items) == 0 {
-		return nil, fmt.Errorf("zip 中未找到任何含 SKILL.md 的 Skill")
-	}
-
-	for slug, entries := range valid {
-		result := s.installSkill(slug, entries, "upload")
-		// 更新对应 item 的结果
-		for _, item := range items {
-			if item.Slug == slug {
-				item.Success = result.Success
-				item.Error = result.Error
-				break
-			}
-		}
-	}
-
-	return items, nil
-}
-
-// ---------- 远程拉取 ----------
-
-// InstallFromRemote 从 GitHub 拉取并直接安装
-func (s *InstallService) InstallFromRemote(source string, slugs []string) ([]*InstallResult, error) {
-	provider, err := remote.Resolve(source)
-	if err != nil {
-		return nil, err
-	}
 
 	var items []*InstallResult
-	for _, slug := range slugs {
-		zipData, err := provider.Fetch(source, slug)
-		if err != nil {
-			items = append(items, &InstallResult{
-				Name:    slug,
-				Slug:    slug,
-				Success: false,
-				Error:   err.Error(),
-			})
-			continue
-		}
-		subLayout, err := zipLayout(zipData)
-		if err != nil {
-			items = append(items, &InstallResult{
-				Name:    slug,
-				Slug:    slug,
-				Success: false,
-				Error:   err.Error(),
-			})
-			continue
-		}
-		// 合并所有文件到一个 slug 下
-		entries := map[string][]byte{}
-		for _, e := range subLayout {
-			for k, v := range e {
-				entries[k] = v
-			}
-		}
+	for slug, entries := range layout {
+		// 检查是否有 SKILL.md
 		md, ok := entries["SKILL.md"]
 		if !ok {
 			items = append(items, &InstallResult{
 				Name:    slug,
 				Slug:    slug,
 				Success: false,
-				Error:   "拉取内容中缺少 SKILL.md",
+				Error:   "缺少 SKILL.md，已跳过",
 			})
 			continue
 		}
 		name, desc := frontmatterNameDesc(string(md))
-
-		result := s.installSkill(slug, entries, "remote")
+		result := s.installSkill(slug, entries, "upload")
 		items = append(items, &InstallResult{
 			Name:        name,
 			Slug:        slug,
@@ -240,7 +153,168 @@ func (s *InstallService) InstallFromRemote(source string, slugs []string) ([]*In
 		})
 	}
 
+	if len(items) == 0 {
+		return nil, fmt.Errorf("zip 中未找到任何含 SKILL.md 的 Skill")
+	}
 	return items, nil
+}
+
+// ---------- 远程拉取（使用 npx skills CLI） ----------
+
+// InstallFromRemote 从 GitHub 拉取并直接安装
+func (s *InstallService) InstallFromRemote(source string, slugs []string) ([]*InstallResult, error) {
+	// 创建隔离的工作目录
+	tempHome, env, workdir := createIsolatedWorkdir()
+	defer os.RemoveAll(tempHome)
+
+	var items []*InstallResult
+	for _, slug := range slugs {
+		result := s.installFromRemoteCLI(source, slug, env, workdir, tempHome)
+		items = append(items, result)
+	}
+
+	return items, nil
+}
+
+// installFromRemoteCLI 使用 npx skills CLI 安装单个 skill
+func (s *InstallService) installFromRemoteCLI(source, slug string, env []string, workdir string, tempHome string) *InstallResult {
+	// 执行: npx -y skills add <source> --skill <slug> -g -y --copy
+	args := []string{
+		"-y", "skills", "add", source,
+		"--skill", slug,
+		"-g", "-y", "--copy",
+	}
+
+	_, err := runCLI("npx", args, env, workdir)
+	if err != nil {
+		return &InstallResult{
+			Name:    slug,
+			Slug:    slug,
+			Success: false,
+			Error:   fmt.Sprintf("CLI 执行失败: %v", err),
+		}
+	}
+
+	// 从临时目录提取下载的 skill
+	skillsDir := filepath.Join(tempHome, ".agents", "skills")
+	skillDir := findSkillDir(skillsDir, slug)
+	if skillDir == "" {
+		return &InstallResult{
+			Name:    slug,
+			Slug:    slug,
+			Success: false,
+			Error:   "CLI 执行成功但未找到下载的 skill",
+		}
+	}
+
+	// 读取 skill 文件
+	entries, err := readSkillDir(skillDir)
+	if err != nil {
+		return &InstallResult{
+			Name:    slug,
+			Slug:    slug,
+			Success: false,
+			Error:   fmt.Sprintf("读取 skill 文件失败: %v", err),
+		}
+	}
+
+	// 提取元数据
+	md, ok := entries["SKILL.md"]
+	if !ok {
+		return &InstallResult{
+			Name:    slug,
+			Slug:    slug,
+			Success: false,
+			Error:   "缺少 SKILL.md",
+		}
+	}
+	name, desc := frontmatterNameDesc(string(md))
+
+	// 安装到本地
+	result := s.installSkill(slug, entries, "remote")
+	result.Name = name
+	result.Description = desc
+	return result
+}
+
+// createIsolatedWorkdir 创建隔离的临时 HOME 目录
+func createIsolatedWorkdir() (string, []string, string) {
+	tempHome, _ := os.MkdirTemp("", ".remote-skills-*")
+	workdir := filepath.Join(tempHome, "workspace")
+	os.MkdirAll(workdir, 0755)
+
+	// 复制当前环境变量
+	env := os.Environ()
+	// 设置 HOME 为临时目录（Windows 用 USERPROFILE）
+	if runtime.GOOS == "windows" {
+		env = append(env, "USERPROFILE="+tempHome)
+	} else {
+		env = append(env, "HOME="+tempHome)
+	}
+
+	return tempHome, env, workdir
+}
+
+// runCLI 执行 CLI 命令
+func runCLI(name string, args []string, env []string, workdir string) (string, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Env = env
+	cmd.Dir = workdir
+
+	output, err := cmd.CombinedOutput()
+	// 清洗 ANSI 转义序列
+	cleaned := cleanCLIOutput(string(output))
+
+	if err != nil {
+		return cleaned, fmt.Errorf("命令执行失败: %w, 输出: %s", err, cleaned)
+	}
+	return cleaned, nil
+}
+
+// cleanCLIOutput 清洗 CLI 输出（去除 ANSI 转义序列）
+func cleanCLIOutput(output string) string {
+	re := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	return re.ReplaceAllString(output, "")
+}
+
+// findSkillDir 在 skills 目录下查找指定 skill
+func findSkillDir(skillsDir, name string) string {
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && entry.Name() == name {
+			return filepath.Join(skillsDir, name)
+		}
+	}
+	return ""
+}
+
+// readSkillDir 读取 skill 目录下的所有文件
+func readSkillDir(dir string) (map[string][]byte, error) {
+	entries := map[string][]byte{}
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		// 使用正斜杠
+		rel = filepath.ToSlash(rel)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		entries[rel] = data
+		return nil
+	})
+	return entries, err
 }
 
 // ---------- 核心安装逻辑 ----------
@@ -286,18 +360,27 @@ func (s *InstallService) installSkill(slug string, entries map[string][]byte, so
 		}
 	}
 
-	// 从 SKILL.md 提取元数据
+	// 从 SKILL.md 提取元数据和依赖
 	md, _ := entries["SKILL.md"]
 	name, desc := frontmatterNameDesc(string(md))
+	var toolDeps, mcpDeps, skillDeps []string
+	if meta, err := parseFrontmatter(string(md)); err == nil && meta != nil {
+		toolDeps = meta.ToolDependencies
+		mcpDeps = meta.MCPDependencies
+		skillDeps = meta.SkillDependencies
+	}
 
 	// 写入数据库
 	skillEntity := &entity.Skill{
-		Slug:        slug,
-		Name:        name,
-		Description: desc,
-		SourceType:  sourceType,
-		DirPath:     slug,
-		Enabled:     true,
+		Slug:              slug,
+		Name:              name,
+		Description:       desc,
+		SourceType:        sourceType,
+		ToolDependencies:  toJSONArray(toolDeps),
+		MCPDependencies:   toJSONArray(mcpDeps),
+		SkillDependencies: toJSONArray(skillDeps),
+		DirPath:           slug,
+		Enabled:           true,
 	}
 	if err := s.repo.Create(skillEntity); err != nil {
 		return &InstallResult{
@@ -311,4 +394,16 @@ func (s *InstallService) installSkill(slug string, entries map[string][]byte, so
 		Slug:    slug,
 		Success: true,
 	}
+}
+
+// toJSONArray 将 []string 转换为 entity.JSONArray
+func toJSONArray(items []string) entity.JSONArray {
+	if items == nil {
+		items = []string{}
+	}
+	result := make(entity.JSONArray, len(items))
+	for i, item := range items {
+		result[i] = item
+	}
+	return result
 }

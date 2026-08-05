@@ -90,7 +90,7 @@ func (p *defaultOptionsProvider) SkillOptions() []map[string]interface{} {
 	}
 	out := make([]map[string]interface{}, 0, len(opts))
 	for _, s := range opts {
-		if s == nil {
+		if s == nil || !s.Enabled {
 			continue
 		}
 		out = append(out, map[string]interface{}{

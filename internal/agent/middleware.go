@@ -46,26 +46,20 @@ type RetrievalConfig struct {
 
 type ToolFilterMiddleware struct {
 	*adk.TypedBaseChatModelAgentMiddleware[*schema.Message]
-	builtinTools []einotool.BaseTool            // 内置工具，始终保留
-	mcpTools     []einotool.BaseTool            // Agent 配置的 MCP 工具
-	skillTools   map[string][]einotool.BaseTool // slug → 该技能依赖的工具（初始隐藏）
+	builtinTools []einotool.BaseTool // 内置工具，始终保留
+	mcpTools     []einotool.BaseTool // Agent 配置的 MCP 工具
 	vectorizer   *mcp.ToolVectorizer
 	retrieval    RetrievalConfig
 }
 
 func NewToolFilterMiddleware(
 	builtinTools, mcpTools []einotool.BaseTool,
-	skillTools map[string][]einotool.BaseTool,
 	vectorizer *mcp.ToolVectorizer,
 	retrieval RetrievalConfig,
 ) *ToolFilterMiddleware {
-	if skillTools == nil {
-		skillTools = make(map[string][]einotool.BaseTool)
-	}
 	return &ToolFilterMiddleware{
 		builtinTools: builtinTools,
 		mcpTools:     mcpTools,
-		skillTools:   skillTools,
 		vectorizer:   vectorizer,
 		retrieval:    retrieval,
 	}
@@ -101,53 +95,13 @@ func (m *ToolFilterMiddleware) BeforeAgent(ctx context.Context, runCtx *adk.Chat
 	}
 	result = append(result, mcpTools...)
 
-	// 3. 门控释放：已激活的 Skill 释放其依赖工具
-	activated := ActivatedSkillsFrom(ctx)
-	for _, slug := range activated {
-		if tools, ok := m.skillTools[slug]; ok {
-			result = append(result, tools...)
-		}
-	}
-
 	nRunCtx := *runCtx
 	nRunCtx.Tools = result
 	return ctx, &nRunCtx, nil
 }
 
-// BeforeModelRewriteState 在每次模型调用前检查技能激活状态
-// 技能在工具执行期间被激活，通过 RunLocalValue 传递，此时注入其依赖工具
+// BeforeModelRewriteState 在每次模型调用前检查技能激活状态（暂无操作）
 func (m *ToolFilterMiddleware) BeforeModelRewriteState(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.Message], _ *adk.TypedModelContext[*schema.Message]) (context.Context, *adk.TypedChatModelAgentState[*schema.Message], error) {
-	// 从 agent 运行时上下文读取已激活的技能
-	val, ok, _ := adk.GetRunLocalValue(ctx, "activated_skills")
-	if !ok {
-		return ctx, state, nil
-	}
-	activated, _ := val.([]string)
-	if len(activated) == 0 {
-		return ctx, state, nil
-	}
-
-	// 收集已激活技能的依赖工具名（避免重复）
-	existing := make(map[string]bool, len(state.ToolInfos))
-	for _, info := range state.ToolInfos {
-		existing[info.Name] = true
-	}
-
-	for _, slug := range activated {
-		tools, ok := m.skillTools[slug]
-		if !ok {
-			continue
-		}
-		for _, t := range tools {
-			info, err := t.Info(ctx)
-			if err != nil || existing[info.Name] {
-				continue
-			}
-			state.ToolInfos = append(state.ToolInfos, info)
-			existing[info.Name] = true
-		}
-	}
-
 	return ctx, state, nil
 }
 

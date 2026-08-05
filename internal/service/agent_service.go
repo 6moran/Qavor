@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"Qavor/internal/agent"
@@ -24,35 +23,47 @@ func NewAgentService(agentRepo repository.AgentRepository) AgentService {
 }
 
 func (s *agentService) CreateAgent(req *request.CreateAgentRequest) (*dto.AgentResponse, error) {
-	slug := strings.TrimSpace(req.Slug)
-	if slug == "" {
-		// 前端不传 slug 时自动生成，冲突则追加随机后缀
-		slug = generateSlug(req.Name)
-		for {
-			existing, _ := s.agentRepo.GetBySlug(slug)
-			if existing == nil {
-				break
-			}
-			slug = fmt.Sprintf("%s-%d", slug, time.Now().UnixNano()%1000000)
-		}
-	} else {
+	// 生成唯一slug：agent-<纳秒时间戳>，冲突则重新生成
+	slug := generateSlug()
+	for {
 		existing, _ := s.agentRepo.GetBySlug(slug)
-		if existing != nil {
-			return nil, bizerrors.New(bizerrors.CodeResourceAlreadyExists, "Agent 已存在")
+		if existing == nil {
+			break
 		}
+		slug = generateSlug()
 	}
 
+	// 根据 BackendID 判断是否为子智能体
+	isSubagent := req.BackendID == "SubAgentBackend"
+
+	// 构建配置，所有默认值在此处设置并存入数据库
+	defaultTemperature := 0.7
 	cfg := agent.AgentConfig{
-		Name:          req.Name,
-		Description:   req.Description,
-		Instruction:   req.Instruction,
-		ProviderID:    req.ProviderID,
-		ModelName:     req.ModelName,
-		Tools:         req.Tools,
-		DisabledTools: req.DisabledTools,
-		MaxTokens:     req.MaxTokens,
-		Temperature:   req.Temperature,
-		Metadata:      req.Metadata,
+		Name:        req.Name,
+		Description: req.Description,
+		Instruction: req.Instruction,
+		ModelID:     req.ModelID,
+		// 模型参数默认值
+		Temperature: &defaultTemperature,
+		MaxTokens:   intPtr(4096),
+		// 工具相关默认值
+		Tools:                  []string{},
+		MCPServers:             []string{},
+		ToolRetrievalEnabled:   false,
+		ToolRetrievalThreshold: 60,
+		ToolRetrievalTopK:      10,
+		// 扩展相关默认值
+		Skills:     []string{},
+		Knowledges: []string{},
+		// 智能体配置默认值
+		MaxIteration: 20,
+	}
+
+	// 主智能体专属配置
+	if !isSubagent {
+		enabled := true
+		cfg.EnableGeneralSubAgent = &enabled
+		cfg.Subagents = []string{}
 	}
 
 	cfgJSON, err := json.Marshal(cfg)
@@ -70,20 +81,20 @@ func (s *agentService) CreateAgent(req *request.CreateAgentRequest) (*dto.AgentR
 		BackendID:   req.BackendID,
 		Name:        req.Name,
 		Description: req.Description,
-		Icon:        req.Icon,
 		ConfigJSON:  cfgMap,
-		IsDefault:   req.IsDefault,
-		IsSubagent:  req.IsSubagent,
-	}
-
-	if req.IsDefault {
-		if err := s.agentRepo.ClearDefault(); err != nil {
-			return nil, err
-		}
 	}
 
 	if err := s.agentRepo.Create(a); err != nil {
 		return nil, err
+	}
+
+	// 第一个主智能体自动设为默认
+	if !isSubagent {
+		defaultAgent, _ := s.agentRepo.GetDefault()
+		if defaultAgent == nil {
+			_ = s.agentRepo.SetDefault(slug)
+			a.IsDefault = true
+		}
 	}
 
 	return s.toResponse(a), nil
@@ -111,6 +122,7 @@ func (s *agentService) UpdateAgent(slug string, req *request.UpdateAgentRequest)
 
 	cfg := s.parseConfig(a.ConfigJSON)
 
+	// 更新基本信息
 	if req.Name != nil {
 		a.Name = *req.Name
 		cfg.Name = *req.Name
@@ -119,38 +131,19 @@ func (s *agentService) UpdateAgent(slug string, req *request.UpdateAgentRequest)
 		a.Description = *req.Description
 		cfg.Description = *req.Description
 	}
-	if req.Icon != nil {
-		a.Icon = *req.Icon
-	}
 	if req.Instruction != nil {
 		cfg.Instruction = *req.Instruction
 	}
-	if req.ProviderID != nil {
-		cfg.ProviderID = *req.ProviderID
-	}
-	if req.ModelName != nil {
-		cfg.ModelName = *req.ModelName
-	}
-	if req.Tools != nil {
-		cfg.Tools = req.Tools
-	}
-	if req.DisabledTools != nil {
-		cfg.DisabledTools = req.DisabledTools
-	}
-	if req.MaxTokens != nil {
-		cfg.MaxTokens = *req.MaxTokens
-	}
-	if req.Temperature != nil {
-		cfg.Temperature = *req.Temperature
-	}
-	if req.Metadata != nil {
-		cfg.Metadata = req.Metadata
+	if req.ModelID != nil {
+		cfg.ModelID = *req.ModelID
 	}
 
-	// 前端保存运行时配置：body { config_json: { context: {...} } }，拆出 context 合并进 AgentConfig
-	if ctx, ok := req.ConfigJSON["context"]; ok {
-		if ctxMap, ok := ctx.(map[string]interface{}); ok {
-			mergeContext(&cfg, ctxMap)
+	// 更新配置 JSON（用于运行时配置更新）
+	if req.ConfigJSON != nil {
+		if ctx, ok := req.ConfigJSON["context"]; ok {
+			if ctxMap, ok := ctx.(map[string]interface{}); ok {
+				mergeContext(&cfg, ctxMap)
+			}
 		}
 	}
 
@@ -244,6 +237,8 @@ func (s *agentService) GetDefaultAgentConfig() (*agent.AgentConfig, string, erro
 		return nil, "", bizerrors.New(bizerrors.CodeResourceNotFound, "未设置默认 Agent")
 	}
 	cfg := s.parseConfig(a.ConfigJSON)
+	cfg.IsSubagent = a.BackendID == "SubAgentBackend"
+	cfg.Slug = a.Slug
 	return &cfg, a.Slug, nil
 }
 
@@ -256,6 +251,8 @@ func (s *agentService) GetAgentConfig(slug string) (*agent.AgentConfig, error) {
 		return nil, bizerrors.New(bizerrors.CodeResourceNotFound, "Agent 不存在")
 	}
 	cfg := s.parseConfig(a.ConfigJSON)
+	cfg.IsSubagent = a.BackendID == "SubAgentBackend"
+	cfg.Slug = a.Slug
 	return &cfg, nil
 }
 
@@ -285,6 +282,12 @@ func (s *agentService) parseConfig(raw entity.JSON) agent.AgentConfig {
 func (s *agentService) toResponse(a *entity.Agent) *dto.AgentResponse {
 	cfg := s.parseConfig(a.ConfigJSON)
 
+	// 子智能体不暴露通用子智能体开关，避免前端误显示
+	isSubagent := a.BackendID == "SubAgentBackend"
+	if isSubagent {
+		cfg.EnableGeneralSubAgent = nil
+	}
+
 	// 前端 extractContext 读 config_json.context，故响应时包一层 context
 	cfgJSON, _ := json.Marshal(cfg)
 	var cfgMap entity.JSON
@@ -296,9 +299,8 @@ func (s *agentService) toResponse(a *entity.Agent) *dto.AgentResponse {
 		BackendID:         a.BackendID,
 		Name:              a.Name,
 		Description:       a.Description,
-		Icon:              a.Icon,
 		IsDefault:         a.IsDefault,
-		IsSubagent:        a.IsSubagent,
+		IsSubagent:        isSubagent,
 		Config:            cfg,
 		ConfigJSON:        configJSON,
 		ConfigurableItems: buildConfigurableItems(a.BackendID),
@@ -307,29 +309,9 @@ func (s *agentService) toResponse(a *entity.Agent) *dto.AgentResponse {
 	}
 }
 
-// generateSlug 由名称生成 slug：转小写、非字母数字字符压缩为连字符。
-// 若结果为空（如全中文名），回退为 agent-<纳秒时间戳>。
-func generateSlug(name string) string {
-	base := strings.ToLower(strings.TrimSpace(name))
-	var b strings.Builder
-	lastDash := false
-	for _, r := range base {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-			lastDash = false
-		default:
-			if !lastDash {
-				b.WriteByte('-')
-				lastDash = true
-			}
-		}
-	}
-	slug := strings.Trim(b.String(), "-")
-	if slug == "" {
-		slug = fmt.Sprintf("agent-%d", time.Now().UnixNano())
-	}
-	return slug
+// generateSlug 生成唯一slug：agent-<纳秒时间戳>。
+func generateSlug() string {
+	return fmt.Sprintf("agent-%d", time.Now().UnixNano())
 }
 
 // mergeContext 将前端保存的 context map 合并进 AgentConfig。
@@ -360,14 +342,6 @@ func mergeContext(cfg *agent.AgentConfig, ctx map[string]interface{}) {
 		}
 		return out, true
 	}
-	getFloat := func(key string) (float64, bool) {
-		v, ok := ctx[key]
-		if !ok {
-			return 0, false
-		}
-		f, ok := v.(float64)
-		return f, ok
-	}
 	getBool := func(key string) (bool, bool) {
 		v, ok := ctx[key]
 		if !ok {
@@ -393,15 +367,29 @@ func mergeContext(cfg *agent.AgentConfig, ctx map[string]interface{}) {
 		}
 		return 0, false
 	}
+	getFloat64 := func(key string) (float64, bool) {
+		v, ok := ctx[key]
+		if !ok {
+			return 0, false
+		}
+		switch n := v.(type) {
+		case float64:
+			return n, true
+		case int:
+			return float64(n), true
+		case json.Number:
+			if f, err := n.Float64(); err == nil {
+				return f, true
+			}
+		}
+		return 0, false
+	}
 
 	if v, ok := getString("instruction"); ok {
 		cfg.Instruction = v
 	}
-	if v, ok := getString("model_name"); ok {
-		cfg.ModelName = v
-	}
-	if v, ok := getString("provider_id"); ok {
-		cfg.ProviderID = v
+	if v, ok := getString("model_id"); ok {
+		cfg.ModelID = v
 	}
 	if v, ok := getStrings("tools"); ok {
 		cfg.Tools = v
@@ -418,15 +406,6 @@ func mergeContext(cfg *agent.AgentConfig, ctx map[string]interface{}) {
 	if v, ok := getStrings("subagents"); ok {
 		cfg.Subagents = v
 	}
-	if v, ok := getStrings("disabled_tools"); ok {
-		cfg.DisabledTools = v
-	}
-	if v, ok := getFloat("temperature"); ok {
-		cfg.Temperature = v
-	}
-	if v, ok := getInt("max_tokens"); ok {
-		cfg.MaxTokens = v
-	}
 	if v, ok := getBool("tool_retrieval_enabled"); ok {
 		cfg.ToolRetrievalEnabled = v
 	}
@@ -436,36 +415,41 @@ func mergeContext(cfg *agent.AgentConfig, ctx map[string]interface{}) {
 	if v, ok := getInt("tool_retrieval_top_k"); ok {
 		cfg.ToolRetrievalTopK = v
 	}
-	if v, ok := ctx["metadata"]; ok {
-		if metaMap, ok := v.(map[string]interface{}); ok {
-			meta := make(map[string]string, len(metaMap))
-			for k, val := range metaMap {
-				if s, ok := val.(string); ok {
-					meta[k] = s
-				}
-			}
-			if len(meta) > 0 {
-				cfg.Metadata = meta
-			}
-		}
+	if v, ok := getInt("max_iteration"); ok {
+		cfg.MaxIteration = v
+	}
+	if v, ok := getBool("enable_general_subagent"); ok {
+		cfg.EnableGeneralSubAgent = &v
+	}
+	if v, ok := getFloat64("temperature"); ok {
+		cfg.Temperature = &v
+	}
+	if v, ok := getInt("max_tokens"); ok {
+		cfg.MaxTokens = &v
 	}
 }
 
 // buildConfigurableItems 按 backend_id 返回前端可配置项 schema（不含动态 options）。
 // 动态 options（工具/MCP/技能/知识库/子智能体）由 controller 层注入。
+// 默认值已在创建时存入数据库，此处不设置 Default。
 func buildConfigurableItems(backendID string) map[string]dto.ConfigurableItem {
 	items := map[string]dto.ConfigurableItem{
-		"model_name":               {Name: "模型", Kind: "llm", Description: "选择智能体使用的模型"},
-		"instruction":              {Name: "系统提示词", Kind: "prompt", Description: "智能体的系统提示词"},
-		"temperature":              {Name: "温度", Kind: "number", Type: "number", Description: "控制生成随机性，0.0-1.0", Default: 0.7},
-		"max_tokens":               {Name: "最大 Token", Kind: "number", Type: "int", Description: "单次生成的最大 token 数", Default: 4096},
+		"model_id":                 {Name: "模型", Kind: "llm", Description: "选择智能体使用的模型"},
+		"temperature":              {Name: "温度", Kind: "number", Type: "float", Description: "控制生成随机性（0-2）"},
+		"max_tokens":               {Name: "最大Token数", Kind: "number", Type: "int", Description: "最大输出 token 数量"},
 		"tool_retrieval_enabled":   {Name: "工具检索", Kind: "bool", Type: "boolean", Description: "启用工具自动检索"},
-		"tool_retrieval_threshold": {Name: "工具检索阈值", Kind: "number", Type: "number", Description: "工具检索相似度阈值", Default: 0.6},
-		"tool_retrieval_top_k":     {Name: "工具检索 TopK", Kind: "number", Type: "int", Description: "检索返回的工具数量", Default: 10},
-		"tools":                    {Name: "工具", Kind: "tools", Type: "list", Description: "启用的内置工具"},
-		"mcp_servers":              {Name: "MCP 服务器", Kind: "mcps", Type: "list", Description: "连接的 MCP 服务器"},
-		"skills":                   {Name: "技能", Kind: "skills", Type: "list", Description: "启用的技能"},
+		"tool_retrieval_threshold": {Name: "工具检索阈值", Kind: "number", Type: "number", Description: "工具数量超过此值时启用检索"},
+		"tool_retrieval_top_k":     {Name: "工具检索 TopK", Kind: "number", Type: "int", Description: "检索返回的工具数量"},
+		"tools":                    {Name: "工具", Kind: "tools", Type: "list", Description: "关联的工具"},
+		"mcp_servers":              {Name: "MCP 服务器", Kind: "mcps", Type: "list", Description: "关联的 MCP 服务器"},
+		"skills":                   {Name: "技能", Kind: "skills", Type: "list", Description: "关联的技能"},
 		"knowledges":               {Name: "知识库", Kind: "knowledges", Type: "list", Description: "关联的知识库"},
+	}
+
+	// 主智能体专属配置项（子智能体为轻量 ChatModelAgent，不参与）
+	if backendID != "SubAgentBackend" {
+		items["max_iteration"] = dto.ConfigurableItem{Name: "最大迭代次数", Kind: "number", Type: "int", Description: "任务分解的最大推理轮次"}
+		items["enable_general_subagent"] = dto.ConfigurableItem{Name: "通用子智能体", Kind: "bool", Type: "boolean", Description: "允许主智能体自动创建通用子智能体执行任务"}
 	}
 
 	// 子智能体不能嵌套子智能体
@@ -474,4 +458,9 @@ func buildConfigurableItems(backendID string) map[string]dto.ConfigurableItem {
 	}
 
 	return items
+}
+
+// intPtr 返回 int 指针
+func intPtr(v int) *int {
+	return &v
 }

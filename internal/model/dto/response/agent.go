@@ -11,7 +11,6 @@ type AgentResponse struct {
 	Slug              string                      `json:"slug"`
 	Name              string                      `json:"name"`
 	Description       string                      `json:"description,omitempty"`
-	Icon              string                      `json:"icon,omitempty"`
 	IsDefault         bool                        `json:"is_default"`
 	BackendID         string                      `json:"backend_id,omitempty"`
 	IsSubagent        bool                        `json:"is_subagent"`

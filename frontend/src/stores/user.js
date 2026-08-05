@@ -72,10 +72,3 @@ export const useUserStore = defineStore('user', () => {
   }
 })
 
-export const checkAdminPermission = () => {
-  const userStore = useUserStore()
-  if (!userStore.isAdmin) throw new Error('需要管理员权限')
-  return true
-}
-
-export const checkSuperAdminPermission = () => useUserStore().isSuperAdmin

@@ -1,4 +1,4 @@
-import { apiAdminGet } from './base'
+import { apiGet } from './base'
 
 /**
  * Dashboard API模块
@@ -24,7 +24,7 @@ export const dashboardApi = {
     if (params.limit) queryParams.append('limit', params.limit)
     if (params.offset) queryParams.append('offset', params.offset)
 
-    return apiAdminGet(`/api/dashboard/conversations?${queryParams.toString()}`)
+    return apiGet(`/api/dashboard/conversations?${queryParams.toString()}`)
   },
 
   /**
@@ -33,7 +33,7 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - 对话详情
    */
   getConversationDetail: (threadId) => {
-    return apiAdminGet(`/api/dashboard/conversations/${threadId}`)
+    return apiGet(`/api/dashboard/conversations/${threadId}`)
   },
 
   /**
@@ -41,7 +41,7 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - 统计信息
    */
   getStats: () => {
-    return apiAdminGet('/api/dashboard/stats')
+    return apiGet('/api/dashboard/stats')
   },
 
   /**
@@ -56,7 +56,7 @@ export const dashboardApi = {
     if (params.rating && params.rating !== 'all') queryParams.append('rating', params.rating)
     if (params.agent_id) queryParams.append('agent_id', params.agent_id)
 
-    return apiAdminGet(`/api/dashboard/feedbacks?${queryParams.toString()}`)
+    return apiGet(`/api/dashboard/feedbacks?${queryParams.toString()}`)
   },
 
   // ========== 新增并行API接口 ==========
@@ -66,7 +66,7 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - 用户活跃度统计信息
    */
   getUserStats: () => {
-    return apiAdminGet('/api/dashboard/stats/users')
+    return apiGet('/api/dashboard/stats/users')
   },
 
   /**
@@ -74,7 +74,7 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - 工具调用统计信息
    */
   getToolStats: () => {
-    return apiAdminGet('/api/dashboard/stats/tools')
+    return apiGet('/api/dashboard/stats/tools')
   },
 
   /**
@@ -82,7 +82,7 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - 知识库统计信息
    */
   getKnowledgeStats: () => {
-    return apiAdminGet('/api/dashboard/stats/knowledge')
+    return apiGet('/api/dashboard/stats/knowledge')
   },
 
   /**
@@ -90,7 +90,7 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - AI智能体分析信息
    */
   getAgentStats: () => {
-    return apiAdminGet('/api/dashboard/stats/agents')
+    return apiGet('/api/dashboard/stats/agents')
   },
 
   /**
@@ -100,11 +100,11 @@ export const dashboardApi = {
   getAllStats: async () => {
     try {
       const [basicStats, userStats, toolStats, knowledgeStats, agentStats] = await Promise.all([
-        apiAdminGet('/api/dashboard/stats'),
-        apiAdminGet('/api/dashboard/stats/users'),
-        apiAdminGet('/api/dashboard/stats/tools'),
-        apiAdminGet('/api/dashboard/stats/knowledge'),
-        apiAdminGet('/api/dashboard/stats/agents')
+        apiGet('/api/dashboard/stats'),
+        apiGet('/api/dashboard/stats/users'),
+        apiGet('/api/dashboard/stats/tools'),
+        apiGet('/api/dashboard/stats/knowledge'),
+        apiGet('/api/dashboard/stats/agents')
       ])
 
       return {
@@ -127,6 +127,6 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - 时间序列统计数据
    */
   getCallTimeseries: (type = 'models', timeRange = '14days') => {
-    return apiAdminGet(`/api/dashboard/stats/calls/timeseries?type=${type}&time_range=${timeRange}`)
+    return apiGet(`/api/dashboard/stats/calls/timeseries?type=${type}&time_range=${timeRange}`)
   }
 }
