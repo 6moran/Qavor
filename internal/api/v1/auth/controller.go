@@ -31,7 +31,7 @@ func (ctrl *Controller) Logout(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("登出失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -69,7 +69,7 @@ func (ctrl *Controller) Login(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("登录失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

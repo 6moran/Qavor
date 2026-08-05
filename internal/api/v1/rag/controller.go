@@ -47,7 +47,7 @@ func (ctrl *Controller) Answer(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("RAG 问答失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

@@ -39,7 +39,7 @@ func (ctrl *Controller) CreateConversation(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("创建会话失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -63,7 +63,7 @@ func (ctrl *Controller) GetConversation(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取会话失败", zap.Uint64("id", id), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -94,7 +94,7 @@ func (ctrl *Controller) UpdateConversation(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新会话失败", zap.Uint64("id", id), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -117,7 +117,7 @@ func (ctrl *Controller) DeleteConversation(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("删除会话失败", zap.Uint64("id", id), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -141,7 +141,7 @@ func (ctrl *Controller) ListConversations(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取会话列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -165,7 +165,7 @@ func (ctrl *Controller) CloseConversation(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("关闭会话失败", zap.Uint64("id", id), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -189,7 +189,7 @@ func (ctrl *Controller) ArchiveConversation(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("归档会话失败", zap.Uint64("id", id), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

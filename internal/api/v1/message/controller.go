@@ -47,7 +47,7 @@ func (ctrl *Controller) CreateMessage(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("创建消息失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -78,7 +78,7 @@ func (ctrl *Controller) GetMessage(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取消息失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -116,7 +116,7 @@ func (ctrl *Controller) UpdateMessage(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新消息失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -146,7 +146,7 @@ func (ctrl *Controller) DeleteMessage(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("删除消息失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -177,7 +177,7 @@ func (ctrl *Controller) ListMessages(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取消息列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -201,7 +201,7 @@ func (ctrl *Controller) GetLatestMessage(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取最新消息失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

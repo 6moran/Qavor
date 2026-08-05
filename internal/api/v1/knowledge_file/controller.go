@@ -37,7 +37,7 @@ func (ctrl *Controller) CreateFolder(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("创建文件夹失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -58,7 +58,7 @@ func (ctrl *Controller) Upload(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("上传文件失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -79,7 +79,7 @@ func (ctrl *Controller) List(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取文件列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -100,7 +100,7 @@ func (ctrl *Controller) Search(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("搜索文件失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -116,7 +116,7 @@ func (ctrl *Controller) Get(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取文件详情失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -132,7 +132,7 @@ func (ctrl *Controller) Preview(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("预览文件失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -148,7 +148,7 @@ func (ctrl *Controller) Download(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("下载文件失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -179,7 +179,7 @@ func (ctrl *Controller) BatchDelete(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("批量删除文件失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -194,7 +194,7 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("删除文件失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -210,7 +210,7 @@ func (ctrl *Controller) RetryParse(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("重试解析失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -234,7 +234,7 @@ func (ctrl *Controller) IndexOne(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("手动入库失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -255,7 +255,7 @@ func (ctrl *Controller) IndexMany(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("批量入库失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -278,7 +278,7 @@ func (ctrl *Controller) IndexPending(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("批量入库待处理文件失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

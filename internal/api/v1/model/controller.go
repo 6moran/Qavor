@@ -49,7 +49,7 @@ func (ctrl *Controller) CreateModel(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("创建模型失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -81,7 +81,7 @@ func (ctrl *Controller) GetModel(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取模型失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -121,7 +121,7 @@ func (ctrl *Controller) UpdateModel(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新模型失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -152,7 +152,7 @@ func (ctrl *Controller) DeleteModel(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("删除模型失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -187,7 +187,7 @@ func (ctrl *Controller) ListModels(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取模型列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -276,7 +276,7 @@ func (ctrl *Controller) TestConnection(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("测试连接失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

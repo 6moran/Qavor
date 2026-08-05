@@ -49,7 +49,7 @@ func (ctrl *Controller) ListSkills(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取Skill列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -72,7 +72,7 @@ func (ctrl *Controller) GetSkill(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取Skill详情失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -98,7 +98,7 @@ func (ctrl *Controller) CreateSkill(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("创建Skill失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -121,7 +121,7 @@ func (ctrl *Controller) UpdateSkill(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新Skill失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -138,7 +138,7 @@ func (ctrl *Controller) DeleteSkill(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("删除Skill失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -161,7 +161,7 @@ func (ctrl *Controller) BatchCreateSkills(c *gin.Context) {
 				response.BizError(c, err)
 			} else {
 				logger.Error("批量创建Skill失败", zap.Error(err))
-				response.InternalError(c, "服务器内部错误")
+				response.InternalServerError(c)
 			}
 			return
 		}
@@ -187,7 +187,7 @@ func (ctrl *Controller) BatchDeleteSkills(c *gin.Context) {
 				response.BizError(c, err)
 			} else {
 				logger.Error("批量删除Skill失败", zap.Error(err))
-				response.InternalError(c, "服务器内部错误")
+				response.InternalServerError(c)
 			}
 			return
 		}
@@ -205,7 +205,7 @@ func (ctrl *Controller) GetSkillOptions(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取Skill选项失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -221,7 +221,7 @@ func (ctrl *Controller) GetSkillTree(c *gin.Context) {
 	tree, err := buildFileTree(dir, dir)
 	if err != nil {
 		logger.Error("获取Skill目录结构失败", zap.String("slug", slug), zap.Error(err))
-		response.InternalError(c, "读取目录失败")
+		response.InternalServerError(c)
 		return
 	}
 
@@ -245,7 +245,7 @@ func (ctrl *Controller) DeleteSkillsBatch(c *gin.Context) {
 				response.BizError(c, err)
 			} else {
 				logger.Error("批量删除Skill失败", zap.Error(err))
-				response.InternalError(c, "服务器内部错误")
+				response.InternalServerError(c)
 			}
 			return
 		}
@@ -265,7 +265,7 @@ func (ctrl *Controller) PrepareSkillUpload(c *gin.Context) {
 	f, err := file.Open()
 	if err != nil {
 		logger.Error("打开文件失败", zap.Error(err))
-		response.InternalError(c, "打开文件失败")
+		response.InternalServerError(c)
 		return
 	}
 	defer f.Close()
@@ -273,7 +273,7 @@ func (ctrl *Controller) PrepareSkillUpload(c *gin.Context) {
 	data := make([]byte, file.Size)
 	if _, err := f.Read(data); err != nil {
 		logger.Error("读取文件失败", zap.Error(err))
-		response.InternalError(c, "读取文件失败")
+		response.InternalServerError(c)
 		return
 	}
 
@@ -284,7 +284,7 @@ func (ctrl *Controller) PrepareSkillUpload(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("上传Skill失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -303,7 +303,7 @@ func (ctrl *Controller) GetSkillDependencyOptions(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取Skill依赖选项失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -320,7 +320,7 @@ func (ctrl *Controller) ListBuiltinSkills(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("列出内置Skills失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -336,7 +336,7 @@ func (ctrl *Controller) SyncBuiltinSkills(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("同步内置Skills失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -372,13 +372,13 @@ func (ctrl *Controller) CreateSkillFile(c *gin.Context) {
 
 	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
 		logger.Error("创建目录失败", zap.Error(err))
-		response.InternalError(c, "创建目录失败")
+		response.InternalServerError(c)
 		return
 	}
 
 	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
 		logger.Error("写入文件失败", zap.Error(err))
-		response.InternalError(c, "写入文件失败")
+		response.InternalServerError(c)
 		return
 	}
 
@@ -404,7 +404,7 @@ func (ctrl *Controller) DeleteSkillFile(c *gin.Context) {
 
 	if err := os.Remove(absPath); err != nil {
 		logger.Error("删除文件失败", zap.Error(err))
-		response.InternalError(c, "删除文件失败")
+		response.InternalServerError(c)
 		return
 	}
 
@@ -431,7 +431,7 @@ func (ctrl *Controller) UpdateSkillDependencies(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取Skill失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -449,7 +449,7 @@ func (ctrl *Controller) UpdateSkillDependencies(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新Skill依赖失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -492,7 +492,7 @@ func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取Skill失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -509,7 +509,7 @@ func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新Skill启用状态失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -527,7 +527,7 @@ func (ctrl *Controller) ListAccessibleSkills(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("列出可访问Skills失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -561,7 +561,7 @@ func (ctrl *Controller) ListRemoteSkills(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("列出远程Skills失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -587,7 +587,7 @@ func (ctrl *Controller) PrepareRemoteSkills(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("准备远程Skills失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -616,7 +616,7 @@ func (ctrl *Controller) GetSkillFile(c *gin.Context) {
 	data, err := os.ReadFile(absPath)
 	if err != nil {
 		logger.Error("读取文件失败", zap.Error(err))
-		response.InternalError(c, "读取文件失败")
+		response.InternalServerError(c)
 		return
 	}
 
@@ -654,13 +654,13 @@ func (ctrl *Controller) UpdateSkillFile(c *gin.Context) {
 
 	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
 		logger.Error("创建目录失败", zap.Error(err))
-		response.InternalError(c, "创建目录失败")
+		response.InternalServerError(c)
 		return
 	}
 
 	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
 		logger.Error("写入文件失败", zap.Error(err))
-		response.InternalError(c, "写入文件失败")
+		response.InternalServerError(c)
 		return
 	}
 
@@ -742,7 +742,7 @@ func (ctrl *Controller) ImportSkill(c *gin.Context) {
 	f, err := file.Open()
 	if err != nil {
 		logger.Error("打开文件失败", zap.Error(err))
-		response.InternalError(c, "打开文件失败")
+		response.InternalServerError(c)
 		return
 	}
 	defer f.Close()
@@ -750,7 +750,7 @@ func (ctrl *Controller) ImportSkill(c *gin.Context) {
 	data := make([]byte, file.Size)
 	if _, err := f.Read(data); err != nil {
 		logger.Error("读取文件失败", zap.Error(err))
-		response.InternalError(c, "读取文件失败")
+		response.InternalServerError(c)
 		return
 	}
 
@@ -760,7 +760,7 @@ func (ctrl *Controller) ImportSkill(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("导入Skill失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -779,7 +779,7 @@ func (ctrl *Controller) ExportSkill(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("导出Skill失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

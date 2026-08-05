@@ -55,7 +55,7 @@ func (ctrl *Controller) Chat(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("聊天失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
