@@ -398,8 +398,7 @@ export const useDatabaseStore = defineStore('database', () => {
       if (data?.stats) {
         database.value = {
           ...database.value,
-          stats: data.stats,
-          row_count: data.stats.row_count
+          stats: data.stats
         }
       }
       ensureAutoRefreshForProcessing(items, data?.stats)
