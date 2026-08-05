@@ -34,7 +34,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("创建知识库失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -55,7 +55,7 @@ func (ctrl *Controller) List(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取知识库列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -71,7 +71,7 @@ func (ctrl *Controller) Get(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取知识库详情失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -92,7 +92,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新知识库失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -107,7 +107,7 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("删除知识库失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

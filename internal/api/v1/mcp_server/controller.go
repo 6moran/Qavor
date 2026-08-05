@@ -38,7 +38,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("创建MCP服务器失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -57,7 +57,7 @@ func (ctrl *Controller) Get(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取MCP服务器失败", zap.String("name", name), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -82,7 +82,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新MCP服务器失败", zap.String("name", name), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -100,7 +100,7 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("删除MCP服务器失败", zap.String("name", name), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -123,7 +123,7 @@ func (ctrl *Controller) List(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取MCP服务器列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -141,7 +141,7 @@ func (ctrl *Controller) Enable(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("启用MCP服务器失败", zap.String("name", name), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -159,7 +159,7 @@ func (ctrl *Controller) Disable(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("停用MCP服务器失败", zap.String("name", name), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -177,7 +177,7 @@ func (ctrl *Controller) Test(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("测试MCP服务器连接失败", zap.String("name", name), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -200,7 +200,7 @@ func (ctrl *Controller) TestConfig(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("测试MCP配置失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -219,7 +219,7 @@ func (ctrl *Controller) GetTools(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取MCP服务器工具列表失败", zap.String("name", name), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -238,7 +238,7 @@ func (ctrl *Controller) RefreshTools(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("刷新MCP服务器工具列表失败", zap.String("name", name), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -257,7 +257,7 @@ func (ctrl *Controller) ToggleTool(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("切换工具状态失败", zap.String("server", serverName), zap.String("tool", toolName), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -53,15 +54,16 @@ func ErrorWithData(c *gin.Context, code int, message string, data interface{}) {
 
 // BizError 业务错误响应
 func BizError(c *gin.Context, err error) {
-	if bizErr, ok := err.(*errors.BizError); ok {
-		c.JSON(http.StatusOK, Response{
-			Code:    bizErr.Code,
-			Message: bizErr.Message,
-		})
+	bizErr, ok := err.(*errors.BizError)
+	if !ok {
+		logger.Error("Error 断言失败，非业务错误")
+		InternalServerError(c)
 		return
 	}
-	// 其他错误类型，作为内部错误处理
-	InternalError(c, errors.GetMessage(errors.CodeInternalError))
+	c.JSON(http.StatusOK, Response{
+		Code:    bizErr.Code,
+		Message: bizErr.Message,
+	})
 }
 
 // BadRequest 400 错误
@@ -101,6 +103,14 @@ func InternalError(c *gin.Context, message string) {
 	c.JSON(http.StatusInternalServerError, Response{
 		Code:    errors.CodeInternalError,
 		Message: message,
+	})
+}
+
+// InternalServerError 500 服务器内部错误（无参版本）
+func InternalServerError(c *gin.Context) {
+	c.JSON(http.StatusInternalServerError, Response{
+		Code:    errors.CodeInternalError,
+		Message: errors.GetMessage(errors.CodeInternalError),
 	})
 }
 

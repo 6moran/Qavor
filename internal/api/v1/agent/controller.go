@@ -80,7 +80,7 @@ func (ctrl *Controller) Create(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("创建智能体失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -99,7 +99,7 @@ func (ctrl *Controller) Get(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取智能体失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -124,7 +124,7 @@ func (ctrl *Controller) Update(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("更新智能体失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -142,7 +142,7 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("删除智能体失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -165,7 +165,7 @@ func (ctrl *Controller) List(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取智能体列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -192,7 +192,7 @@ func (ctrl *Controller) SetDefault(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("设置默认智能体失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -209,7 +209,7 @@ func (ctrl *Controller) GetDefault(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取默认智能体失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

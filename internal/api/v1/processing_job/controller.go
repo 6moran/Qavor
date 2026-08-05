@@ -26,7 +26,7 @@ func (ctrl *Controller) List(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取处理任务列表失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -41,7 +41,7 @@ func (ctrl *Controller) Get(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("获取处理任务失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}
@@ -56,7 +56,7 @@ func (ctrl *Controller) Retry(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("重试处理任务失败", zap.Error(err))
-			response.InternalError(c, "服务器内部错误")
+			response.InternalServerError(c)
 		}
 		return
 	}

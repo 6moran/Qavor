@@ -28,7 +28,25 @@ func (s *knowledgeBaseService) Get(kbID string) (*response.KnowledgeBaseResponse
 	if base == nil {
 		return nil, knowledgeBaseNotFoundError()
 	}
-	return knowledgeBaseResponse(base), nil
+	resp := knowledgeBaseResponse(base)
+
+	// 获取统计信息
+	statsMap, err := s.repo.GetStatsByKBIDs([]string{kbID})
+	if err == nil {
+		if stats, ok := statsMap[kbID]; ok {
+			resp.Stats = &response.KnowledgeBaseStats{
+				FileCount:         stats.FileCount,
+				ChunkCount:        stats.ChunkCount,
+				TokenCount:        stats.TokenCount,
+				TotalSize:         stats.TotalSize,
+				ProcessingCount:   stats.ProcessingCount,
+				PendingParseCount: stats.PendingParseCount,
+				PendingIndexCount: stats.PendingIndexCount,
+			}
+		}
+	}
+
+	return resp, nil
 }
 
 // List 分页获取知识库列表
@@ -51,10 +69,30 @@ func (s *knowledgeBaseService) List(req *request.KnowledgeBaseListRequest) (*res
 	if err != nil {
 		return nil, err
 	}
+
+	// 批量获取统计信息
+	kbIDs := make([]string, 0, len(bases))
+	for _, base := range bases {
+		kbIDs = append(kbIDs, base.KBID)
+	}
+	statsMap, _ := s.repo.GetStatsByKBIDs(kbIDs)
+
 	// 转换为响应格式
 	items := make([]response.KnowledgeBaseResponse, 0, len(bases))
 	for _, base := range bases {
-		items = append(items, *knowledgeBaseResponse(base))
+		resp := knowledgeBaseResponse(base)
+		if stats, ok := statsMap[base.KBID]; ok {
+			resp.Stats = &response.KnowledgeBaseStats{
+				FileCount:         stats.FileCount,
+				ChunkCount:        stats.ChunkCount,
+				TokenCount:        stats.TokenCount,
+				TotalSize:         stats.TotalSize,
+				ProcessingCount:   stats.ProcessingCount,
+				PendingParseCount: stats.PendingParseCount,
+				PendingIndexCount: stats.PendingIndexCount,
+			}
+		}
+		items = append(items, *resp)
 	}
 	return &response.KnowledgeBaseListResponse{Total: total, Items: items}, nil
 }

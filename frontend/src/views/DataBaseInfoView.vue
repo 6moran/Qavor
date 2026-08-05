@@ -387,7 +387,7 @@ const databaseSubtitle = computed(() => {
   const description = database.value.description?.trim()
   if (description) return description
 
-  return `知识库 · ${database.value.row_count || 0} 文件`
+  return `知识库 · ${database.value.stats?.file_count || 0} 文件`
 })
 
 const tabs = computed(() => {
