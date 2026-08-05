@@ -42,6 +42,14 @@ func NewDefault(code int) *BizError {
 	}
 }
 
+// IsBizError 判断错误是否是业务错误
+func IsBizError(err error) bool {
+	if _, ok := err.(*BizError); ok {
+		return true
+	}
+	return false
+}
+
 // 预定义常用错误
 var (
 	ErrBadRequest         = NewDefault(CodeBadRequest)

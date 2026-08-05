@@ -2,8 +2,10 @@ package response
 
 import (
 	"math"
+	"net/http"
 
 	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 
 	"github.com/gin-gonic/gin"
 )
@@ -52,40 +54,64 @@ func ErrorWithData(c *gin.Context, code int, message string, data interface{}) {
 
 // BizError 业务错误响应
 func BizError(c *gin.Context, err error) {
-	if bizErr, ok := err.(*errors.BizError); ok {
-		c.JSON(200, Response{
-			Code:    bizErr.Code,
-			Message: bizErr.Message,
-		})
+	bizErr, ok := err.(*errors.BizError)
+	if !ok {
+		logger.Error("Error 断言失败，非业务错误")
+		InternalServerError(c)
 		return
 	}
-	// 其他错误类型
-	Error(c, errors.CodeInternalError, errors.GetMessage(errors.CodeInternalError))
+	c.JSON(http.StatusOK, Response{
+		Code:    bizErr.Code,
+		Message: bizErr.Message,
+	})
 }
 
 // BadRequest 400 错误
 func BadRequest(c *gin.Context, message string) {
-	Error(c, errors.CodeBadRequest, message)
+	c.JSON(http.StatusBadRequest, Response{
+		Code:    errors.CodeBadRequest,
+		Message: message,
+	})
 }
 
 // Unauthorized 401 错误
 func Unauthorized(c *gin.Context, message string) {
-	Error(c, errors.CodeUnauthorized, message)
+	c.JSON(http.StatusUnauthorized, Response{
+		Code:    errors.CodeUnauthorized,
+		Message: message,
+	})
 }
 
 // Forbidden 403 错误
 func Forbidden(c *gin.Context, message string) {
-	Error(c, errors.CodeForbidden, message)
+	c.JSON(http.StatusForbidden, Response{
+		Code:    errors.CodeForbidden,
+		Message: message,
+	})
 }
 
 // NotFound 404 错误
 func NotFound(c *gin.Context, message string) {
-	Error(c, errors.CodeNotFound, message)
+	c.JSON(http.StatusNotFound, Response{
+		Code:    errors.CodeNotFound,
+		Message: message,
+	})
 }
 
 // InternalError 500 错误
 func InternalError(c *gin.Context, message string) {
-	Error(c, errors.CodeInternalError, message)
+	c.JSON(http.StatusInternalServerError, Response{
+		Code:    errors.CodeInternalError,
+		Message: message,
+	})
+}
+
+// InternalServerError 500 服务器内部错误（无参版本）
+func InternalServerError(c *gin.Context) {
+	c.JSON(http.StatusInternalServerError, Response{
+		Code:    errors.CodeInternalError,
+		Message: errors.GetMessage(errors.CodeInternalError),
+	})
 }
 
 // PageRequest 分页请求参数

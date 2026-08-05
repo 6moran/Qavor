@@ -134,4 +134,4 @@ rag:
   top_k: 5
   request_timeout_seconds: 60
   embedding:
-    batch_size: 32
+    batch_size: 15

@@ -27,7 +27,7 @@ func Recovery() gin.HandlerFunc {
 				)
 
 				// 响应客户端
-				response.InternalError(c, "服务器内部错误")
+				response.InternalServerError(c)
 				c.Abort()
 			}
 		}()
@@ -51,7 +51,7 @@ func RecoveryWithLogger(customLogger any) gin.HandlerFunc {
 					)
 				}
 
-				response.InternalError(c, "服务器内部错误")
+				response.InternalServerError(c)
 				c.Abort()
 			}
 		}()

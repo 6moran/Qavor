@@ -4,9 +4,12 @@ package knowledge_base
 import (
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller 负责知识库请求参数绑定、业务服务调用和统一响应转换
@@ -26,7 +29,13 @@ func (ctrl *Controller) Create(c *gin.Context) {
 	}
 	result, err := ctrl.service.Create(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，创建知识库失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("创建知识库失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 	response.Success(c, result)
@@ -41,7 +50,13 @@ func (ctrl *Controller) List(c *gin.Context) {
 	}
 	result, err := ctrl.service.List(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取知识库列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取知识库列表失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 	response.Success(c, result)
@@ -51,7 +66,13 @@ func (ctrl *Controller) List(c *gin.Context) {
 func (ctrl *Controller) Get(c *gin.Context) {
 	result, err := ctrl.service.Get(c.Param("kb_id"))
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取知识库详情失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取知识库详情失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 	response.Success(c, result)
@@ -66,7 +87,13 @@ func (ctrl *Controller) Update(c *gin.Context) {
 	}
 	result, err := ctrl.service.Update(c.Param("kb_id"), &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，更新知识库失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("更新知识库失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 	response.Success(c, result)
@@ -75,7 +102,13 @@ func (ctrl *Controller) Update(c *gin.Context) {
 // Delete 根据 kb_id 删除知识库记录
 func (ctrl *Controller) Delete(c *gin.Context) {
 	if err := ctrl.service.Delete(c.Param("kb_id")); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，删除知识库失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("删除知识库失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 	response.Success(c, nil)

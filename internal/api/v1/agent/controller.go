@@ -4,9 +4,12 @@ import (
 	"Qavor/internal/model/dto/request"
 	dto "Qavor/internal/model/dto/response"
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // OptionsProvider 提供 configurable_items 动态 options 的数据源接口。
@@ -72,7 +75,13 @@ func (ctrl *Controller) Create(c *gin.Context) {
 
 	resp, err := ctrl.agentSvc.CreateAgent(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，创建智能体失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("创建智能体失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -85,7 +94,13 @@ func (ctrl *Controller) Get(c *gin.Context) {
 	slug := c.Param("slug")
 	resp, err := ctrl.agentSvc.GetAgent(slug)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取智能体失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取智能体失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -104,7 +119,13 @@ func (ctrl *Controller) Update(c *gin.Context) {
 
 	resp, err := ctrl.agentSvc.UpdateAgent(slug, &req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，更新智能体失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("更新智能体失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -116,7 +137,13 @@ func (ctrl *Controller) Update(c *gin.Context) {
 func (ctrl *Controller) Delete(c *gin.Context) {
 	slug := c.Param("slug")
 	if err := ctrl.agentSvc.DeleteAgent(slug); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，删除智能体失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("删除智能体失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -133,7 +160,13 @@ func (ctrl *Controller) List(c *gin.Context) {
 
 	resp, err := ctrl.agentSvc.ListAgents(&req)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取智能体列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取智能体列表失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -154,7 +187,13 @@ func (ctrl *Controller) List(c *gin.Context) {
 func (ctrl *Controller) SetDefault(c *gin.Context) {
 	slug := c.Param("slug")
 	if err := ctrl.agentSvc.SetDefault(slug); err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，设置默认智能体失败", zap.String("slug", slug), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("设置默认智能体失败", zap.String("slug", slug), zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
@@ -165,7 +204,13 @@ func (ctrl *Controller) SetDefault(c *gin.Context) {
 func (ctrl *Controller) GetDefault(c *gin.Context) {
 	resp, err := ctrl.agentSvc.GetDefaultAgent()
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取默认智能体失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取默认智能体失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 

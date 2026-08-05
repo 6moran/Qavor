@@ -2,9 +2,12 @@ package chat
 
 import (
 	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Controller 聊天控制器
@@ -47,7 +50,13 @@ func (ctrl *Controller) Chat(c *gin.Context) {
 	// 调用 ChatService
 	result, err := ctrl.chatSvc.Chat(c.Request.Context(), req.ConversationID, req.AgentSlug, req.Message)
 	if err != nil {
-		response.BizError(c, err)
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，聊天失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("聊天失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
 		return
 	}
 
