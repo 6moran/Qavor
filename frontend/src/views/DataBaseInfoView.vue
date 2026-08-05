@@ -323,7 +323,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDatabaseStore } from '@/stores/database'
 import { useTaskerStore } from '@/stores/tasker'
@@ -734,6 +734,10 @@ const deleteDatabase = () => {
 
 onMounted(() => {
   loadChunkPresetOptions()
+})
+
+onUnmounted(() => {
+  store.resetDatabaseState()
 })
 </script>
 
