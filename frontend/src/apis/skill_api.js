@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete, apiAdminGet, apiAdminPost } from './base'
+import { apiGet, apiPost, apiPut, apiDelete } from './base'
 
 const BASE_URL = '/api/v1/system/skills'
 const USER_BASE_URL = '/api/v1/skills'
@@ -41,29 +41,12 @@ export const getSkillDependencyOptions = async (slug) => {
   return apiGet(`${BASE_URL}/dependency-options${query}`)
 }
 
-export const listBuiltinSkills = async () => {
-  // 后端响应为 { code, data: { skills: [...] } }
-  const result = await apiAdminGet(`${BASE_URL}/builtin`)
-  if (result?.data?.skills) {
-    return { success: result.code === 0, data: result.data.skills, message: result.message }
-  }
-  return { success: result?.code === 0, data: result?.data || [], message: result?.message }
-}
-
-export const syncBuiltinSkills = async () => {
-  return apiAdminPost(`${BASE_URL}/builtin/sync`)
-}
-
 export const getSkillTree = async (slug) => {
   return apiGet(`${BASE_URL}/${encodeURIComponent(slug)}/tree`)
 }
 
 export const getSkillFile = async (slug, path) => {
   return apiGet(`${BASE_URL}/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`)
-}
-
-export const createSkillFile = async (slug, payload) => {
-  return apiPost(`${BASE_URL}/${encodeURIComponent(slug)}/file`, payload)
 }
 
 export const updateSkillFile = async (slug, payload) => {
@@ -74,18 +57,8 @@ export const updateSkillDependencies = async (slug, payload) => {
   return apiPut(`${BASE_URL}/${encodeURIComponent(slug)}/dependencies`, payload)
 }
 
-export const updateSkillShareConfig = async (slug, shareConfig) => {
-  return apiPut(`${BASE_URL}/${encodeURIComponent(slug)}/share-config`, {
-    share_config: shareConfig
-  })
-}
-
 export const updateSkillEnabled = async (slug, enabled) => {
   return apiPut(`${BASE_URL}/${encodeURIComponent(slug)}/enabled`, { enabled })
-}
-
-export const deleteSkillFile = async (slug, path) => {
-  return apiDelete(`${BASE_URL}/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`)
 }
 
 export const exportSkill = async (slug) => {
@@ -107,16 +80,11 @@ export const skillApi = {
   listRemoteSkills,
   prepareRemoteSkills,
   getSkillDependencyOptions,
-  listBuiltinSkills,
-  syncBuiltinSkills,
   getSkillTree,
   getSkillFile,
-  createSkillFile,
   updateSkillFile,
   updateSkillDependencies,
-  updateSkillShareConfig,
   updateSkillEnabled,
-  deleteSkillFile,
   exportSkill,
   deleteSkill,
   deleteSkillsBatch

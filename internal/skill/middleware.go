@@ -2,71 +2,129 @@ package skill
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
 
 	"Qavor/pkg/logger"
 )
 
-// SkillsMiddleware Skill 中间件，拦截 read_file 调用，检测 SKILL.md 读取，触发激活
+// SkillsMiddleware Skill 中间件，扫描消息历史检测 SKILL.md 读取，触发激活
+//
+// 实现 eino ChatModelAgentMiddleware 接口，在 BeforeModelRewriteState 钩子中：
+// 1. 扫描 Assistant 消息中的 read_file 工具调用
+// 2. 检测 file_path 是否指向 skills/<slug>/SKILL.md
+// 3. 激活对应 skill，写入 run-local，供 ToolFilterMiddleware 释放依赖工具
 type SkillsMiddleware struct {
+	*adk.TypedBaseChatModelAgentMiddleware[*schema.Message]
 	loader     SkillLoader
-	resolver   SkillResolver
 	activation *ActivationState
 }
 
 // NewSkillsMiddleware 创建 SkillsMiddleware
-func NewSkillsMiddleware(loader SkillLoader, resolver SkillResolver, activation *ActivationState) *SkillsMiddleware {
+func NewSkillsMiddleware(loader SkillLoader, activation *ActivationState) *SkillsMiddleware {
 	return &SkillsMiddleware{
 		loader:     loader,
-		resolver:   resolver,
 		activation: activation,
 	}
 }
 
-// ProcessToolCall 处理工具调用，检测 SKILL.md 读取
-func (m *SkillsMiddleware) ProcessToolCall(
-	ctx context.Context,
-	toolName string,
-	args map[string]any,
-	result string,
-) (string, error) {
-	if toolName != "read_file" {
-		return result, nil
-	}
-
-	filePath, ok := args["file_path"].(string)
-	if !ok || !strings.HasSuffix(filePath, "/SKILL.md") {
-		return result, nil
-	}
-
-	slug := m.extractSkillSlug(filePath)
-	if slug == "" {
-		return result, nil
-	}
-
-	if !m.isVisibleSlug(slug) {
-		return result, nil
-	}
-
-	m.activation.Activate(slug)
-
-	// 将已激活的技能 slug 注入 agent 运行时上下文
-	// ToolFilterMiddleware.BeforeModelRewriteState 会读取并释放对应工具
-	activated := m.activation.GetActivated()
-	_ = adk.SetRunLocalValue(ctx, "activated_skills", activated)
-
-	if logger.Initialized() {
-		logger.Info("Skill 已激活", zap.String("slug", slug))
-	}
-
-	return result, nil
+// GetLoader 获取 SkillLoader
+func (m *SkillsMiddleware) GetLoader() SkillLoader {
+	return m.loader
 }
 
-// BuildPrompt 构建 Skill 提示词
+// BeforeAgent 初始化基础中间件
+func (m *SkillsMiddleware) BeforeAgent(ctx context.Context, runCtx *adk.ChatModelAgentContext[*schema.Message]) (context.Context, *adk.ChatModelAgentContext[*schema.Message], error) {
+	return ctx, runCtx, nil
+}
+
+// AfterAgent 无需处理
+func (m *SkillsMiddleware) AfterAgent(ctx context.Context, state *adk.TypedChatModelAgentState[*schema.Message]) (context.Context, error) {
+	return ctx, nil
+}
+
+// BeforeModelRewriteState 在每次模型调用前扫描消息历史，检测 SKILL.md 读取
+func (m *SkillsMiddleware) BeforeModelRewriteState(
+	ctx context.Context,
+	state *adk.TypedChatModelAgentState[*schema.Message],
+	_ *adk.TypedModelContext[*schema.Message],
+) (context.Context, *adk.TypedChatModelAgentState[*schema.Message], error) {
+	// 从消息历史中检测 read_file 读取 SKILL.md 的工具调用
+	activated := m.detectSkillReads(state.Messages)
+	if len(activated) == 0 {
+		return ctx, state, nil
+	}
+
+	// 合并已激活的 skill
+	existing := m.activation.GetActivated()
+	merged := dedup(append(existing, activated...))
+	for _, slug := range activated {
+		m.activation.Activate(slug)
+	}
+
+	// 写入 agent 运行时上下文，ToolFilterMiddleware 读取并释放对应工具
+	_ = adk.SetRunLocalValue(ctx, "activated_skills", merged)
+
+	if logger.Initialized() {
+		logger.Info("Skill 已激活", zap.Strings("slugs", activated))
+	}
+
+	return ctx, state, nil
+}
+
+// detectSkillReads 扫描消息历史，找出读取了 SKILL.md 的 skill
+func (m *SkillsMiddleware) detectSkillReads(messages []*schema.Message) []string {
+	var activated []string
+	seen := make(map[string]bool)
+
+	for _, msg := range messages {
+		if msg.Role != schema.Assistant {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			if tc.Function.Name != "read_file" {
+				continue
+			}
+			slug := m.parseSkillSlugFromArgs(tc.Function.Arguments)
+			if slug == "" || seen[slug] || !m.isVisibleSlug(slug) {
+				continue
+			}
+			seen[slug] = true
+			activated = append(activated, slug)
+		}
+	}
+	return activated
+}
+
+// parseSkillSlugFromArgs 从 read_file 参数中解析 skill slug
+func (m *SkillsMiddleware) parseSkillSlugFromArgs(argsJSON string) string {
+	if argsJSON == "" {
+		return ""
+	}
+
+	var args map[string]any
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return ""
+	}
+
+	filePath, _ := args["file_path"].(string)
+	if filePath == "" {
+		// 兼容其他参数名
+		filePath, _ = args["path"].(string)
+	}
+	if filePath == "" {
+		return ""
+	}
+
+	return m.extractSkillSlug(filePath)
+}
+
+// BuildPrompt 构建 Skill 提示词（L1 披露）
 func (m *SkillsMiddleware) BuildPrompt(
 	ctx context.Context,
 	basePrompt string,
@@ -100,16 +158,18 @@ func (m *SkillsMiddleware) extractSkillSlug(filePath string) string {
 	// 支持多种路径格式：skills/kb/SKILL.md, ./skills/kb/SKILL.md
 	parts := strings.ReplaceAll(filePath, "\\", "/")
 	parts = strings.ReplaceAll(parts, "./", "")
+
+	// 必须是读取 SKILL.md 文件
+	if !strings.HasSuffix(parts, "SKILL.md") {
+		return ""
+	}
+
 	segments := strings.Split(parts, "/")
 
 	for i, segment := range segments {
 		if segment == "skills" && i+1 < len(segments) {
 			slug := segments[i+1]
-			if strings.HasSuffix(slug, "SKILL.md") {
-				slug = strings.TrimSuffix(slug, "/SKILL.md")
-				slug = strings.TrimSuffix(slug, "SKILL.md")
-			}
-			if slug != "" {
+			if slug != "SKILL.md" {
 				return slug
 			}
 		}

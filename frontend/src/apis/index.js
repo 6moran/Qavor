@@ -22,15 +22,7 @@ export {
   apiGet,
   apiPost,
   apiPut,
-  apiDelete,
-  apiAdminGet,
-  apiAdminPost,
-  apiAdminPut,
-  apiAdminDelete,
-  apiSuperAdminGet,
-  apiSuperAdminPost,
-  apiSuperAdminPut,
-  apiSuperAdminDelete
+  apiDelete
 } from './base'
 
 /**

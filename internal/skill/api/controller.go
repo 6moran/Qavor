@@ -131,26 +131,6 @@ func (ctrl *Controller) BatchCreateSkills(c *gin.Context) {
 	response.Success(c, req)
 }
 
-// BatchDeleteSkills 批量删除 Skill
-func (ctrl *Controller) BatchDeleteSkills(c *gin.Context) {
-	var req struct {
-		Slugs []string `json:"slugs"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	for _, slug := range req.Slugs {
-		if err := ctrl.svc.Delete(slug); err != nil {
-			response.BizError(c, err)
-			return
-		}
-	}
-
-	response.Success(c, nil)
-}
-
 // GetSkillOptions 获取 Skill 选项列表
 func (ctrl *Controller) GetSkillOptions(c *gin.Context) {
 	options, err := ctrl.svc.GetOptions()
@@ -260,45 +240,6 @@ func (ctrl *Controller) SyncBuiltinSkills(c *gin.Context) {
 	response.Success(c, nil)
 }
 
-// CreateSkillFile 创建 Skill 文件
-func (ctrl *Controller) CreateSkillFile(c *gin.Context) {
-	slug := c.Param("slug")
-
-	var req struct {
-		Path    string `json:"path"`
-		Content string `json:"content"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	if req.Path == "" {
-		response.BadRequest(c, "path 不能为空")
-		return
-	}
-
-	dir := ctrl.loader.GetSkillDir(slug)
-	absPath := filepath.Join(dir, req.Path)
-
-	if !isSubPath(dir, absPath) {
-		response.BadRequest(c, "非法路径")
-		return
-	}
-
-	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
-		response.BizError(c, fmt.Errorf("创建目录失败: %w", err))
-		return
-	}
-
-	if err := os.WriteFile(absPath, []byte(req.Content), 0644); err != nil {
-		response.BizError(c, fmt.Errorf("写入文件失败: %w", err))
-		return
-	}
-
-	response.Success(c, nil)
-}
-
 // DeleteSkillFile 删除 Skill 文件
 func (ctrl *Controller) DeleteSkillFile(c *gin.Context) {
 	slug := c.Param("slug")
@@ -358,22 +299,6 @@ func (ctrl *Controller) UpdateSkillDependencies(c *gin.Context) {
 	response.Success(c, nil)
 }
 
-// UpdateSkillShareConfig 更新 Skill 分享配置
-func (ctrl *Controller) UpdateSkillShareConfig(c *gin.Context) {
-	_ = c.Param("slug")
-
-	var req struct {
-		ShareConfig map[string]interface{} `json:"share_config"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	// TODO: 实现分享配置更新逻辑
-	response.Success(c, nil)
-}
-
 // UpdateSkillEnabled 更新 Skill 启用状态
 func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 	slug := c.Param("slug")
@@ -404,21 +329,6 @@ func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 	}
 
 	response.Success(c, skillEntity)
-}
-
-// ListAccessibleSkills 列出用户可访问的 Skills
-func (ctrl *Controller) ListAccessibleSkills(c *gin.Context) {
-	// TODO: 实现基于用户权限的过滤
-	skills, total, err := ctrl.svc.List(0, 100, "")
-	if err != nil {
-		response.BizError(c, err)
-		return
-	}
-
-	response.Success(c, gin.H{
-		"skills": skills,
-		"total":  total,
-	})
 }
 
 // ListRemoteSkills 列出远程 Skills

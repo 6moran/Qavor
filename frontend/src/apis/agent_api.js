@@ -128,6 +128,19 @@ export const agentApi = {
   },
 
   /**
+   * 设为默认智能体
+   * @param {string} agentId - 智能体ID（slug）
+   * @returns {Promise} - 设置结果
+   */
+  setDefault: async (agentId) => {
+    const result = await apiPost(
+      normalizeApiUrl(`/api/agent/${encodeURIComponent(agentId)}/default`),
+      {}
+    )
+    return { success: result?.code === 0, data: result?.data, message: result?.message }
+  },
+
+  /**
    * 创建异步运行任务（Run）
    * @param {Object} data - run 请求体
    * @returns {Promise<Object>}

@@ -123,8 +123,8 @@ watch(activeTab, (tab) => {
     border-radius: 7px;
     background: var(--gray-10);
     color: var(--gray-700);
-    font-size: 12px;
-    line-height: 18px;
+    font-size: 14px;
+    line-height: 20px;
   }
 
   .warning-count {

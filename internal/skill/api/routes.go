@@ -15,7 +15,6 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 		skillGroup.GET("/options", ctrl.GetSkillOptions)
 		skillGroup.POST("", ctrl.CreateSkill)
 		skillGroup.POST("/batch", ctrl.BatchCreateSkills)
-		skillGroup.DELETE("/batch", ctrl.BatchDeleteSkills)
 		skillGroup.POST("/delete-batch", ctrl.DeleteSkillsBatch)
 		skillGroup.POST("/import", ctrl.ImportSkill)
 		skillGroup.POST("/import/prepare", ctrl.PrepareSkillUpload)
@@ -29,11 +28,9 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 		skillGroup.GET("/:slug/export", ctrl.ExportSkill)
 		skillGroup.GET("/:slug/tree", ctrl.GetSkillTree)
 		skillGroup.GET("/:slug/file", ctrl.GetSkillFile)
-		skillGroup.POST("/:slug/file", ctrl.CreateSkillFile)
 		skillGroup.PUT("/:slug/file", ctrl.UpdateSkillFile)
 		skillGroup.DELETE("/:slug/file", ctrl.DeleteSkillFile)
 		skillGroup.PUT("/:slug/dependencies", ctrl.UpdateSkillDependencies)
-		skillGroup.PUT("/:slug/share-config", ctrl.UpdateSkillShareConfig)
 		skillGroup.PUT("/:slug/enabled", ctrl.UpdateSkillEnabled)
 	}
 
@@ -41,7 +38,6 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 	userSkillGroup := r.Group("/skills")
 	userSkillGroup.Use(middleware.Auth())
 	{
-		userSkillGroup.GET("/accessible", ctrl.ListAccessibleSkills)
 		userSkillGroup.POST("/remote/list", ctrl.ListRemoteSkills)
 		userSkillGroup.POST("/remote/prepare", ctrl.PrepareRemoteSkills)
 	}

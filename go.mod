@@ -3,6 +3,7 @@ module Qavor
 go 1.25.5
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/cloudwego/eino v0.10.0-alpha.13
 	github.com/cloudwego/eino-ext/components/embedding/openai v0.0.0-20260724103301-c9a5dc923462
 	github.com/cloudwego/eino-ext/components/model/ollama v0.1.9
@@ -27,7 +28,6 @@ require (
 
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
-	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/buger/jsonparser v1.6.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.2 // indirect
