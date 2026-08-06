@@ -70,9 +70,13 @@ func (p *PythonParser) Parse(ctx context.Context, input ParseInput) (ParseResult
 }
 
 // parsePythonOutput 将脚本 stdout 与执行错误映射为 ParseResult。
-// 脚本以错误码退出且 stdout 为错误 JSON 时映射为 ParserError。
+// 脚本以错误码退出且 stdout 为错误 JSON 时映射为 ParserError；
+// 退出失败时脚本 stderr 透传到日志，便于排障（依赖缺失、模型下载失败等）。
 func parsePythonOutput(stdout []byte, runErr error) (ParseResult, error) {
 	if runErr != nil {
+		if exitErr, ok := runErr.(*exec.ExitError); ok {
+			logWarn("Python 解析脚本退出失败", zap.ByteString("stderr", exitErr.Stderr))
+		}
 		var failure struct {
 			Code    string `json:"error_code"`
 			Message string `json:"error_message"`

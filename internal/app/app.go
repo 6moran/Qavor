@@ -36,6 +36,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -58,7 +59,11 @@ type imageUploader struct {
 
 // UploadImage 上传图片字节到对象存储，返回可公开访问的 URL。
 func (u imageUploader) UploadImage(folder, filename string, data []byte) (string, error) {
-	contentType := http.DetectContentType(data)
+	// 优先按扩展名映射类型（http.DetectContentType 无法识别 TIFF 等格式）
+	contentType := mime.TypeByExtension(filepath.Ext(filename))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
 	obj, err := u.storage.UploadReader(folder, filename, contentType, bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return "", fmt.Errorf("上传图片 %s/%s 失败: %w", folder, filename, err)
