@@ -21,6 +21,16 @@ func NewKnowledgeChunkRepository(db *gorm.DB) KnowledgeChunkRepository {
 	return &knowledgeChunkRepository{db: db}
 }
 
+// FindByFileID 按分块序号获取指定文件的全部分块。
+func (r *knowledgeChunkRepository) FindByFileID(ctx context.Context, kbID, fileID string) ([]*entity.KnowledgeChunk, error) {
+	var chunks []*entity.KnowledgeChunk
+	err := r.db.WithContext(ctx).
+		Where("kb_id = ? AND file_id = ?", kbID, fileID).
+		Order("chunk_index ASC").
+		Find(&chunks).Error
+	return chunks, err
+}
+
 // ReplaceByFileID 事务内替换分块：先删除再批量写入；任一失败都回滚。
 func (r *knowledgeChunkRepository) ReplaceByFileID(ctx context.Context, kbID, fileID string, chunks []*entity.KnowledgeChunk) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {

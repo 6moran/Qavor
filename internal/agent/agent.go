@@ -28,6 +28,25 @@ type AgentResponse struct {
 	Content string
 }
 
+// configuredBuiltinToolNames 返回实际启用的内置工具名：
+// 配置了知识库时自动追加 query_kb，且不修改 cfg.Tools。
+func configuredBuiltinToolNames(cfg *AgentConfig) []string {
+	names := append([]string(nil), cfg.Tools...)
+	if len(cfg.Knowledges) > 0 {
+		found := false
+		for _, name := range names {
+			if name == tool.QueryKBToolName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			names = append(names, tool.QueryKBToolName)
+		}
+	}
+	return names
+}
+
 // NewAgent 创建智能体（构造一次，复用）
 func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 	mcpManager *mcp.MCPManager, toolRegistry *tool.Registry,
@@ -49,8 +68,8 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 
 	// 获取内置工具
 	var builtinTools []einotool.BaseTool
-	if len(cfg.Tools) > 0 {
-		builtinTools = toolRegistry.ToEinoToolsByNames(cfg.Tools)
+	if names := configuredBuiltinToolNames(cfg); len(names) > 0 {
+		builtinTools = toolRegistry.ToEinoToolsByNames(names)
 	}
 
 	// 创建工具过滤中间件（始终注册，低于阈值时直接透传）
@@ -143,9 +162,19 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 	}, nil
 }
 
+// executionContext 绑定查询与知识库范围，供一次 Agent Run 使用。
+// 知识库范围只来自配置，LLM 无法通过工具参数指定。
+func (a *Agent) executionContext(ctx context.Context, query string) context.Context {
+	ctx = WithQuery(ctx, query)
+	if len(a.config.Knowledges) > 0 {
+		ctx = tool.WithKnowledgeBaseIDs(ctx, a.config.Knowledges)
+	}
+	return ctx
+}
+
 // Execute 执行智能体
 func (a *Agent) Execute(ctx context.Context, query string) (*AgentResponse, error) {
-	ctx = WithQuery(ctx, query)
+	ctx = a.executionContext(ctx, query)
 
 	input := &adk.AgentInput{
 		Messages: []*schema.Message{
