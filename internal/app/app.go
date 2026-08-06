@@ -21,7 +21,7 @@ import (
 	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/skill/remote"
 	"Qavor/internal/sse"
-	
+
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
@@ -41,6 +41,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudwego/eino/components/retriever"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -267,7 +268,7 @@ func (a *App) initDependencies() error {
 	modelSvc := service.NewModelService(modelRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo)
 	storage := service.NewMinIOObjectStorage()
-	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue)
+	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo)
 
@@ -283,15 +284,21 @@ func (a *App) initDependencies() error {
 			a.cfg.RAG.Embedding.BatchSize,
 			a.cfg.RAG.Embedding.Dimension,
 		)
-		answerer rag.AnswerChain = rag.NewDynamicAnswerEngine(
+		// 快速回答与独立检索共享同一个按知识库解析 Embedding 模型的检索器。
+		dynamicRetriever retriever.Retriever = rag.NewDynamicRetriever(
 			knowledgeBaseRepo,
 			modelSvc,
 			knowledgeChunkRepo,
-			a.cfg.RAG,
+			a.cfg.RAG.VectorTopK,
+		)
+		answerer rag.AnswerChain = rag.NewDynamicAnswerEngine(
+			knowledgeBaseRepo,
+			modelSvc,
+			dynamicRetriever,
 		)
 		ragCtrl *ragctrl.Controller
 	)
-	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, answerer)
+	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, dynamicRetriever, answerer)
 	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
 
 	if queue != nil {
@@ -342,7 +349,7 @@ func (a *App) initDependencies() error {
 
 	// 创建 ToolRegistry
 	toolRegistry := tool.NewDefaultRegistry()
-	toolProvider := builtin.NewBuiltinToolProvider()
+	toolProvider := builtin.NewBuiltinToolProvider(ragSvc)
 	toolRegistry.RegisterFromProvider(toolProvider)
 
 	// 初始化 Skill 相关组件

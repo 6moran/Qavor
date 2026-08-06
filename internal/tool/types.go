@@ -15,6 +15,9 @@ const (
 	CategoryDebug     Category = "debug"
 )
 
+// QueryKBToolName 知识库检索工具名。
+const QueryKBToolName = "query_kb"
+
 // ToolMeta 工具元数据
 type ToolMeta struct {
 	Name        string   `json:"name"`

@@ -73,7 +73,16 @@ type KnowledgeFileListResponse struct {
 
 // KnowledgeFilePreviewResponse 文档文本预览响应
 type KnowledgeFilePreviewResponse struct {
-	Content string `json:"content"`
+	Content string                      `json:"content"`
+	Chunks  []KnowledgeFileChunkPreview `json:"chunks"`
+}
+
+// KnowledgeFileChunkPreview 文件预览中的持久化分块。
+type KnowledgeFileChunkPreview struct {
+	ChunkID    string `json:"chunk_id"`
+	ChunkIndex int    `json:"chunk_index"`
+	Content    string `json:"content"`
+	TokenCount int    `json:"token_count"`
 }
 
 // DocumentProcessingJobResponse 文档处理任务响应，展示异步文档处理状态。

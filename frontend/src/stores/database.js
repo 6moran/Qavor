@@ -80,6 +80,17 @@ export const useDatabaseStore = defineStore('database', () => {
     setCurrentFileMap([])
   }
 
+  // 重置知识库状态，用于组件卸载时清理
+  function resetDatabaseState() {
+    stopAutoRefresh()
+    state.autoRefresh = false
+    autoRefreshSource = null
+    autoRefreshManualOverride = false
+    kbId.value = null
+    database.value = {}
+    resetFileBrowser()
+  }
+
   // 操作
   // 管理员获取所有知识库，普通用户获取有权限访问的知识库
   async function loadDatabases() {
@@ -757,6 +768,7 @@ export const useDatabaseStore = defineStore('database', () => {
     enterFolder,
     goToFolder,
     resetFileBrowser,
+    resetDatabaseState,
 
     startAutoRefresh,
     stopAutoRefresh,
