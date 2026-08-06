@@ -13,7 +13,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
 
   const currentThread = computed(() => {
     if (!currentThreadId.value) return null
-    return threads.value.find((thread) => thread.id === currentThreadId.value) || null
+    return threads.value.find((thread) => String(thread.id) === String(currentThreadId.value)) || null
   })
 
   const setCurrentThreadId = (threadId) => {
@@ -22,7 +22,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
 
   const upsertThread = (thread) => {
     if (!thread?.id) return
-    const index = threads.value.findIndex((item) => item.id === thread.id)
+    const index = threads.value.findIndex((item) => String(item.id) === String(thread.id))
     if (index >= 0) {
       threads.value[index] = { ...threads.value[index], ...thread }
       return
@@ -37,7 +37,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
       hasMoreThreads.value = Boolean(fetchedThreads && fetchedThreads.length >= PAGE_SIZE)
       if (
         currentThreadId.value &&
-        !threads.value.find((thread) => thread.id === currentThreadId.value)
+        !threads.value.find((thread) => String(thread.id) === String(currentThreadId.value))
       ) {
         currentThreadId.value = null
       }

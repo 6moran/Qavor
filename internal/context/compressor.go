@@ -1,7 +1,7 @@
 package context
 
 import (
-	"unicode/utf8"
+	"Qavor/pkg/utils"
 
 	"github.com/cloudwego/eino/schema"
 )
@@ -20,26 +20,12 @@ func NewContextTokenizer(maxTokens, reserveTokens int) *ContextTokenizer {
 	}
 }
 
-// EstimateTokens 估算单条消息的 Token 数
+// EstimateTokens 计算单条消息的 Token 数（使用 tiktoken 精确计算）
 func (t *ContextTokenizer) EstimateTokens(msg *schema.Message) int {
-	content := msg.Content
-	if content == "" {
+	if msg.Content == "" {
 		return 0
 	}
-
-	byteCount := len(content)
-	charCount := utf8.RuneCountInString(content)
-
-	ratio := float64(byteCount) / float64(charCount)
-
-	var tokens float64
-	if ratio > 2.0 {
-		tokens = float64(charCount) / 1.5
-	} else {
-		tokens = float64(charCount) / 4.0
-	}
-
-	return int(tokens) + 4
+	return utils.CountTokens(msg.Content)
 }
 
 // TrimMessages 裁剪消息列表以适应 Token 窗口

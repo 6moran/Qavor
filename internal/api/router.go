@@ -38,6 +38,8 @@ type Router struct {
 	skillCtrl         *skillapi.Controller
 	sseCtrl           *ssectrl.Controller
 	mcpServerCtrl     *mcpserverctrl.Controller
+	postStreamHandler *agentctrl.PostStreamHandler
+	runController     *agentctrl.RunController
 }
 
 // NewRouter 创建路由
@@ -57,6 +59,8 @@ func NewRouter(
 	skillCtrl *skillapi.Controller,
 	sseCtrl *ssectrl.Controller,
 	mcpServerCtrl *mcpserverctrl.Controller,
+	postStreamHandler *agentctrl.PostStreamHandler,
+	runController *agentctrl.RunController,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -73,6 +77,8 @@ func NewRouter(
 		sseCtrl:           sseCtrl,
 		skillCtrl:         skillCtrl,
 		mcpServerCtrl:     mcpServerCtrl,
+		postStreamHandler: postStreamHandler,
+		runController:     runController,
 	}
 }
 
@@ -104,6 +110,11 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// 智能体路由
 		r.agentCtrl.RegisterRoutes(v1)
+
+		// Run 流式与队列操作路由
+		if r.postStreamHandler != nil && r.runController != nil {
+			agentctrl.RegisterRunRoutes(v1, r.postStreamHandler, r.runController)
+		}
 
 		// 聊天路由
 		r.chatCtrl.RegisterRoutes(v1)

@@ -17,38 +17,70 @@ const buildViewerQuery = (threadId, path) => {
   })
 }
 
+/**
+ * 获取文件系统树
+ * @param {string} threadId - 线程ID
+ * @param {string} path - 路径
+ * @returns {Promise}（后端未实现，返回空数组）
+ */
 export const getViewerFileSystemTree = (threadId, path = '/') => {
-  const query = buildViewerQuery(threadId, path)
-  return apiGet(`/api/viewer/filesystem/tree?${query}`)
+  console.warn('getViewerFileSystemTree: 后端未实现此接口')
+  return Promise.resolve({ data: [] })
 }
 
+/**
+ * 获取文件内容
+ * @param {string} threadId - 线程ID
+ * @param {string} path - 文件路径
+ * @returns {Promise}（后端未实现，返回空）
+ */
 export const getViewerFileContent = (threadId, path) => {
-  const query = buildViewerQuery(threadId, path)
-  return apiGet(`/api/viewer/filesystem/file?${query}`, {}, true, 'blob')
+  console.warn('getViewerFileContent: 后端未实现此接口')
+  return Promise.resolve(null)
 }
 
+/**
+ * 下载文件
+ * @param {string} threadId - 线程ID
+ * @param {string} path - 文件路径
+ * @returns {Promise}（后端未实现，返回空）
+ */
 export const downloadViewerFile = (threadId, path) => {
-  const query = buildViewerQuery(threadId, path)
-  return apiGet(`/api/viewer/filesystem/download?${query}`, {}, true, 'blob')
+  console.warn('downloadViewerFile: 后端未实现此接口')
+  return Promise.resolve(null)
 }
 
+/**
+ * 删除文件
+ * @param {string} threadId - 线程ID
+ * @param {string} path - 文件路径
+ * @returns {Promise}（后端未实现，返回成功）
+ */
 export const deleteViewerFile = (threadId, path) => {
-  const query = buildViewerQuery(threadId, path)
-  return apiDelete(`/api/viewer/filesystem/file?${query}`)
+  console.warn('deleteViewerFile: 后端未实现此接口')
+  return Promise.resolve({ success: true })
 }
 
+/**
+ * 创建目录
+ * @param {string} threadId - 线程ID
+ * @param {string} parentPath - 父路径
+ * @param {string} name - 目录名
+ * @returns {Promise}（后端未实现，返回成功）
+ */
 export const createViewerDirectory = (threadId, parentPath, name) => {
-  return apiPost('/api/viewer/filesystem/directory', {
-    thread_id: threadId,
-    parent_path: parentPath,
-    name
-  })
+  console.warn('createViewerDirectory: 后端未实现此接口')
+  return Promise.resolve({ success: true })
 }
 
+/**
+ * 上传文件
+ * @param {string} threadId - 线程ID
+ * @param {string} parentPath - 父路径
+ * @param {Array} files - 文件列表
+ * @returns {Promise}（后端未实现，返回成功）
+ */
 export const uploadViewerFiles = (threadId, parentPath, files) => {
-  const formData = new FormData()
-  formData.set('thread_id', threadId)
-  formData.set('parent_path', parentPath)
-  files.forEach((file) => formData.append('files', file))
-  return apiPost('/api/viewer/filesystem/upload', formData)
+  console.warn('uploadViewerFiles: 后端未实现此接口')
+  return Promise.resolve({ success: true })
 }

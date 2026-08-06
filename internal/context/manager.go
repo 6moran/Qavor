@@ -39,17 +39,29 @@ func NewContextManager(
 	}
 }
 
-// FetchContext 提取历史消息
+// FetchContext 提取历史消息与短期记忆
 func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistoryQuery) (*ContextWindow, error) {
 	messages, err := m.fetcher.LoadHistory(ctx, query)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ContextWindow{
+	window := &ContextWindow{
 		Messages:    messages,
 		TotalTokens: m.tokenizer.CountAllTokens(messages),
-	}, nil
+	}
+
+	// 加载短期记忆摘要
+	if m.shortTermMgr != nil {
+		memory, err := m.shortTermMgr.GetMemory(ctx, query.ConversationID)
+		if err != nil {
+			m.logger.Warn("加载短期记忆失败", zap.Error(err))
+		} else if memory != nil && memory.Summary != "" {
+			window.ShortTermSummary = memory.Summary
+		}
+	}
+
+	return window, nil
 }
 
 // CompressContext Token 硬切片裁剪

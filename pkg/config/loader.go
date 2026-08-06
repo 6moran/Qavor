@@ -61,6 +61,7 @@ func Load(configPath string) (*Config, error) {
 	config.DocumentQueue.ApplyDefaults()
 	config.RAG.ApplyDefaults()
 	config.SSE.ApplyDefaults()
+	config.Run.ApplyDefaults()
 
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -136,7 +137,7 @@ func Load(configPath string) (*Config, error) {
 	if val := os.Getenv("QAVOR_JWT_SECRET"); val != "" {
 		config.JWT.Secret = val
 	}
-	if val := os.Getenv("JWT_EXPIRE_HOURS"); val != "" {
+	if val := os.Getenv("JWT_EXPIRE"); val != "" {
 		config.JWT.ExpireHours = time.Duration(atoiOrDefault(val, int(config.JWT.ExpireHours))) * time.Hour
 	}
 	if val := os.Getenv("APP_MODE"); val != "" {

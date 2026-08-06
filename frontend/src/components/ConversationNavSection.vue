@@ -128,7 +128,7 @@ const sortedChats = computed(() => {
 })
 
 const renameChat = async (chatId) => {
-  const chat = props.chatsList.find((item) => item.id === chatId)
+  const chat = props.chatsList.find((item) => String(item.id) === String(chatId))
   if (!chat) return
 
   let newTitle = chat.title || ''

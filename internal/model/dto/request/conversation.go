@@ -18,4 +18,5 @@ type ConversationListRequest struct {
 	PageSize int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Status   string `form:"status" binding:"omitempty,oneof=active archived deleted"`
 	AgentID  string `form:"agent_id" binding:"omitempty"`
+	Query    string `form:"q" binding:"omitempty,max=100"`
 }

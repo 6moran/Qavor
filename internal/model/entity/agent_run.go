@@ -2,6 +2,16 @@ package entity
 
 import "time"
 
+// Run 状态常量
+const (
+	StatusPending     = "pending"
+	StatusRunning     = "running"
+	StatusInterrupted = "interrupted"
+	StatusCompleted   = "completed"
+	StatusFailed      = "failed"
+	StatusCancelled   = "cancelled"
+)
+
 // AgentRun Agent运行任务实体
 type AgentRun struct {
 	ID                       string     `gorm:"type:varchar(64);primarykey;comment:Run ID（UUID）" json:"id"`
@@ -34,13 +44,17 @@ func (AgentRun) TableName() string {
 	return "agent_runs"
 }
 
-// IsTerminal 判断是否为终态
+// IsTerminal 判断是否为不可恢复的终态（completed/failed/cancelled）。
+// interrupted 不算终态，可被 resume 恢复。
 func (r *AgentRun) IsTerminal() bool {
-	terminalStatuses := []string{"completed", "failed", "cancelled", "interrupted"}
-	for _, status := range terminalStatuses {
-		if r.Status == status {
-			return true
-		}
+	switch r.Status {
+	case StatusCompleted, StatusFailed, StatusCancelled:
+		return true
 	}
 	return false
+}
+
+// IsInterrupted 判断是否因工具审批中断（可恢复）
+func (r *AgentRun) IsInterrupted() bool {
+	return r.Status == StatusInterrupted
 }

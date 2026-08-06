@@ -26,34 +26,27 @@ func Success(c *gin.Context, data interface{}) {
 	})
 }
 
-// SuccessWithMessage 成功响应（自定义消息）
-func SuccessWithMessage(c *gin.Context, message string, data interface{}) {
-	c.JSON(200, Response{
-		Code:    errors.CodeSuccess,
-		Message: message,
-		Data:    data,
-	})
-}
-
 // Error 错误响应
 func Error(c *gin.Context, code int, message string) {
-	c.JSON(200, Response{
+	httpStatus := getHTTPStatus(code)
+	c.JSON(httpStatus, Response{
 		Code:    code,
 		Message: message,
-	})
-}
-
-// ErrorWithData 错误响应（带数据）
-func ErrorWithData(c *gin.Context, code int, message string, data interface{}) {
-	c.JSON(200, Response{
-		Code:    code,
-		Message: message,
-		Data:    data,
 	})
 }
 
 // BizError 业务错误响应
 func BizError(c *gin.Context, err error) {
+	if bizErr, ok := err.(*errors.BizError); ok {
+		httpStatus := getHTTPStatus(bizErr.Code)
+		c.JSON(httpStatus, Response{
+			Code:    bizErr.Code,
+			Message: bizErr.Message,
+		})
+		return
+	}
+	// 其他错误类型
+	Error(c, errors.CodeInternalError, errors.GetMessage(errors.CodeInternalError))
 	bizErr, ok := err.(*errors.BizError)
 	if !ok {
 		logger.Error("Error 断言失败，非业务错误")
@@ -68,6 +61,10 @@ func BizError(c *gin.Context, err error) {
 
 // BadRequest 400 错误
 func BadRequest(c *gin.Context, message string) {
+	c.JSON(400, Response{
+		Code:    errors.CodeBadRequest,
+		Message: message,
+	})
 	c.JSON(http.StatusBadRequest, Response{
 		Code:    errors.CodeBadRequest,
 		Message: message,
@@ -76,34 +73,52 @@ func BadRequest(c *gin.Context, message string) {
 
 // Unauthorized 401 错误
 func Unauthorized(c *gin.Context, message string) {
+	c.JSON(401, Response{
+		Code:    errors.CodeUnauthorized,
+		Message: message,
+	})
 	c.JSON(http.StatusUnauthorized, Response{
 		Code:    errors.CodeUnauthorized,
 		Message: message,
 	})
 }
 
-// Forbidden 403 错误
-func Forbidden(c *gin.Context, message string) {
-	c.JSON(http.StatusForbidden, Response{
-		Code:    errors.CodeForbidden,
-		Message: message,
-	})
-}
-
 // NotFound 404 错误
 func NotFound(c *gin.Context, message string) {
+	c.JSON(404, Response{
+		Code:    errors.CodeNotFound,
+		Message: message,
+	})
 	c.JSON(http.StatusNotFound, Response{
 		Code:    errors.CodeNotFound,
 		Message: message,
 	})
 }
 
-// InternalError 500 错误
-func InternalError(c *gin.Context, message string) {
-	c.JSON(http.StatusInternalServerError, Response{
-		Code:    errors.CodeInternalError,
-		Message: message,
-	})
+// getHTTPStatus 根据业务错误码获取对应的 HTTP 状态码
+func getHTTPStatus(code int) int {
+	switch {
+	case code == errors.CodeSuccess:
+		return 200
+	case code >= 400 && code < 500:
+		return code
+	case code >= 1001 && code < 1010:
+		return 401 // 认证相关错误
+	case code >= 2001 && code < 2010:
+		return 400 // 参数错误
+	case code >= 3001 && code < 3010:
+		return 404 // 资源错误
+	case code >= 40001 && code < 40100:
+		return 404 // 会话/消息错误
+	case code >= 4001 && code < 5000:
+		return 500 // LLM 错误
+	case code >= 5001 && code < 6000:
+		return 500 // 模型提供商错误
+	case code >= 6001 && code < 7000:
+		return 500 // SSE 错误
+	default:
+		return 500
+	}
 }
 
 // InternalServerError 500 服务器内部错误（无参版本）

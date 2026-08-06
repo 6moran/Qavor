@@ -16,7 +16,7 @@ import (
 // 模型配置和密钥由模型管理模块负责，RAG 只依赖这个运行时接口。
 type ModelResolver interface {
 	ResolveEmbedding(ctx context.Context, modelID uint) (embedding.Embedder, error)
-	ResolveChatModel(ctx context.Context, modelID uint) (model.BaseChatModel, error)
+	ResolveChatModel(ctx context.Context, modelID uint) (model.ToolCallingChatModel, error)
 }
 
 // DynamicDocumentIndexer 在每次文档索引时根据 KBID 解析知识库绑定的 Embedding 模型。

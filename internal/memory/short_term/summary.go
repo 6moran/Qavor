@@ -9,6 +9,8 @@ import (
 )
 
 // SummaryGenerator 摘要生成器
+// 注意：实际的 LLM 摘要压缩由 eino 的 summarization middleware 处理
+// 这里只提供简单的降级方案
 type SummaryGenerator struct {
 	logger *zap.Logger
 	config *SummaryConfig
@@ -34,13 +36,13 @@ func (g *SummaryGenerator) ShouldGenerate(buffer *MessageBuffer) bool {
 		buffer.TotalTokens >= g.config.TokenThreshold
 }
 
-// GenerateSummary 生成摘要（同步版本，使用简单规则）
+// GenerateSummary 生成摘要（简单规则，作为降级方案）
+// 实际的 LLM 摘要压缩由 eino summarization middleware 在 Agent 层处理
 func (g *SummaryGenerator) GenerateSummary(_ context.Context, buffer *MessageBuffer) (string, error) {
 	if buffer == nil || len(buffer.Messages) == 0 {
 		return "", nil
 	}
 
-	// 简单规则：提取最近几条消息的关键词
 	var summaryParts []string
 
 	// 获取最近5条消息
@@ -50,7 +52,6 @@ func (g *SummaryGenerator) GenerateSummary(_ context.Context, buffer *MessageBuf
 	}
 
 	for _, msg := range recentMessages {
-		// 简单提取：取前20个字符
 		content := msg.Content
 		if len(content) > 20 {
 			content = content[:20] + "..."
@@ -62,11 +63,9 @@ func (g *SummaryGenerator) GenerateSummary(_ context.Context, buffer *MessageBuf
 	return summary, nil
 }
 
-// GenerateSummaryAsync 异步生成摘要（需要 LLM）
+// GenerateSummaryAsync 异步生成摘要
 func (g *SummaryGenerator) GenerateSummaryAsync(ctx context.Context, buffer *MessageBuffer, callback func(string)) {
 	go func() {
-		// 这里应该调用 LLM 生成摘要
-		// 目前使用简单规则作为占位
 		summary, err := g.GenerateSummary(ctx, buffer)
 		if err != nil {
 			g.logger.Error("生成摘要失败", zap.Error(err))

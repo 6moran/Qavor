@@ -243,13 +243,12 @@
                         <CornerDownRight :size="14" aria-hidden="true" />
                         引导
                       </button>
-                      <div class="input-model-selector">
-                        <ModelSelectorComponent
-                          :model_spec="currentModelSpec"
+                      <div class="input-agent-selector">
+                        <AgentSelectorComponent
+                          :agent-slug="currentAgentId"
                           size="nano"
-                          display-name="mini"
-                          placeholder="选择模型"
-                          @select-model="handleModelSelect"
+                          placeholder="选择智能体"
+                          @select-agent="handleAgentSelect"
                         />
                       </div>
                       <slot name="input-actions-right" :has-active-thread="!!currentChatId"></slot>
@@ -678,7 +677,7 @@ import {
 } from '@ant-design/icons-vue'
 import AgentInputArea from '@/components/AgentInputArea.vue'
 import ToolApprovalModeSelector from '@/components/ToolApprovalModeSelector.vue'
-import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
+import AgentSelectorComponent from '@/components/AgentSelectorComponent.vue'
 import AgentMessageComponent from '@/components/AgentMessageComponent.vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
 import { handleChatError, handleValidationError } from '@/utils/errorHandler'
@@ -731,6 +730,10 @@ const configStore = useConfigStore()
 const { agents, selectedAgentId, agentConfig, configurableItems, availableKnowledgeBases } =
   storeToRefs(agentStore)
 const { threads, currentThreadId, currentThread } = storeToRefs(chatThreadsStore)
+
+// ==================== SSE STREAM ====================
+// 主聊天流式已切换到 Run 架构（useAgentRunStream.startNewRun），
+// 旧的 /api/v1/sse/connect 长连接 + /api/v1/chat/stream 通道已废弃。
 
 // ==================== LOCAL CHAT & UI STATE ====================
 const userInput = ref('')
@@ -1080,6 +1083,12 @@ const handleModelSelect = (spec) => {
     } else {
       delete selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY]
     }
+  }
+}
+
+const handleAgentSelect = (slug) => {
+  if (slug) {
+    agentStore.selectAgent(slug)
   }
 }
 
@@ -2477,7 +2486,7 @@ const { handleStreamChunk } = useAgentStreamHandler({
   supportsFiles,
   streamSmoother
 })
-const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = useAgentRunStream({
+const { startRunStream, startNewRun, resumeActiveRunForThread, stopRunStreamSubscription } = useAgentRunStream({
   getThreadState,
   currentAgentId,
   handleStreamChunk,
@@ -2540,7 +2549,7 @@ const handleSteerQueuedRequest = async (requestId) => {
 const handleContinueQueue = async () => {
   const threadId = currentChatId.value
   const agentSlug =
-    threads.value.find((thread) => thread.id === threadId)?.agent_id || currentAgentId.value
+    threads.value.find((thread) => String(thread.id) === String(threadId))?.agent_id || currentAgentId.value
   if (!threadId || !agentSlug || currentThreadState.value?.continueQueueInFlight) return
 
   if (await continueQueue(threadId, agentSlug)) {
@@ -2551,7 +2560,7 @@ const handleContinueQueue = async () => {
 const resumeQueuedRequestsForThread = async (threadId) => {
   const ts = getThreadState(threadId)
   if (!ts) return
-  const agentSlug = threads.value.find((t) => t.id === threadId)?.agent_id || currentAgentId.value
+  const agentSlug = threads.value.find((t) => String(t.id) === String(threadId))?.agent_id || currentAgentId.value
   if (!agentSlug) return
   await syncQueuedRequests(threadId, agentSlug)
   if (ts.queuedRequests && ts.queuedRequests.length > 0) {
@@ -2588,7 +2597,7 @@ const getFirstNonPinnedChat = (chatList) => {
 }
 
 const selectChat = async (chatId) => {
-  const targetChat = threads.value.find((chat) => chat.id === chatId) || null
+  const targetChat = threads.value.find((chat) => String(chat.id) === String(chatId)) || null
   const targetAgentId = targetChat?.agent_id || currentAgentId.value
   const previousThreadId = chatState.currentThreadId
 
@@ -2673,11 +2682,11 @@ const selectThreadFromRoute = async (threadId) => {
     return true
   }
 
-  if (!threads.value.length || !threads.value.find((thread) => thread.id === threadId)) {
+  if (!threads.value.length || !threads.value.find((thread) => String(thread.id) === String(threadId))) {
     await loadChatsList()
   }
 
-  const targetThread = threads.value.find((thread) => thread.id === threadId)
+  const targetThread = threads.value.find((thread) => String(thread.id) === String(threadId))
   if (!targetThread) {
     return false
   }
@@ -2740,7 +2749,8 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
         try {
           const generatedTitle = await agentApi.generateTitle(
             autoTitle,
-            configStore.config?.fast_model
+            configStore.config?.fast_model,
+            currentAgentId.value
           )
           if (generatedTitle) {
             const finalTitle = generatedTitle.slice(0, 30).replace(/\s+/g, ' ').trim()
@@ -2773,41 +2783,25 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
   }
 
   try {
-    const runResp = await agentApi.createAgentRun({
+    // 通过 POST /api/v1/agent/runs 创建 Run 并直接接收 SSE 流
+    // runId 从首个 metadata 事件提取，AI 消息占位符由 handleStreamChunk 的 loading/init 状态驱动
+    await startNewRun(threadId, {
+      thread_id: threadId,
       query: text,
       agent_slug: currentAgentId.value,
-      thread_id: threadId,
       meta: {
         request_id: requestId,
-        attachment_file_ids: pendingAttachmentFileIds
+        model_spec: modelSpec,
+        tool_approval_mode: toolApprovalMode || null,
+        attachment_file_ids: pendingAttachmentFileIds,
+        image_content: imageContent
       },
       image_content: imageContent,
       model_spec: modelSpec,
-      tool_approval_mode: toolApprovalMode,
+      tool_approval_mode: toolApprovalMode || null,
       queue_policy: queuePolicy
     })
-    const status = runResp?.status
-    const runId = runResp?.run_id
-    if (status === 'queued' || (!runId && status !== 'rejected')) {
-      threadState.queuedRequests = threadState.queuedRequests || []
-      threadState.queuedRequests.push({
-        request_id: requestId,
-        status: 'queued',
-        queue_policy: runResp?.queue_policy || queuePolicy,
-        queue_position: runResp?.queue_position || 1,
-        content: text
-      })
-      if (!hadActiveRun) {
-        threadState.isStreaming = false
-        threadState.replyLoadingVisible = false
-      }
-      await resumeQueuedRequestsForThread(threadId)
-    } else if (runId) {
-      threadState.pendingRequestId = requestId
-      await startRunStream(threadId, runId, 0)
-    } else {
-      throw new Error('创建 run 失败：缺少 run_id')
-    }
+    // 消息已发送，Run 流式事件由 useAgentRunStream 内部处理
   } catch (error) {
     if (!hadActiveRun) {
       threadState.isStreaming = false
@@ -2926,6 +2920,10 @@ const handleApprovalWithStream = async (answer) => {
 
   const pendingInterrupt = threadState.pendingInterrupt
 
+  // TODO(backend): 工具审批 resume 需后端在 POST /api/v1/agent/runs 支持
+  // 「创建子 Run 恢复中断 Run 执行」语义（created_by_run_id + 审批决策，query 可空）。
+  // 当前后端 resume 分支仅支持重连已有 Run 的 SSE 流，且 createAndEnqueue 要求 query 非空，
+  // 因此工具审批链路暂不可用。下方 createAgentRun 在新后端下会因返回 text/event-stream 而失败。
   try {
     hideApprovalState()
     threadState.pendingInterrupt = null
@@ -3164,7 +3162,7 @@ const loadChatsList = async () => {
     // 如果当前线程不在线程列表中，清空当前线程
     if (
       chatState.currentThreadId &&
-      !threads.value.find((t) => t.id === chatState.currentThreadId)
+      !threads.value.find((t) => String(t.id) === String(chatState.currentThreadId))
     ) {
       setCurrentThreadId(null)
     }
@@ -3909,7 +3907,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
     }
   }
 
-  .input-model-selector {
+  .input-agent-selector {
     display: inline-flex;
     align-items: center;
     justify-content: center;
