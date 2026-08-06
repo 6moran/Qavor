@@ -6,10 +6,10 @@ import (
 	"fmt"
 
 	"Qavor/internal/repository"
-	"Qavor/pkg/config"
 
 	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/components/retriever"
 )
 
 // ModelResolver 根据知识库绑定的模型 ID 创建 Eino 运行组件。
@@ -84,13 +84,12 @@ func (i *DynamicDocumentIndexer) Index(ctx context.Context, in IndexInput) (*Ind
 type DynamicAnswerEngine struct {
 	kbRepo    repository.KnowledgeBaseRepository
 	resolver  ModelResolver
-	chunkRepo repository.KnowledgeChunkRepository
-	cfg       config.RAGConfig
+	retriever retriever.Retriever
 }
 
 // NewDynamicAnswerEngine 创建按知识库解析模型的问答引擎。
-func NewDynamicAnswerEngine(kbRepo repository.KnowledgeBaseRepository, resolver ModelResolver, chunkRepo repository.KnowledgeChunkRepository, cfg config.RAGConfig) *DynamicAnswerEngine {
-	return &DynamicAnswerEngine{kbRepo: kbRepo, resolver: resolver, chunkRepo: chunkRepo, cfg: cfg}
+func NewDynamicAnswerEngine(kbRepo repository.KnowledgeBaseRepository, resolver ModelResolver, ret retriever.Retriever) *DynamicAnswerEngine {
+	return &DynamicAnswerEngine{kbRepo: kbRepo, resolver: resolver, retriever: ret}
 }
 
 // ErrEmbeddingModelMismatch 表示一次问答选择的知识库绑定了不同的 Embedding 模型。
@@ -107,7 +106,7 @@ func (e *DynamicAnswerEngine) Answer(ctx context.Context, in AnswerInput) (*Answ
 	if len(in.KnowledgeBaseIDs) == 0 {
 		return nil, errors.New("knowledge base ids are required")
 	}
-	var embeddingID, chatID uint
+	var chatID uint
 	for _, kbID := range in.KnowledgeBaseIDs {
 		base, err := e.kbRepo.FindByKBID(kbID)
 		if err != nil {
@@ -116,16 +115,8 @@ func (e *DynamicAnswerEngine) Answer(ctx context.Context, in AnswerInput) (*Answ
 		if base == nil {
 			return nil, errors.New("knowledge base not found")
 		}
-		if base.EmbeddingModelID == 0 {
-			return nil, ErrEmbeddingNotConfigured
-		}
 		if base.ChatModelID == 0 {
 			return nil, ErrLLMNotConfigured
-		}
-		if embeddingID == 0 {
-			embeddingID = base.EmbeddingModelID
-		} else if embeddingID != base.EmbeddingModelID {
-			return nil, ErrEmbeddingModelMismatch
 		}
 		if chatID == 0 {
 			chatID = base.ChatModelID
@@ -133,16 +124,11 @@ func (e *DynamicAnswerEngine) Answer(ctx context.Context, in AnswerInput) (*Answ
 			return nil, ErrChatModelMismatch
 		}
 	}
-	emb, err := e.resolver.ResolveEmbedding(ctx, embeddingID)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrEmbeddingUnavailable, err)
-	}
 	chat, err := e.resolver.ResolveChatModel(ctx, chatID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrLLMUnavailable, err)
 	}
-	retriever := NewPGVectorRetriever(emb, e.chunkRepo, e.cfg.VectorTopK)
-	graph, err := NewAnswerGraph(retriever, NewRAGChatTemplate(), chat)
+	graph, err := NewAnswerGraph(e.retriever, NewRAGChatTemplate(), chat)
 	if err != nil {
 		return nil, err
 	}
