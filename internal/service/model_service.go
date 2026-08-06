@@ -36,7 +36,7 @@ type ModelService interface {
 	// ResolveEmbedding 根据模型管理中的 ID 创建原生 Eino Embedder。
 	ResolveEmbedding(ctx context.Context, modelID uint) (einoEmbedding.Embedder, error)
 	// ResolveChatModel 根据模型管理中的 ID 创建原生 Eino ChatModel。
-	ResolveChatModel(ctx context.Context, modelID uint) (einoModel.BaseChatModel, error)
+	ResolveChatModel(ctx context.Context, modelID uint) (einoModel.ToolCallingChatModel, error)
 	// TestConnection 测试未保存的模型配置是否能正常连接。
 	TestConnection(ctx context.Context, req *request.ModelConnectionTestRequest) (*dto.ModelConnectionTestResponse, error)
 }
@@ -280,7 +280,7 @@ func (s *modelService) ResolveEmbedding(ctx context.Context, modelID uint) (eino
 }
 
 // ResolveChatModel 根据模型管理中的配置创建原生 Eino ChatModel。
-func (s *modelService) ResolveChatModel(ctx context.Context, modelID uint) (einoModel.BaseChatModel, error) {
+func (s *modelService) ResolveChatModel(ctx context.Context, modelID uint) (einoModel.ToolCallingChatModel, error) {
 	model, err := s.GetModelWithDecryptedKey(modelID)
 	if err != nil {
 		return nil, err
@@ -295,9 +295,9 @@ func (s *modelService) ResolveChatModel(ctx context.Context, modelID uint) (eino
 	if err != nil {
 		return nil, err
 	}
-	chatModel, ok := client.(einoModel.BaseChatModel)
-	if !ok {
-		return nil, errors.New(errors.CodeInternalError, "LLM client 不支持 Eino ChatModel")
+	chatModel := client.GetToolCallingModel()
+	if chatModel == nil {
+		return nil, errors.New(errors.CodeInternalError, "LLM client 不支持 ToolCallingChatModel")
 	}
 	return chatModel, nil
 }

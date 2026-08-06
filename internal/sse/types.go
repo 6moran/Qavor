@@ -20,6 +20,9 @@ const (
 
 	// 流结束
 	EventDone EventType = "done" // 流结束
+
+	// 工具调用事件
+	EventToolCall EventType = "tool.call" // 工具调用
 )
 
 // SSEEvent SSE 事件
@@ -89,6 +92,14 @@ type MessageCompleteData struct {
 type MessageCancelledData struct {
 	MessageID string `json:"message_id"`
 	Reason    string `json:"reason"`
+}
+
+// ToolCallData 工具调用数据
+type ToolCallData struct {
+	MessageID string `json:"message_id"`
+	ToolName  string `json:"tool_name"`
+	Arguments string `json:"arguments"`
+	Result    string `json:"result,omitempty"`
 }
 
 // --- 工具函数 ---

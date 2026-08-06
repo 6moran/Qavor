@@ -19,7 +19,7 @@ func NewBuiltinToolAdapter(t BuiltinTool) einotool.BaseTool {
 }
 
 // Info 获取工具元数据
-func (a *builtinToolAdapter) Info(ctx context.Context) (*schema.ToolInfo, error) {
+func (a *builtinToolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 	meta := a.builtinTool.Meta()
 
 	// 构建参数 schema
@@ -44,21 +44,18 @@ func (a *builtinToolAdapter) Info(ctx context.Context) (*schema.ToolInfo, error)
 	}, nil
 }
 
-// Run 执行工具
-func (a *builtinToolAdapter) Run(ctx context.Context, args string) (string, error) {
-	// 解析参数
+// InvokableRun 执行工具，实现 eino InvokableTool 接口
+func (a *builtinToolAdapter) InvokableRun(ctx context.Context, argumentsInJSON string, _ ...einotool.Option) (string, error) {
 	var argsMap map[string]any
-	if err := json.Unmarshal([]byte(args), &argsMap); err != nil {
+	if err := json.Unmarshal([]byte(argumentsInJSON), &argsMap); err != nil {
 		return "", err
 	}
 
-	// 执行工具
 	result, err := a.builtinTool.Execute(ctx, argsMap)
 	if err != nil {
 		return "", err
 	}
 
-	// 转换结果为字符串
 	resultBytes, err := json.Marshal(result)
 	if err != nil {
 		return "", err

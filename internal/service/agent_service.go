@@ -46,8 +46,8 @@ func (s *agentService) CreateAgent(req *request.CreateAgentRequest) (*dto.AgentR
 		// 模型参数默认值
 		Temperature: &defaultTemperature,
 		MaxTokens:   intPtr(4096),
-		// 工具相关默认值
-		Tools:                  []string{},
+		// 工具相关默认值 - 默认启用内置工具
+		Tools:                  []string{"current_time", "calculator"},
 		MCPServers:             []string{},
 		ToolRetrievalEnabled:   false,
 		ToolRetrievalThreshold: 60,

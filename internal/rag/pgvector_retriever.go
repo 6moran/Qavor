@@ -97,13 +97,13 @@ func (r *PGVectorRetriever) Retrieve(ctx context.Context, query string, opts ...
 	// 4. 查询向量化。
 	vectors, err := emb.EmbedStrings(ctx, []string{query})
 	if err != nil {
-		return nil, fmt.Errorf("embed query: %w", err)
+		return nil, fmt.Errorf("%w: embed query: %w", ErrEmbeddingUnavailable, err)
 	}
 	if len(vectors) == 0 || len(vectors[0]) == 0 {
-		return nil, ErrEmbeddingUnavailable
+		return nil, fmt.Errorf("%w: embedding returned empty vector", ErrEmbeddingUnavailable)
 	}
 	if err := validateVector(vectors[0]); err != nil {
-		return nil, fmt.Errorf("validate query vector: %w", err)
+		return nil, fmt.Errorf("%w: validate query vector: %w", ErrEmbeddingUnavailable, err)
 	}
 	queryVector := pgvector.NewVector(toFloat32(vectors[0]))
 
@@ -114,7 +114,7 @@ func (r *PGVectorRetriever) Retrieve(ctx context.Context, query string, opts ...
 	}
 	rows, err := r.repo.FindNearestByKBIDs(ctx, pgOpts.KnowledgeBaseIDs, queryVector, topK)
 	if err != nil {
-		return nil, fmt.Errorf("find nearest chunks: %w", err)
+		return nil, fmt.Errorf("%w: find nearest chunks: %w", ErrRetrievalUnavailable, err)
 	}
 
 	// 6. 映射为 schema.Document，过滤低于阈值的结果。

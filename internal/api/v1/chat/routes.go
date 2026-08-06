@@ -13,5 +13,9 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 	{
 		// 普通聊天（非流式）
 		chatGroup.POST("", ctrl.Chat)
+		chatGroup.POST("/call", ctrl.Chat)
+
+		// 流式聊天（SSE）
+		chatGroup.POST("/stream", ctrl.ChatStream)
 	}
 }

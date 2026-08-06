@@ -98,16 +98,16 @@
           <a-spin tip="正在加载分块内容..." />
         </div>
         <div v-else class="chunk-grid">
-          <div v-for="chunk in mappedChunks" :key="chunk.id" class="chunk-card">
+          <div v-for="chunk in contentState.chunks" :key="chunk.chunk_id" class="chunk-card">
             <div class="chunk-card-header">
-              <span class="chunk-order">#{{ chunk.chunk_order_index }}</span>
+              <span class="chunk-order">#{{ chunk.chunk_index }}</span>
             </div>
             <div class="chunk-card-content">
               {{ chunk.content.replace(/\n+/g, ' ') }}
             </div>
           </div>
         </div>
-        <div v-if="!contentState.loading && mappedChunks.length === 0" class="empty-content">
+        <div v-if="!contentState.loading && contentState.chunks.length === 0" class="empty-content">
           <p>{{ contentState.error || '暂无分块信息' }}</p>
         </div>
       </div>
@@ -123,7 +123,6 @@
 import { computed, h, onBeforeUnmount, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { documentApi } from '@/apis/knowledge_api'
-import { mergeChunks } from '@/utils/chunkUtils'
 import { getPreviewTypeByPath, normalizePreviewResponse } from '@/utils/file_preview'
 import {
   canPreviewChunks,
@@ -168,6 +167,7 @@ const contentState = ref({
   loaded: false,
   lines: [],
   content: '',
+  chunks: [],
   error: ''
 })
 const sourcePreview = ref({
@@ -196,6 +196,7 @@ const resetContentState = () => {
     loaded: false,
     lines: [],
     content: '',
+    chunks: [],
     error: ''
   }
 }
@@ -363,6 +364,7 @@ const loadParsedContent = async () => {
       loaded: true,
       lines: data?.lines || [],
       content: data?.content || '',
+      chunks: data?.chunks || [],
       error: ''
     }
   } catch (error) {
@@ -432,12 +434,10 @@ watch(
 )
 
 // 统计信息
-const mergeResult = computed(() => mergeChunks(contentState.value.lines || []))
-const mappedChunks = computed(() => mergeResult.value.chunks)
-const mergedContent = computed(() => contentState.value.content || mergeResult.value.content || '')
+const mergedContent = computed(() => contentState.value.content || '')
 const charCount = computed(() => mergedContent.value.length)
 const chunkCount = computed(
-  () => mappedChunks.value.length || contentState.value.lines?.length || 0
+  () => contentState.value.chunks.length
 )
 const viewInfoText = computed(() => {
   if (viewMode.value === 'chunks') {

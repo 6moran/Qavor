@@ -1,9 +1,10 @@
+
 @import './base.css';
 @import './base.dark.css';
 @import './sigma.css';
 @import './shorts.css';
 @import './dashboard.css';
-@import './code-highlight.less';
+@import './code-highlight.css';
 
 :root {
   --header-height: 45px;

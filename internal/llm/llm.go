@@ -15,6 +15,8 @@ type Client interface {
 	Generate(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.Message, error)
 	// Stream 流式生成回复
 	Stream(ctx context.Context, input []*schema.Message, opts ...model.Option) (*schema.StreamReader[*schema.Message], error)
+	// GetToolCallingModel 返回支持 Tool Calling 的模型（可选实现）
+	GetToolCallingModel() model.ToolCallingChatModel
 }
 
 // ClientFactory 客户端工厂函数类型

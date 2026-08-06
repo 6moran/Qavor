@@ -10,6 +10,7 @@ import (
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
 	contextmgr "Qavor/internal/context"
+	"Qavor/internal/eventbus"
 	"Qavor/internal/ingestion"
 	"Qavor/internal/mcp"
 	shortterm "Qavor/internal/memory/short_term"
@@ -17,6 +18,7 @@ import (
 	documentqueue "Qavor/internal/queue"
 	"Qavor/internal/rag"
 	"Qavor/internal/repository"
+	"Qavor/internal/run"
 	"Qavor/internal/service"
 	"Qavor/internal/skill"
 	skillapi "Qavor/internal/skill/api"
@@ -43,6 +45,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk/backgroundtask"
+	"github.com/cloudwego/eino/components/retriever"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -92,14 +95,15 @@ func expandSkillDir(path string) (string, error) {
 
 // App 应用结构体
 type App struct {
-	cfg        *config.Config
-	postgresDB *gorm.DB
-	redis      *redis.Client
-	router     *api.Router
-	server     *http.Server
-	workerStop context.CancelFunc
-	workerDone chan struct{}
-	mcpManager *mcp.MCPManager
+	cfg           *config.Config
+	postgresDB    *gorm.DB
+	redis         *redis.Client
+	router        *api.Router
+	server        *http.Server
+	workerStop    context.CancelFunc
+	workerDone    chan struct{}
+	runWorkerStop context.CancelFunc
+	mcpManager    *mcp.MCPManager
 	bgManager  *backgroundtask.Manager
 }
 
@@ -270,7 +274,7 @@ func (a *App) initDependencies() error {
 	modelSvc := service.NewModelService(modelRepo)
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo)
 	storage := service.NewMinIOObjectStorage()
-	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue)
+	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo)
 
@@ -286,15 +290,21 @@ func (a *App) initDependencies() error {
 			a.cfg.RAG.Embedding.BatchSize,
 			a.cfg.RAG.Embedding.Dimension,
 		)
-		answerer rag.AnswerChain = rag.NewDynamicAnswerEngine(
+		// 快速回答与独立检索共享同一个按知识库解析 Embedding 模型的检索器。
+		dynamicRetriever retriever.Retriever = rag.NewDynamicRetriever(
 			knowledgeBaseRepo,
 			modelSvc,
 			knowledgeChunkRepo,
-			a.cfg.RAG,
+			a.cfg.RAG.VectorTopK,
+		)
+		answerer rag.AnswerChain = rag.NewDynamicAnswerEngine(
+			knowledgeBaseRepo,
+			modelSvc,
+			dynamicRetriever,
 		)
 		ragCtrl *ragctrl.Controller
 	)
-	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, answerer)
+	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, dynamicRetriever, answerer)
 	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
 
 	if queue != nil {
@@ -345,7 +355,7 @@ func (a *App) initDependencies() error {
 
 	// 创建 ToolRegistry
 	toolRegistry := tool.NewDefaultRegistry()
-	toolProvider := builtin.NewBuiltinToolProvider()
+	toolProvider := builtin.NewBuiltinToolProvider(ragSvc)
 	toolRegistry.RegisterFromProvider(toolProvider)
 
 	// 初始化 Skill 相关组件
@@ -426,7 +436,7 @@ func (a *App) initDependencies() error {
 	sseAPICtrl := ssectrl.NewController(sseManager, logger.GetLogger())
 
 	// 创建 Chat Service
-	chatSvc := service.NewChatService(agentMgr, contextMgr, messageRepo, conversationRepo, logger.GetLogger())
+	chatSvc := service.NewChatService(agentMgr, contextMgr, modelSvc, sseManager, messageRepo, conversationRepo, logger.GetLogger())
 
 	// 创建 Chat Controller
 	chatCtrl := chatctrl.NewController(chatSvc)
@@ -434,8 +444,35 @@ func (a *App) initDependencies() error {
 	// 创建 Agent Options Provider
 	agentOpts := agentctrl.NewDefaultOptionsProvider(toolRegistry, mcpServerSvc, skillSvc, knowledgeBaseSvc, agentSvc)
 
+	// —— Run 流式服务装配（POST 单连接流式 + Redis Stream 持久化）——
+	var postStreamHandler *agentctrl.PostStreamHandler
+	var runController *agentctrl.RunController
+	if a.redis != nil {
+		runRepo := repository.NewAgentRunRepository(a.postgresDB)
+		blockDur := time.Duration(a.cfg.Run.BlockSeconds) * time.Second
+		pub := eventbus.NewPublisher(a.redis, a.cfg.Run.StreamMaxLen)
+		sub := eventbus.NewSubscriber(a.redis, blockDur)
+		reqQueue := run.NewRequestQueue(a.redis,
+			time.Duration(a.cfg.Run.LockTTLSeconds)*time.Second, blockDur)
+
+		executor := run.NewAgentExecutor(agentMgr, modelSvc)
+		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, logger.GetLogger(), a.cfg.Run.WorkerCount)
+
+		// 启动 Run Worker 池
+		runWorkerCtx, cancelRunWorker := context.WithCancel(context.Background())
+		a.runWorkerStop = cancelRunWorker
+		go runWorker.Run(runWorkerCtx)
+		logger.Info("Run Worker 已启动", zap.Int("worker_count", a.cfg.Run.WorkerCount))
+
+		heartbeatPeriod := time.Duration(a.cfg.SSE.HeartbeatInterval) * time.Second
+		postStreamHandler = agentctrl.NewPostStreamHandler(sub, runRepo, reqQueue, heartbeatPeriod, logger.GetLogger())
+		runController = agentctrl.NewRunController(runRepo, reqQueue, runWorker, logger.GetLogger())
+	} else {
+		logger.Warn("Redis 不可用，Run 流式服务未启动")
+	}
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController)
 
 	return nil
 }
@@ -535,6 +572,10 @@ func (a *App) gracefulShutdown() {
 		case <-time.After(5 * time.Second):
 			logger.Warn("等待文档处理 Worker 关闭超时")
 		}
+	}
+	if a.runWorkerStop != nil {
+		a.runWorkerStop()
+		logger.Info("Run Worker 已关闭")
 	}
 
 	// 关闭 MCP 服务器连接（SSE 断开、stdio 子进程终止等）

@@ -347,9 +347,13 @@ const startRunStreamReplay = async (runId) => {
   getStreamThreadState(props.childThreadId).isStreaming = true
 
   try {
-    const response = await agentApi.streamAgentRunEvents(runId, '0-0', {
-      signal: controller.signal
-    })
+    const response = await agentApi.createAgentRunStream(
+      {
+        thread_id: props.childThreadId,
+        resume: { run_id: runId, last_seq: '0-0' }
+      },
+      { signal: controller.signal }
+    )
     if (!response.ok) {
       throw new Error(`SSE response not ok: ${response.status}`)
     }

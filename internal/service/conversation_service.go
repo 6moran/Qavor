@@ -17,6 +17,7 @@ type ConversationService interface {
 	UpdateConversation(id uint, req *request.UpdateConversationRequest) (*dto.ConversationResponse, error)
 	DeleteConversation(id uint) error
 	ListConversations(req *request.ConversationListRequest) (*dto.ConversationListResponse, error)
+	SearchConversations(query string, page, pageSize int) (*dto.ConversationListResponse, error)
 	CloseConversation(id uint) (*dto.ConversationResponse, error)
 	ArchiveConversation(id uint) (*dto.ConversationResponse, error)
 }
@@ -122,6 +123,37 @@ func (s *conversationService) ListConversations(req *request.ConversationListReq
 		conversations, total, err = s.conversationRepo.List(offset, pageSize)
 	}
 
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]dto.ConversationResponse, 0, len(conversations))
+	for _, conv := range conversations {
+		items = append(items, *s.toResponse(&conv))
+	}
+
+	return &dto.ConversationListResponse{
+		Total: total,
+		Items: items,
+	}, nil
+}
+
+// SearchConversations 搜索会话
+func (s *conversationService) SearchConversations(query string, page, pageSize int) (*dto.ConversationListResponse, error) {
+	if query == "" {
+		return nil, errors.New(errors.CodeInvalidParam, "搜索关键词不能为空")
+	}
+
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 10
+	}
+
+	offset := (page - 1) * pageSize
+
+	conversations, total, err := s.conversationRepo.Search(query, offset, pageSize)
 	if err != nil {
 		return nil, err
 	}

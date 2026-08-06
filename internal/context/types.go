@@ -14,13 +14,14 @@ type ContextConfig struct {
 
 // ContextWindow 上下文窗口
 type ContextWindow struct {
-	Messages        []*schema.Message // 裁剪后的消息列表
-	TotalTokens     int               // 消息总 Token 数
-	TrimmedCount    int               // 被裁剪的消息数量
-	HasSystem       bool              // 是否包含系统消息
-	MemoryContext   string            // 长期记忆上下文（可选）
-	RAGContext      string            // RAG 检索结果（可选）
-	ToolDefinitions []interface{}     // 工具定义（可选）
+	Messages         []*schema.Message // 裁剪后的消息列表
+	TotalTokens      int               // 消息总 Token 数
+	TrimmedCount     int               // 被裁剪的消息数量
+	HasSystem        bool              // 是否包含系统消息
+	ShortTermSummary string            // 短期记忆摘要（由短期记忆模块压缩生成）
+	MemoryContext    string            // 长期记忆上下文（可选）
+	RAGContext       string            // RAG 检索结果（可选）
+	ToolDefinitions  []interface{}     // 工具定义（可选）
 }
 
 // ContextHistoryQuery 历史查询参数

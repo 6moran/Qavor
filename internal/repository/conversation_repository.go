@@ -12,10 +12,12 @@ import (
 type ConversationRepository interface {
 	Create(conversation *entity.Conversation) error
 	FindByID(id uint) (*entity.Conversation, error)
+	FindByThreadID(threadID string) (*entity.Conversation, error)
 	Update(conversation *entity.Conversation) error
 	Delete(id uint) error
 	List(offset, limit int) ([]entity.Conversation, int64, error)
 	ListWithStatus(status string, offset, limit int) ([]entity.Conversation, int64, error)
+	Search(query string, offset, limit int) ([]entity.Conversation, int64, error)
 }
 
 // conversationRepository 会话仓储实现
@@ -37,6 +39,19 @@ func (r *conversationRepository) Create(conversation *entity.Conversation) error
 func (r *conversationRepository) FindByID(id uint) (*entity.Conversation, error) {
 	var conversation entity.Conversation
 	err := r.db.First(&conversation, id).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &conversation, nil
+}
+
+// FindByThreadID 根据 ThreadID 查找会话
+func (r *conversationRepository) FindByThreadID(threadID string) (*entity.Conversation, error) {
+	var conversation entity.Conversation
+	err := r.db.Where("thread_id = ?", threadID).First(&conversation).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -93,6 +108,25 @@ func (r *conversationRepository) ListWithStatus(status string, offset, limit int
 	}
 
 	err := query.Order("created_at DESC").Offset(offset).Limit(limit).Find(&conversations).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return conversations, total, nil
+}
+
+// Search 搜索会话（按标题模糊匹配）
+func (r *conversationRepository) Search(query string, offset, limit int) ([]entity.Conversation, int64, error) {
+	var conversations []entity.Conversation
+	var total int64
+
+	dbQuery := r.db.Model(&entity.Conversation{}).Where("title LIKE ?", "%"+query+"%")
+
+	if err := dbQuery.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err := dbQuery.Order("is_pinned DESC, updated_at DESC").Offset(offset).Limit(limit).Find(&conversations).Error
 	if err != nil {
 		return nil, 0, err
 	}

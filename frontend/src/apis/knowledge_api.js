@@ -111,7 +111,7 @@ export const databaseApi = {
    * @returns {Promise} - 可访问的知识库列表
    */
   getAccessibleDatabases: async () => {
-    return apiGet('/api/knowledge/databases/accessible')
+    return apiGet('/api/v1/knowledge/databases')
   }
 }
 
