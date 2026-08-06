@@ -24,18 +24,23 @@ import (
 
 // knowledgeFileService 知识文件服务实现
 type knowledgeFileService struct {
-	baseRepo repository.KnowledgeBaseRepository // 知识库仓库
-	fileRepo repository.KnowledgeFileRepository // 文件仓库
-	jobRepo  repository.DocumentProcessingJobRepository
-	storage  ObjectStorage // 对象存储
-	queue    documentqueue.DocumentQueue
+	baseRepo  repository.KnowledgeBaseRepository  // 知识库仓库
+	fileRepo  repository.KnowledgeFileRepository  // 文件仓库
+	chunkRepo repository.KnowledgeChunkRepository // 知识分块仓库
+	jobRepo   repository.DocumentProcessingJobRepository
+	storage   ObjectStorage // 对象存储
+	queue     documentqueue.DocumentQueue
 }
 
 const maxKnowledgeFilePreviewSize = 2 << 20
 
 // NewKnowledgeFileService 创建知识文件服务实例
-func NewKnowledgeFileService(baseRepo repository.KnowledgeBaseRepository, fileRepo repository.KnowledgeFileRepository, jobRepo repository.DocumentProcessingJobRepository, storage ObjectStorage, queue documentqueue.DocumentQueue) KnowledgeFileService {
-	return &knowledgeFileService{baseRepo: baseRepo, fileRepo: fileRepo, jobRepo: jobRepo, storage: storage, queue: queue}
+func NewKnowledgeFileService(baseRepo repository.KnowledgeBaseRepository, fileRepo repository.KnowledgeFileRepository, jobRepo repository.DocumentProcessingJobRepository, storage ObjectStorage, queue documentqueue.DocumentQueue, chunkRepos ...repository.KnowledgeChunkRepository) KnowledgeFileService {
+	var chunkRepo repository.KnowledgeChunkRepository
+	if len(chunkRepos) > 0 {
+		chunkRepo = chunkRepos[0]
+	}
+	return &knowledgeFileService{baseRepo: baseRepo, fileRepo: fileRepo, chunkRepo: chunkRepo, jobRepo: jobRepo, storage: storage, queue: queue}
 }
 
 // Upload 上传文件到知识库（仅触发解析为markdown，不自动入库）
@@ -352,7 +357,20 @@ func (s *knowledgeFileService) Preview(kbID, fileID string) (*response.Knowledge
 	if len(content) > maxKnowledgeFilePreviewSize {
 		return nil, bizerrors.New(bizerrors.CodeInvalidParam, "文件过大，无法文本预览")
 	}
-	return &response.KnowledgeFilePreviewResponse{Content: string(content)}, nil
+	result := &response.KnowledgeFilePreviewResponse{Content: string(content), Chunks: []response.KnowledgeFileChunkPreview{}}
+	if s.chunkRepo != nil {
+		chunks, err := s.chunkRepo.FindByFileID(context.Background(), kbID, fileID)
+		if err != nil {
+			return nil, err
+		}
+		result.Chunks = make([]response.KnowledgeFileChunkPreview, 0, len(chunks))
+		for _, chunk := range chunks {
+			result.Chunks = append(result.Chunks, response.KnowledgeFileChunkPreview{
+				ChunkID: chunk.ChunkID, ChunkIndex: chunk.ChunkIndex, Content: chunk.Content, TokenCount: chunk.TokenCount,
+			})
+		}
+	}
+	return result, nil
 }
 
 // Download 返回知识库中原始文件的受控读取流。
