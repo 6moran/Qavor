@@ -2,206 +2,152 @@
 """
 文档解析模块
 
-将支持的 Office 文档和文本型 PDF 文件转换为 JSON Markdown 格式。
-支持的文件类型：
-- .docx (Word 文档)
-- .pdf  (PDF 文件，需要包含可提取的文本)
-- .pptx (PowerPoint 演示文稿)
+将支持的文档转换为 Markdown 并输出 JSON:
+- .docx/.pptx/.xlsx 通过 Docling 转换,文档内图片导出为临时文件并以路径引用
+- .pdf 逐页渲染为图片后使用 RapidOCR 识别
+- .jpg/.jpeg/.png/.bmp/.tiff/.tif 使用 RapidOCR 直接识别
 
-输出格式：JSON 对象，包含：
+输出格式:JSON 对象,与 Go 侧 ingestion.ParseResult 字段一一对应:
 - markdown: 转换后的 Markdown 文本
-- pages: 页面信息列表（仅 PDF）
-- metadata: 文件元数据（文件类型等）
+- picture_paths: 提取的图片临时文件路径列表(绝对路径,正斜杠)
+- pages: 页面信息列表(仅 PDF)
+- metadata: 文件元数据(文件类型、解析器)
+
+错误协议:{"error_code": "...", "error_message": "..."}
 """
 
 import argparse
+import base64
 import json
+import re
 import sys
+import threading
+import time
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Any
+
+from docling.datamodel.base_models import InputFormat
+from docling.document_converter import DocumentConverter
+
+from rapid_ocr import ocr_image, ocr_pdf
+
+
+@dataclass
+class ParseResult:
+    """解析结果,与 Go 侧 ingestion.ParseResult 字段一一对应。"""
+
+    markdown: str
+    picture_paths: list[str] = field(default_factory=list)
+    pages: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 def fail(code: str, message: str) -> None:
-    """
-    输出错误信息并退出程序
-
-    Args:
-        code: 错误代码，用于程序化处理
-        message: 人类可读的错误描述
-
-    输出格式：JSON 对象 {"error_code": "...", "error_message": "..."}
-    """
+    """输出错误信息并退出程序。"""
     print(json.dumps({"error_code": code, "error_message": message}, ensure_ascii=False))
     raise SystemExit(2)
 
 
-def parse_docx(path: Path) -> str:
+_docling_converter: DocumentConverter | None = None
+_docling_lock = threading.Lock()
+
+
+def _get_docling_converter() -> DocumentConverter:
+    """获取 Docling 转换器单例(进程内只加载一次)。"""
+    global _docling_converter
+    if _docling_converter is None:
+        with _docling_lock:
+            if _docling_converter is None:
+                _docling_converter = DocumentConverter(
+                    format_options={
+                        InputFormat.DOCX: None,
+                        InputFormat.XLSX: None,
+                        InputFormat.PPTX: None,
+                    }
+                )
+    return _docling_converter
+
+
+def _parse_data_uri(data_uri: str) -> tuple[bytes, str]:
+    """解析 data URI,返回 (image_data, mime_type)。"""
+    header, base64_data = data_uri.split(",", 1)
+    mime_type = header.split(":")[1].split(";")[0]
+    return base64.b64decode(base64_data), mime_type
+
+
+def _convert_with_docling(file_path: Path, result: ParseResult) -> str:
+    """使用 Docling 转换 docx/xlsx/pptx,图片导出到输入文件同级 images/ 目录。
+
+    导出路径以绝对路径(正斜杠)写入 markdown 引用并加入 picture_paths,
+    由 Go 侧上传 MinIO 后回填 URL。单张图片导出失败降级为文本占位,不中断解析。
     """
-    解析 Word 文档 (.docx) 并转换为 Markdown 格式
+    converter = _get_docling_converter()
+    converted = converter.convert(file_path)
+    if converted.status.name != "SUCCESS":
+        raise RuntimeError(f"Docling 转换失败: {converted.status}")
 
-    Args:
-        path: Word 文档的文件路径
+    doc = converted.document
+    if not (hasattr(doc, "pictures") and doc.pictures):
+        return doc.export_to_markdown()
 
-    Returns:
-        str: 转换后的 Markdown 文本
-
-    处理逻辑：
-    1. 提取所有段落文本，识别标题样式并转换为 Markdown 标题
-    2. 提取所有表格并转换为 Markdown 表格格式
-    3. 段落之间用空行分隔
-    """
-    from docx import Document
-
-    document = Document(path)
-    blocks: list[str] = []
-    # 遍历所有段落，提取文本内容
-    for paragraph in document.paragraphs:
-        text = paragraph.text.strip()
-        if not text:
-            continue  # 跳过空段落
-        # 检查段落样式，识别标题（Heading 1, Heading 2 等）
-        style = (paragraph.style.name or "").lower()
-        if style.startswith("heading"):
-            # 从样式名称中提取标题级别（数字）
-            level = next((char for char in style if char.isdigit()), "1")
-            blocks.append(f"{'#' * int(level)} {text}")  # 转换为 Markdown 标题语法
+    images_dir = file_path.parent / "images"
+    images_dir.mkdir(exist_ok=True)
+    replacements: list[str] = []
+    for pic in doc.pictures:
+        uri = str(pic.image.uri) if hasattr(pic, "image") and hasattr(pic.image, "uri") else ""
+        if uri.startswith("data:"):
+            try:
+                image_data, mime_type = _parse_data_uri(uri)
+                ext = mime_type.split("/")[-1]
+                name = f"img_{int(time.time() * 1_000_000)}.{ext}"
+                image_path = images_dir / name
+                image_path.write_bytes(image_data)
+                posix = image_path.as_posix()
+                result.picture_paths.append(posix)
+                replacements.append(f"![{name}]({posix})")
+            except Exception as exc:  # noqa: BLE001
+                print(f"图片导出失败: {exc}", file=sys.stderr)
+                replacements.append("[图片: 导出失败]")
         else:
-            blocks.append(text)
-    # 处理文档中的所有表格
-    for table in document.tables:
-        # 将表格转换为 Markdown 表格格式
-        # 每行的单元格内容用 " | " 分隔，换行符替换为空格
-        rows = [[cell.text.strip().replace("\n", " ") for cell in row.cells] for row in table.rows]
-        # 过滤掉完全为空的行
-        rows = [row for row in rows if any(row)]
-        if rows:
-            # 第一行作为表头
-            blocks.append("| " + " | ".join(rows[0]) + " |")
-            # 添加 Markdown 表格的分隔行
-            blocks.append("| " + " | ".join("---" for _ in rows[0]) + " |")
-            # 添加剩余的数据行
-            blocks.extend("| " + " | ".join(row) + " |" for row in rows[1:])
-    return "\n\n".join(blocks).strip()
+            replacements.append("")
 
-
-def parse_pdf(path: Path) -> tuple[str, list[dict[str, object]]]:
-    """
-    解析 PDF 文件并转换为 Markdown 格式
-
-    Args:
-        path: PDF 文件的文件路径
-
-    Returns:
-        tuple: (Markdown 文本, 页面信息列表)
-            - Markdown 文本：每页内容用 page 注释分隔
-            - 页面信息列表：包含每页的页码和文本内容
-
-    处理逻辑：
-    1. 使用 pdfplumber 提取每页的文本内容
-    2. 为每页添加 HTML 注释标记（<!-- page:N -->）
-    3. 检查提取的文本是否足够（少于20字符视为无有效文本）
-    4. 如果缺少可提取文本，提示需要 OCR 处理
-    """
-    import pdfplumber
-
-    pages: list[dict[str, object]] = []
-    blocks: list[str] = []
-    # 打开 PDF 文件并遍历每一页
-    with pdfplumber.open(path) as pdf:
-        for number, page in enumerate(pdf.pages, start=1):
-            # 提取当前页的文本内容
-            text = (page.extract_text() or "").strip()
-            # 记录页面信息（页码和文本）
-            pages.append({"number": number, "text": text})
-            if text:
-                # 添加页面标记注释和文本内容
-                blocks.extend((f"<!-- page:{number} -->", text))
-    markdown = "\n\n".join(blocks).strip()
-    # 检查提取的文本是否足够（去除空白后少于20字符视为无有效文本）
-    if len("".join(markdown.split())) < 20:
-        fail("PARSER_OCR_REQUIRED", "PDF 缺少可提取文本，当前未启用 OCR")
-    return markdown, pages
-
-
-def parse_pptx(path: Path) -> str:
-    """
-    解析 PowerPoint 演示文稿 (.pptx) 并转换为 Markdown 格式
-
-    Args:
-        path: PowerPoint 文件的文件路径
-
-    Returns:
-        str: 转换后的 Markdown 文本
-
-    处理逻辑：
-    1. 遍历每张幻灯片，添加页码标题
-    2. 提取幻灯片中的文本框内容
-    3. 提取幻灯片中的表格并转换为 Markdown 表格
-    4. 每张幻灯片之间用空行分隔
-    """
-    from pptx import Presentation
-
-    blocks: list[str] = []
-    # 遍历所有幻灯片
-    for number, slide in enumerate(Presentation(path).slides, start=1):
-        # 为每张幻灯片添加标题
-        blocks.append(f"# 第 {number} 页")
-        # 遍历幻灯片中的所有形状（文本框、表格、图片等）
-        for shape in slide.shapes:
-            # 处理文本框：提取文本内容
-            if getattr(shape, "has_text_frame", False):
-                text = shape.text.strip()
-                if text:
-                    blocks.append(text)
-            # 处理表格：转换为 Markdown 表格格式
-            if getattr(shape, "has_table", False):
-                for row in shape.table.rows:
-                    cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
-                    blocks.append("| " + " | ".join(cells) + " |")
-    return "\n\n".join(blocks).strip()
+    markdown = doc.export_to_markdown()
+    for replacement in replacements:
+        # 使用 lambda 避免 replacement 中的反斜杠/分组被 re.sub 解释
+        markdown = re.sub(r"<!--\s*image\s*-->", lambda _m: replacement, markdown, count=1)
+    return markdown
 
 
 def main() -> None:
-    """
-    主函数：解析命令行参数并执行文档解析
-
-    命令行参数：
-        --input: 必需，输入文件的路径
-
-    处理流程：
-    1. 解析命令行参数
-    2. 验证输入文件是否存在
-    3. 根据文件扩展名选择对应的解析器
-    4. 输出 JSON 格式的解析结果
-    """
-    # 设置命令行参数解析器
+    """解析命令行参数并执行文档解析,输出 JSON 结果。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
     args = parser.parse_args()
     path = Path(args.input)
-    # 验证输入文件是否存在
     if not path.is_file():
         fail("PARSER_FILE_NOT_FOUND", "输入文件不存在")
-    # 获取文件扩展名并转换为小写
     suffix = path.suffix.lower()
+    result = ParseResult(metadata={"file_type": suffix})
     try:
-        # 根据文件类型调用对应的解析器
-        if suffix == ".docx":
-            markdown, pages = parse_docx(path), []  # Word 文档不需要页面信息
+        if suffix in (".docx", ".pptx", ".xlsx"):
+            result.markdown = _convert_with_docling(path, result)
+            result.metadata["parser"] = "docling"
         elif suffix == ".pdf":
-            markdown, pages = parse_pdf(path)  # PDF 需要返回页面信息
-        elif suffix == ".pptx":
-            markdown, pages = parse_pptx(path), []  # PPT 不需要页面信息
+            result.markdown, result.pages = ocr_pdf(path)
+            result.metadata["parser"] = "rapidocr"
+        elif suffix in (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"):
+            result.markdown = ocr_image(path)
+            result.metadata["parser"] = "rapidocr"
         else:
             fail("PARSER_UNSUPPORTED_TYPE", f"不支持的文档类型: {suffix}")
     except SystemExit:
-        raise  # 重新抛出 SystemExit（来自 fail() 函数）
+        raise
     except Exception as exc:
-        # 捕获其他所有异常，记录错误并输出错误信息
         print(f"parser failed: {exc}", file=sys.stderr)
         fail("PARSER_FAILED", "文档解析失败")
-    # 输出 JSON 格式的解析结果
-    print(json.dumps({"markdown": markdown, "pages": pages, "metadata": {"file_type": suffix}}, ensure_ascii=False))
+    print(json.dumps(asdict(result), ensure_ascii=False))
 
 
 if __name__ == "__main__":
-    main()  # 脚本入口点
+    main()
