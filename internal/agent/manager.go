@@ -97,3 +97,33 @@ func (m *AgentManager) GetOrCreate(ctx context.Context, slug string, llm model.T
 
 	return a, nil
 }
+
+// GetConfig 获取 Agent 配置（不创建 Agent）
+func (m *AgentManager) GetConfig(_ context.Context, slug string) (map[string]interface{}, error) {
+	// 解析 slug（空值用默认）
+	if slug == "" {
+		_, defaultSlug, err := m.configFetcher.GetDefaultAgentConfig()
+		if err != nil {
+			return nil, err
+		}
+		slug = defaultSlug
+	}
+
+	cfg, err := m.configFetcher.GetAgentConfig(slug)
+	if err != nil {
+		return nil, err
+	}
+
+	// 转换为 map
+	result := map[string]interface{}{
+		"name":        cfg.Name,
+		"description": cfg.Description,
+		"instruction": cfg.Instruction,
+		"model_id":    cfg.ModelID,
+		"tools":       cfg.Tools,
+		"mcp_servers": cfg.MCPServers,
+		"skills":      cfg.Skills,
+	}
+
+	return result, nil
+}

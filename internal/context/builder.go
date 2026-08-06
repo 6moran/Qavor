@@ -43,6 +43,11 @@ func (b *ContextBuilder) buildSystemPrompt(window *ContextWindow) string {
 
 	content += fmt.Sprintf("\n\n当前时间：%s", time.Now().Format("2006-01-02 15:04:05"))
 
+	// 注入短期记忆摘要（对话历史的压缩表示）
+	if window.ShortTermSummary != "" {
+		content += fmt.Sprintf("\n\n[对话历史摘要]\n%s", window.ShortTermSummary)
+	}
+
 	if window.MemoryContext != "" {
 		content += fmt.Sprintf("\n\n[用户记忆]\n%s", window.MemoryContext)
 	}

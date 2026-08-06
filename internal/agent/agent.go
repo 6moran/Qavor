@@ -218,6 +218,50 @@ func (a *Agent) Execute(ctx context.Context, query string) (*AgentResponse, erro
 	return &AgentResponse{Content: result}, nil
 }
 
+// AgentEventIterator Agent 事件迭代器
+type AgentEventIterator struct {
+	iter interface {
+		Next() (*adk.AgentEvent, bool)
+	}
+}
+
+// Next 获取下一个事件
+func (it *AgentEventIterator) Next() (*adk.AgentEvent, bool) {
+	return it.iter.Next()
+}
+
+// ExecuteIter 执行智能体并返回事件迭代器（用于流式输出）
+func (a *Agent) ExecuteIter(ctx context.Context, query string) *AgentEventIterator {
+	ctx = WithQuery(ctx, query)
+
+	input := &adk.AgentInput{
+		Messages: []*schema.Message{
+			{
+				Role:    schema.User,
+				Content: query,
+			},
+		},
+	}
+
+	// 构建模型调用选项（temperature、max_tokens）
+	var modelOpts []model.Option
+	if a.config.Temperature != nil {
+		modelOpts = append(modelOpts, model.WithTemperature(float32(*a.config.Temperature)))
+	}
+	if a.config.MaxTokens != nil {
+		modelOpts = append(modelOpts, model.WithMaxTokens(*a.config.MaxTokens))
+	}
+
+	// 创建运行选项
+	var runOpts []adk.AgentRunOption
+	if len(modelOpts) > 0 {
+		runOpts = append(runOpts, adk.WithChatModelOptions(modelOpts))
+	}
+
+	iter := a.agent.Run(ctx, input, runOpts...)
+	return &AgentEventIterator{iter: iter}
+}
+
 // GetMCPManager 获取 MCP 管理器
 func (a *Agent) GetMCPManager() *mcp.MCPManager {
 	return a.mcpManager

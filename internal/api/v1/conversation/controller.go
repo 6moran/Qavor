@@ -134,6 +134,12 @@ func (ctrl *Controller) ListConversations(c *gin.Context) {
 		return
 	}
 
+	// 如果有搜索关键词，使用搜索接口
+	if req.Query != "" {
+		ctrl.SearchConversations(c)
+		return
+	}
+
 	resp, err := ctrl.conversationService.ListConversations(&req)
 	if err != nil {
 		if errors.IsBizError(err) {
@@ -143,6 +149,33 @@ func (ctrl *Controller) ListConversations(c *gin.Context) {
 			logger.Error("获取会话列表失败", zap.Error(err))
 			response.InternalServerError(c)
 		}
+		return
+	}
+
+	response.Success(c, resp)
+}
+
+// SearchConversations 搜索会话
+func (ctrl *Controller) SearchConversations(c *gin.Context) {
+	query := c.Query("q")
+	if query == "" {
+		response.Error(c, 400, "搜索关键词不能为空")
+		return
+	}
+
+	page := 1
+	if p, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil && p > 0 {
+		page = p
+	}
+
+	pageSize := 20
+	if ps, err := strconv.Atoi(c.DefaultQuery("page_size", "20")); err == nil && ps > 0 && ps <= 100 {
+		pageSize = ps
+	}
+
+	resp, err := ctrl.conversationService.SearchConversations(query, page, pageSize)
+	if err != nil {
+		response.BizError(c, err)
 		return
 	}
 

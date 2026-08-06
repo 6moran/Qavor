@@ -53,9 +53,9 @@ export function useAgentRequestQueue({
     const ts = getThreadState(threadId)
     if (!ts) return
     try {
-      const resp = await agentApi.listThreadQueuedRequests(threadId, agentSlug)
-      ts.queuedRequests = resp?.requests || []
-      ts.queueSnapshot = resp?.queue || { ...IDLE_QUEUE_SNAPSHOT }
+      // 后端未实现此接口，返回空数据
+      ts.queuedRequests = []
+      ts.queueSnapshot = { ...IDLE_QUEUE_SNAPSHOT }
     } catch (e) {
       console.warn('Failed to sync queued requests:', e)
     }

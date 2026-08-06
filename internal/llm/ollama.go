@@ -14,7 +14,12 @@ import (
 
 // ollamaClient Ollama 客户端实现
 type ollamaClient struct {
-	model model.BaseChatModel
+	model model.ToolCallingChatModel
+}
+
+// GetToolCallingModel 返回支持 Tool Calling 的模型
+func (c *ollamaClient) GetToolCallingModel() model.ToolCallingChatModel {
+	return c.model
 }
 
 // ollamaClientCache Ollama 客户端缓存
@@ -30,7 +35,7 @@ func ollamaCacheKey(modelName, baseURL string) string {
 
 // newOllamaClient 创建 Ollama 客户端
 // 同一 model + baseURL 组合会复用已有的客户端
-func newOllamaClient(ctx context.Context, provider, modelName, apiKey, baseURL string, timeout int) (Client, error) {
+func newOllamaClient(ctx context.Context, _, modelName, _, baseURL string, timeout int) (Client, error) {
 	if baseURL == "" {
 		baseURL = "http://localhost:11434"
 	}

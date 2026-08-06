@@ -19,6 +19,35 @@ type Config struct {
 	RAG           RAGConfig           `mapstructure:"rag"`
 	MCP           MCPConfig           `mapstructure:"mcp"`
 	SSE           SSEConfig           `mapstructure:"sse"` // SSE 流式服务配置
+	Run           RunConfig           `mapstructure:"run"` // Run 执行器 / 队列配置
+}
+
+// RunConfig Run 执行器与请求队列配置
+type RunConfig struct {
+	WorkerCount    int   `mapstructure:"worker_count"`     // Worker 池大小
+	StreamMaxLen   int64 `mapstructure:"stream_max_len"`   // Redis Stream 近似最大长度
+	LockTTLSeconds int   `mapstructure:"lock_ttl_seconds"` // 每线程执行锁 TTL（秒）
+	BlockSeconds   int   `mapstructure:"block_seconds"`    // XREAD/BRPOP 阻塞时长（秒）
+	RetentionHours int   `mapstructure:"retention_hours"`  // Run 事件流保留时长（小时）
+}
+
+// ApplyDefaults 为 Run 配置设置安全默认值
+func (c *RunConfig) ApplyDefaults() {
+	if c.WorkerCount <= 0 {
+		c.WorkerCount = 3
+	}
+	if c.StreamMaxLen <= 0 {
+		c.StreamMaxLen = 10000
+	}
+	if c.LockTTLSeconds <= 0 {
+		c.LockTTLSeconds = 1800
+	}
+	if c.BlockSeconds <= 0 {
+		c.BlockSeconds = 5
+	}
+	if c.RetentionHours <= 0 {
+		c.RetentionHours = 24
+	}
 }
 
 // RAGConfig RAG 功能配置。第一版仅支持文档索引和问答同步接口。

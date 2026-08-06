@@ -220,7 +220,7 @@ const handleRenameChat = async ({ chatId, title }) => {
 }
 
 const handleTogglePinChat = async (threadId) => {
-  const thread = threads.value.find((item) => item.id === threadId)
+  const thread = threads.value.find((item) => String(item.id) === String(threadId))
   if (!thread) return
   try {
     await chatThreadsStore.updateThread(threadId, null, !thread.is_pinned)

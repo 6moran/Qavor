@@ -14,7 +14,12 @@ import (
 
 // openAIClient OpenAI 客户端实现
 type openAIClient struct {
-	model model.BaseChatModel
+	model model.ToolCallingChatModel
+}
+
+// GetToolCallingModel 返回支持 Tool Calling 的模型
+func (c *openAIClient) GetToolCallingModel() model.ToolCallingChatModel {
+	return c.model
 }
 
 // openaiClientCache OpenAI 客户端缓存
