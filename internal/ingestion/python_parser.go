@@ -27,7 +27,7 @@ type PythonParser struct {
 	images     ImageUploader
 }
 
-// NewPythonParser 创建解析器。images 可选，提供后解析产出的图片会上传并回填 Markdown 链接。
+// NewPythonParser 创建解析器。images 可选，提供后解析产出的图片会上传并回填 Markdown 链接，仅首个生效。
 func NewPythonParser(pythonPath, scriptPath string, images ...ImageUploader) *PythonParser {
 	var img ImageUploader
 	if len(images) > 0 {

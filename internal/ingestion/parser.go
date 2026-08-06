@@ -14,7 +14,7 @@ type Parser struct {
 	images ImageUploader
 }
 
-// NewParser 创建解析器。images 可选，用于 .md 源文件内嵌 data URI 图片的上传回填。
+// NewParser 创建解析器。images 可选，用于 .md 源文件内嵌 data URI 图片的上传回填，仅首个生效。
 func NewParser(python DocumentParser, images ...ImageUploader) *Parser {
 	var img ImageUploader
 	if len(images) > 0 {
