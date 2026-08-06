@@ -98,6 +98,33 @@ llm:
   seed: null                                  # 随机种子（用于可重现的结果）
   user: null                                  # 用户标识
 
+# Agent 配置（本地文件系统与安全管控）
+agent:
+  workspace_root: "data/workspaces"           # agent 默认工作区根，每 agent 下建 <slug> 子目录
+  security:
+    enabled: true                             # 安全管控总开关
+    shell_timeout_seconds: 0                  # 单条 shell 命令超时秒数（0=无显式超时，依赖后台任务前台超时兜底）
+    credentials:
+      enabled: true                           # 凭据路径守卫（.env、私钥、secret/token 等）
+      extra_patterns: []                      # 追加的敏感路径/文件名模式
+    command:
+      enabled: true                           # 高危命令黑名单（rm -rf /、dd 擦盘、shutdown 等）
+      extra_bans: []                          # 追加的高危命令词
+    redaction:
+      enabled: true                           # 输出脱敏（KEY=xxx 键值对 + 敏感环境变量值）
+      extra_env_keys: []                      # 追加脱敏的环境变量名
+    syntax:
+      enabled: true                           # 写前语法预检（JSON/YAML 非法阻断，Go 引入新错误警告）
+    staleness:
+      enabled: true                           # 陈旧警告（文件被外部修改时提示，不阻断）
+    line_prefix:
+      enabled: true                           # read 行号前缀检测（阻止写入时混入行号前缀）
+    exit_code:
+      enabled: true                           # 退出码语义解释（grep 无匹配等信息性退出码不标失败）
+    output:
+      max_bytes: 51200                        # shell 输出截断阈值（字节），默认 50KB
+      offload_token_limit: 20000              # 大工具结果落盘 token 阈值
+
 # SSE 流式服务配置
 sse:
   max_stream_time: 300                        # 单次流式最大时长（秒），默认 300（5分钟）

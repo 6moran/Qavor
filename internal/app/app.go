@@ -2,6 +2,7 @@ package app
 
 import (
 	agentpkg "Qavor/internal/agent"
+	"Qavor/internal/agent/localfs/security"
 	"Qavor/internal/api"
 	agentctrl "Qavor/internal/api/v1/agent"
 	chatctrl "Qavor/internal/api/v1/chat"
@@ -21,7 +22,7 @@ import (
 	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/skill/remote"
 	"Qavor/internal/sse"
-	
+
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
@@ -41,6 +42,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudwego/eino/adk/backgroundtask"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -98,6 +100,7 @@ type App struct {
 	workerStop context.CancelFunc
 	workerDone chan struct{}
 	mcpManager *mcp.MCPManager
+	bgManager  *backgroundtask.Manager
 }
 
 // NewApp 创建应用实例
@@ -368,8 +371,19 @@ func (a *App) initDependencies() error {
 
 	skillCtrl := skillapi.NewController(skillSvc, skillLoader, installSvc)
 
+	// 创建 agent 运行时（本地文件系统安全策略 + 全局后台任务管理器）
+	// 安全策略构建后只读，可跨 agent 共享；后台任务管理器在应用关闭时统一回收。
+	bgManager := backgroundtask.New(context.Background(), &backgroundtask.Config{})
+	a.bgManager = bgManager
+	agentRuntime := &agentpkg.AgentRuntime{
+		Policies:            security.NewPolicies(&a.cfg.Agent.Security),
+		WorkspaceRoot:       a.cfg.Agent.WorkspaceRoot,
+		ShellTimeoutSeconds: a.cfg.Agent.Security.ShellTimeoutSeconds,
+		Background:          bgManager,
+	}
+
 	// 创建 AgentManager
-	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, agentSvc)
+	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, agentSvc, agentRuntime)
 
 	// 创建 Service
 	conversationSvc := service.NewConversationService(conversationRepo)
@@ -526,6 +540,13 @@ func (a *App) gracefulShutdown() {
 	// 关闭 MCP 服务器连接（SSE 断开、stdio 子进程终止等）
 	if a.mcpManager != nil {
 		a.mcpManager.CloseAll()
+	}
+
+	// 关闭 agent 后台任务管理器（终止运行中的后台任务并回收进程）
+	if a.bgManager != nil {
+		if err := a.bgManager.Close(ctx); err != nil {
+			logger.Warn("关闭 agent 后台任务管理器失败", zap.Error(err))
+		}
 	}
 
 	// 关闭数据库连接

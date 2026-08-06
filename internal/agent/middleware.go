@@ -66,11 +66,42 @@ func NewToolFilterMiddleware(
 }
 
 func (m *ToolFilterMiddleware) BeforeAgent(ctx context.Context, runCtx *adk.ChatModelAgentContext[*schema.Message]) (context.Context, *adk.ChatModelAgentContext[*schema.Message], error) {
-	// 1. 内置工具始终保留
-	result := make([]einotool.BaseTool, 0, len(m.builtinTools)+len(m.mcpTools))
-	result = append(result, m.builtinTools...)
+	// MCP 工具名集合：从传入工具中排除，稍后按检索注入，避免重复/覆盖
+	mcpNameSet := make(map[string]bool, len(m.mcpTools))
+	for _, t := range m.mcpTools {
+		if info, err := t.Info(ctx); err == nil {
+			mcpNameSet[info.Name] = true
+		}
+	}
 
-	// 2. MCP 工具：向量检索或直接透传
+	// 1. 内置工具始终保留
+	result := make([]einotool.BaseTool, 0, len(runCtx.Tools)+len(m.mcpTools))
+	result = append(result, m.builtinTools...)
+	seen := make(map[string]bool, len(m.builtinTools))
+	for _, t := range m.builtinTools {
+		if info, err := t.Info(ctx); err == nil {
+			seen[info.Name] = true
+		}
+	}
+
+	// 2. 保留 runCtx 传入的已有工具（如 deep 的 filesystem 工具 read_file/execute 等），
+	//    排除本中间件管理的 MCP 工具与已注入的内置工具
+	for _, t := range runCtx.Tools {
+		info, err := t.Info(ctx)
+		if err != nil {
+			continue
+		}
+		if mcpNameSet[info.Name] {
+			continue
+		}
+		if seen[info.Name] {
+			continue
+		}
+		seen[info.Name] = true
+		result = append(result, t)
+	}
+
+	// 3. MCP 工具：向量检索或直接透传
 	mcpTools := m.mcpTools
 	query := QueryFrom(ctx)
 	if m.vectorizer != nil && m.retrieval.Enabled && len(m.mcpTools) > m.retrieval.Threshold && query != "" {

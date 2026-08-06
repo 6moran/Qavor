@@ -27,17 +27,19 @@ type AgentManager struct {
 	toolRegistry     *tool.Registry
 	skillsMiddleware *skill.SkillsMiddleware
 	configFetcher    ConfigFetcher
+	runtime          *AgentRuntime
 	agents           sync.Map
 }
 
 // NewAgentManager 创建 AgentManager
-func NewAgentManager(mcpManager *mcp.MCPManager, vectorizer *mcp.ToolVectorizer, toolRegistry *tool.Registry, skillsMiddleware *skill.SkillsMiddleware, configFetcher ConfigFetcher) *AgentManager {
+func NewAgentManager(mcpManager *mcp.MCPManager, vectorizer *mcp.ToolVectorizer, toolRegistry *tool.Registry, skillsMiddleware *skill.SkillsMiddleware, configFetcher ConfigFetcher, runtime *AgentRuntime) *AgentManager {
 	return &AgentManager{
 		mcpManager:       mcpManager,
 		vectorizer:       vectorizer,
 		toolRegistry:     toolRegistry,
 		skillsMiddleware: skillsMiddleware,
 		configFetcher:    configFetcher,
+		runtime:          runtime,
 	}
 }
 
@@ -85,7 +87,7 @@ func (m *AgentManager) GetOrCreate(ctx context.Context, slug string, llm model.T
 	}
 
 	// 5. 创建 Agent
-	a, err := NewAgent(cfg, llm, m.mcpManager, m.toolRegistry, m.vectorizer, m.skillsMiddleware)
+	a, err := NewAgent(cfg, llm, m.mcpManager, m.toolRegistry, m.vectorizer, m.skillsMiddleware, m.runtime)
 	if err != nil {
 		logger.Error("创建 Agent 失败", zap.String("slug", slug), zap.Error(err))
 		return nil, err

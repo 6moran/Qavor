@@ -38,6 +38,7 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 	userSkillGroup := r.Group("/skills")
 	userSkillGroup.Use(middleware.Auth())
 	{
+		userSkillGroup.GET("/accessible", ctrl.ListAccessibleSkills)
 		userSkillGroup.POST("/remote/list", ctrl.ListRemoteSkills)
 		userSkillGroup.POST("/remote/prepare", ctrl.PrepareRemoteSkills)
 	}

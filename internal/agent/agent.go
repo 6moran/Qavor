@@ -3,12 +3,17 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
+	"Qavor/internal/agent/localfs"
 	"Qavor/internal/mcp"
 	"Qavor/internal/skill"
 	"Qavor/internal/tool"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/filesystem"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
@@ -32,7 +37,8 @@ type AgentResponse struct {
 func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 	mcpManager *mcp.MCPManager, toolRegistry *tool.Registry,
 	vectorizer *mcp.ToolVectorizer,
-	skillsMiddleware *skill.SkillsMiddleware) (*Agent, error) {
+	skillsMiddleware *skill.SkillsMiddleware,
+	runtime *AgentRuntime) (*Agent, error) {
 
 	if cfg == nil {
 		return nil, fmt.Errorf("agent config is required")
@@ -108,15 +114,33 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		enableGeneralSubAgent = *cfg.EnableGeneralSubAgent
 	}
 
-	// 沙箱目录按 slug 隔离：data/sandboxes/<slug>
-	sandboxRoot := "data/sandboxes"
-	if cfg.Slug != "" {
-		sandboxRoot = sandboxRoot + "/" + cfg.Slug
+	// 本地文件系统与 Shell（安全管控内聚于 localfs）。
+	// 注入 Backend/StreamingShell/Background 后，eino 自动注册
+	// read_file/write_file/edit_file/glob/grep/execute 工具及后台任务控制工具。
+	var (
+		localBackend  filesystem.Backend
+		localShell    filesystem.StreamingShell
+		backgroundCfg *deep.BackgroundConfig
+	)
+	if runtime != nil {
+		// 工作目录按 slug 隔离：data/workspaces/<slug>
+		workDir := runtime.WorkspaceRoot
+		if cfg.Slug != "" {
+			workDir = filepath.Join(runtime.WorkspaceRoot, cfg.Slug)
+		}
+		if err := os.MkdirAll(workDir, 0o755); err != nil {
+			return nil, fmt.Errorf("创建 agent 工作目录失败: %w", err)
+		}
+		localBackend = localfs.NewLocalBackend(workDir, runtime.Policies)
+		localShell = localfs.NewLocalStreamingShell(workDir, runtime.Policies,
+			time.Duration(runtime.ShellTimeoutSeconds)*time.Second)
+		if runtime.Background != nil {
+			backgroundCfg = &deep.BackgroundConfig{
+				Manager:   runtime.Background,
+				OutputDir: filepath.Join(workDir, "background_output"),
+			}
+		}
 	}
-	//sandbox, err := NewDiskSandbox(sandboxRoot)
-	//if err != nil {
-	//	return nil, err
-	//}
 
 	deepConfig := &deep.Config{
 		Name:                   cfg.Name,
@@ -126,9 +150,10 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		ToolsConfig:            adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil}},
 		MaxIteration:           maxIteration,
 		WithoutGeneralSubAgent: !enableGeneralSubAgent,
-		//Backend:                sandbox,               // 磁盘沙箱（read_file/write_file/edit_file/glob/grep）
-		//StreamingShell:         &DefaultStreamingShell{}, // 流式 Shell（execute）
-		Handlers: handlers,
+		Backend:                localBackend,
+		StreamingShell:         localShell,
+		Background:             backgroundCfg,
+		Handlers:               handlers,
 	}
 
 	a, err := deep.New(context.Background(), deepConfig)
