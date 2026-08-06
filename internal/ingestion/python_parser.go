@@ -8,37 +8,48 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"go.uber.org/zap"
 )
 
 var ErrPythonParserFailed = errors.New("document parser failed")
 
 // PythonParser 执行配置的 Python 解析器，无需通过 shell 调用。
 // 输入内容写入临时目录后以本地路径传给脚本，修复 MinIO 对象路径误用问题。
-// 临时目录在 Parse 成功后保留，由调用方在图片回填完成后调用 Cleanup 清理。
+// 临时目录为 Parse 局部状态，解析结束后（无论成败）立即清理；
+// 成功时若配置了 ImageUploader，会先将产物图片上传回填 Markdown 再清理。
+// 实例无跨调用共享状态，可并发使用。
 type PythonParser struct {
 	pythonPath string
 	scriptPath string
 	extraEnv   []string
 	args       []string
-	tmpDir     string
+	images     ImageUploader
 }
 
-func NewPythonParser(pythonPath, scriptPath string) *PythonParser {
-	return &PythonParser{pythonPath: pythonPath, scriptPath: scriptPath}
+// NewPythonParser 创建解析器。images 可选，提供后解析产出的图片会上传并回填 Markdown 链接。
+func NewPythonParser(pythonPath, scriptPath string, images ...ImageUploader) *PythonParser {
+	var img ImageUploader
+	if len(images) > 0 {
+		img = images[0]
+	}
+	return &PythonParser{pythonPath: pythonPath, scriptPath: scriptPath, images: img}
 }
 
 // Parse 将输入内容写入临时目录（文件名保留原扩展名）后执行 Python 脚本解析。
 func (p *PythonParser) Parse(ctx context.Context, input ParseInput) (ParseResult, error) {
-	p.Cleanup() // 兜底清理上一次残留，防止泄漏
 	tmpDir, err := os.MkdirTemp("", "qavor-parse-*")
 	if err != nil {
 		return ParseResult{}, fmt.Errorf("创建临时目录失败: %w", err)
 	}
-	p.tmpDir = tmpDir
+	defer func() {
+		if rmErr := os.RemoveAll(tmpDir); rmErr != nil {
+			logWarn("清理解析临时目录失败", zap.String("dir", tmpDir), zap.Error(rmErr))
+		}
+	}()
 
 	localPath := filepath.Join(tmpDir, filepath.Base(input.Filename))
 	if err := os.WriteFile(localPath, input.Content, 0o600); err != nil {
-		p.Cleanup()
 		return ParseResult{}, fmt.Errorf("写入临时文件失败: %w", err)
 	}
 
@@ -48,21 +59,14 @@ func (p *PythonParser) Parse(ctx context.Context, input ParseInput) (ParseResult
 	}
 	cmd := exec.CommandContext(ctx, p.pythonPath, args...)
 	cmd.Env = append(os.Environ(), p.extraEnv...)
-	stdout, err := cmd.Output()
-	result, parseErr := parsePythonOutput(stdout, err)
+	stdout, runErr := cmd.Output()
+	result, parseErr := parsePythonOutput(stdout, runErr)
 	if parseErr != nil {
-		p.Cleanup()
 		return ParseResult{}, parseErr
 	}
+	// 图片回填必须在临时目录清理前完成（defer 随后执行）。
+	result.Markdown = ReplaceImageLinks(result.Markdown, result.PicturePaths, DeriveImageFolder(input.Path), p.images)
 	return result, nil
-}
-
-// Cleanup 删除最近一次 Parse 创建的临时目录。可重复调用。
-func (p *PythonParser) Cleanup() {
-	if p.tmpDir != "" {
-		_ = os.RemoveAll(p.tmpDir)
-		p.tmpDir = ""
-	}
 }
 
 // parsePythonOutput 将脚本 stdout 与执行错误映射为 ParseResult。
