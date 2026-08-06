@@ -32,9 +32,11 @@ import (
 	"Qavor/pkg/database"
 	"Qavor/pkg/logger"
 	"Qavor/pkg/minio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -49,6 +51,25 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+// imageUploader 将 ObjectStorage 适配为 ingestion.ImageUploader。
+type imageUploader struct {
+	storage service.ObjectStorage
+}
+
+// UploadImage 上传图片字节到对象存储，返回可公开访问的 URL。
+func (u imageUploader) UploadImage(folder, filename string, data []byte) (string, error) {
+	// 优先按扩展名映射类型（http.DetectContentType 无法识别 TIFF 等格式）
+	contentType := mime.TypeByExtension(filepath.Ext(filename))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	obj, err := u.storage.UploadReader(folder, filename, contentType, bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", fmt.Errorf("上传图片 %s/%s 失败: %w", folder, filename, err)
+	}
+	return obj.URL, nil
+}
 
 // qavorDataDir 返回工作目录下的 qavor 数据目录，并确保目录存在。
 // 工作目录无法解析或创建失败时返回 error，调用方应终止初始化。
@@ -308,7 +329,11 @@ func (a *App) initDependencies() error {
 		workerCtx, cancelWorker := context.WithCancel(context.Background())
 		a.workerStop = cancelWorker
 		a.workerDone = make(chan struct{})
-		parser := ingestion.NewParser(ingestion.NewPythonParser("python", "pkg/documentparser/python/parse_document.py"))
+		imgUploader := imageUploader{storage: storage}
+		parser := ingestion.NewParser(
+			ingestion.NewPythonParser("python", "pkg/documentparser/python/parse_document.py", imgUploader),
+			imgUploader,
+		)
 		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser, indexer)
 		hostname, _ := os.Hostname()
 		workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())

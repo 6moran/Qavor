@@ -1,6 +1,9 @@
 # 文档解析模块依赖包
-# 用于解析 PDF、Word 和 PowerPoint 文件
+# Office 文档(docx/pptx/xlsx)使用 Docling 转换;图片与 PDF 使用 RapidOCR 识别
 
-pdfplumber==0.11.8    # PDF 文本提取
-python-docx==1.2.0    # Word 文档解析
-python-pptx==1.0.2    # PowerPoint 文档解析
+docling>=2.68.0                   # Office 文档 -> Markdown
+rapidocr>=3.0.0                   # 图片 OCR(PP-OCRv5)
+pymupdf>=1.24.0                   # PDF 渲染为图片
+Pillow>=10.0.0                    # 图像处理
+numpy>=1.26.0                     # RapidOCR 依赖
+opencv-python-headless>=4.9.0     # RapidOCR 依赖(无 GUI 环境)
