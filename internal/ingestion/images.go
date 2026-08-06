@@ -21,7 +21,8 @@ type ImageUploader interface {
 }
 
 // imageLinkPattern 匹配 Markdown 图片语法 ![alt](src)。
-var imageLinkPattern = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+// src 排除换行，避免跨行畸形链接被整体匹配。
+var imageLinkPattern = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\r\n]+)\)`)
 
 // dataURIPattern 匹配内嵌 base64 图片 data:image/xxx;base64,....
 var dataURIPattern = regexp.MustCompile(`data:image/([a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)`)
@@ -85,7 +86,7 @@ func ReplaceDataURILinks(markdown string, folder string, uploader ImageUploader)
 		}
 		url, err := uploader.UploadImage(folder, fmt.Sprintf("embedded_%d.%s", time.Now().UnixNano(), ext), data)
 		if err != nil {
-			logWarn("上传 data URI 图片失败", zap.Error(err))
+			logWarn("上传 data URI 图片失败", zap.String("folder", folder), zap.Error(err))
 			return match
 		}
 		return fmt.Sprintf("![%s](%s)", alt, url)
