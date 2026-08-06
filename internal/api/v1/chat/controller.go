@@ -88,7 +88,7 @@ func (ctrl *Controller) Chat(c *gin.Context) {
 			response.BizError(c, err)
 		} else {
 			logger.Error("聊天失败", zap.Error(err))
-			response.InternalServerError(c)
+			response.InternalServerErrorWithDetail(c, err)
 		}
 		return
 	}

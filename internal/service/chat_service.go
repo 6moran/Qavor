@@ -50,24 +50,29 @@ func NewChatService(
 
 // Chat 发送消息并获取回复
 func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSlug string, message string) (*ChatResult, error) {
-	// 1. 保存用户消息
-	userMsg := &entity.Message{
-		ConversationID: conversationID,
-		Role:           "user",
-		Content:        message,
-	}
-	if err := s.messageRepo.Create(userMsg); err != nil {
-		return nil, fmt.Errorf("保存用户消息失败: %w", err)
-	}
+	// conversationID == 0 表示不需要持久化（如标题生成场景）
+	persist := conversationID > 0
 
-	// 2. 更新 Short Memory（用户消息）
-	if s.contextMgr != nil {
-		userSchemaMsg := &schema.Message{
-			Role:    schema.User,
-			Content: message,
+	// 1. 保存用户消息
+	if persist {
+		userMsg := &entity.Message{
+			ConversationID: conversationID,
+			Role:           "user",
+			Content:        message,
 		}
-		if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg); err != nil {
-			s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
+		if err := s.messageRepo.Create(userMsg); err != nil {
+			return nil, fmt.Errorf("保存用户消息失败: %w", err)
+		}
+
+		// 2. 更新 Short Memory（用户消息）
+		if s.contextMgr != nil {
+			userSchemaMsg := &schema.Message{
+				Role:    schema.User,
+				Content: message,
+			}
+			if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg); err != nil {
+				s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
+			}
 		}
 	}
 
@@ -103,28 +108,33 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 	}
 
 	// 5. 保存 Assistant 消息
-	assistantMsg := &entity.Message{
-		ConversationID: conversationID,
-		Role:           "assistant",
-		Content:        resp.Content,
-	}
-	if err := s.messageRepo.Create(assistantMsg); err != nil {
-		s.logger.Error("保存 Assistant 消息失败", zap.Error(err))
-	}
-
-	// 6. 更新 Short Memory（Assistant 回复）
-	if s.contextMgr != nil {
-		assistantSchemaMsg := &schema.Message{
-			Role:    schema.Assistant,
-			Content: resp.Content,
+	var messageID uint
+	if persist {
+		assistantMsg := &entity.Message{
+			ConversationID: conversationID,
+			Role:           "assistant",
+			Content:        resp.Content,
 		}
-		if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, assistantSchemaMsg); err != nil {
-			s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
+		if err := s.messageRepo.Create(assistantMsg); err != nil {
+			s.logger.Error("保存 Assistant 消息失败", zap.Error(err))
+		} else {
+			messageID = assistantMsg.ID
+		}
+
+		// 6. 更新 Short Memory（Assistant 回复）
+		if s.contextMgr != nil {
+			assistantSchemaMsg := &schema.Message{
+				Role:    schema.Assistant,
+				Content: resp.Content,
+			}
+			if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, assistantSchemaMsg); err != nil {
+				s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
+			}
 		}
 	}
 
 	return &ChatResult{
-		MessageID:      assistantMsg.ID,
+		MessageID:      messageID,
 		ConversationID: conversationID,
 		Content:        resp.Content,
 		DeliveryStatus: "complete",

@@ -232,7 +232,7 @@ func (it *AgentEventIterator) Next() (*adk.AgentEvent, bool) {
 
 // ExecuteIter 执行智能体并返回事件迭代器（用于流式输出）
 func (a *Agent) ExecuteIter(ctx context.Context, query string) *AgentEventIterator {
-	ctx = WithQuery(ctx, query)
+	ctx = a.executionContext(ctx, query)
 
 	input := &adk.AgentInput{
 		Messages: []*schema.Message{

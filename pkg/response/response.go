@@ -45,26 +45,12 @@ func BizError(c *gin.Context, err error) {
 		})
 		return
 	}
-	// 其他错误类型
-	Error(c, errors.CodeInternalError, errors.GetMessage(errors.CodeInternalError))
-	bizErr, ok := err.(*errors.BizError)
-	if !ok {
-		logger.Error("Error 断言失败，非业务错误")
-		InternalServerError(c)
-		return
-	}
-	c.JSON(http.StatusOK, Response{
-		Code:    bizErr.Code,
-		Message: bizErr.Message,
-	})
+	logger.Error("BizError 断言失败，非业务错误")
+	InternalServerError(c)
 }
 
 // BadRequest 400 错误
 func BadRequest(c *gin.Context, message string) {
-	c.JSON(400, Response{
-		Code:    errors.CodeBadRequest,
-		Message: message,
-	})
 	c.JSON(http.StatusBadRequest, Response{
 		Code:    errors.CodeBadRequest,
 		Message: message,
@@ -73,10 +59,6 @@ func BadRequest(c *gin.Context, message string) {
 
 // Unauthorized 401 错误
 func Unauthorized(c *gin.Context, message string) {
-	c.JSON(401, Response{
-		Code:    errors.CodeUnauthorized,
-		Message: message,
-	})
 	c.JSON(http.StatusUnauthorized, Response{
 		Code:    errors.CodeUnauthorized,
 		Message: message,
@@ -85,10 +67,6 @@ func Unauthorized(c *gin.Context, message string) {
 
 // NotFound 404 错误
 func NotFound(c *gin.Context, message string) {
-	c.JSON(404, Response{
-		Code:    errors.CodeNotFound,
-		Message: message,
-	})
 	c.JSON(http.StatusNotFound, Response{
 		Code:    errors.CodeNotFound,
 		Message: message,
@@ -126,6 +104,18 @@ func InternalServerError(c *gin.Context) {
 	c.JSON(http.StatusInternalServerError, Response{
 		Code:    errors.CodeInternalError,
 		Message: errors.GetMessage(errors.CodeInternalError),
+	})
+}
+
+// InternalServerErrorWithDetail 500 服务器内部错误（带错误详情，仅非 release 模式返回原始错误）
+func InternalServerErrorWithDetail(c *gin.Context, err error) {
+	msg := errors.GetMessage(errors.CodeInternalError)
+	if err != nil && gin.Mode() != gin.ReleaseMode {
+		msg = err.Error()
+	}
+	c.JSON(http.StatusInternalServerError, Response{
+		Code:    errors.CodeInternalError,
+		Message: msg,
 	})
 }
 

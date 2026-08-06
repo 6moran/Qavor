@@ -190,6 +190,7 @@ export function useAgentRunStream({
     if (!ts || ts.activeRunId !== runId) return
     const isInterrupted =
       status === RUN_INTERRUPTED_STATUS && hasPendingInterruptInThreads(touchedThreadIds, runId)
+    const shouldPreserveMessages = status === 'failed' || status === 'cancelled'
     touchedThreadIds.forEach((id) => streamSmoother?.flushThread(id))
     ts.isStreaming = false
     ts.activeRunSteerable = false
@@ -206,8 +207,14 @@ export function useAgentRunStream({
     ts.pendingRequestId = null
     fetchThreadMessages({ agentId: unref(currentAgentId), threadId, delay }).finally(() => {
       const latest = getThreadState(threadId)
-      if (!latest?.activeRunId || latest.activeRunId === runId) {
-        resetOnGoingConv(threadId, { preserveRequestStreams: true })
+      const canCleanUp = !latest?.activeRunId || latest.activeRunId === runId
+      if (canCleanUp) {
+        if (shouldPreserveMessages) {
+          // 失败/取消时保留已流式显示的消息，避免 resetOnGoingConv 清空它们
+          // 后续新的 Run 开始时 resetOnGoingConv 会自然清理
+        } else {
+          resetOnGoingConv(threadId, { preserveRequestStreams: true })
+        }
       }
       fetchAgentState(unref(currentAgentId), threadId)
       if (scroll) onScrollToBottom()
@@ -462,7 +469,10 @@ export function useAgentRunStream({
 
         if (event === 'error') {
           sawTerminalEvent = true
-          finalizeRunStream(threadId, runId, touchedThreadIds, { delay: 300, scroll: true })
+          const errorMessage = payload?.message || data?.message || 'Agent 执行失败'
+          console.error('[SSE] Run error:', { runId, errorMessage, payload })
+          handleChatError(new Error(errorMessage), 'stream')
+          finalizeRunStream(threadId, runId, touchedThreadIds, { delay: 300, scroll: true, status: 'failed' })
         }
       })
 

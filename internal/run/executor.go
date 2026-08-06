@@ -65,7 +65,7 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, emit fu
 			break
 		}
 		if event.Err != nil {
-			return assistantMsgs, event.Err
+			return assistantMsgs, fmt.Errorf("agent 事件错误: %w", event.Err)
 		}
 		// 工具审批中断
 		if event.Action != nil && event.Action.Interrupted != nil {
