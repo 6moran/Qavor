@@ -61,7 +61,7 @@ func (u imageUploader) UploadImage(folder, filename string, data []byte) (string
 	contentType := http.DetectContentType(data)
 	obj, err := u.storage.UploadReader(folder, filename, contentType, bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("上传图片 %s/%s 失败: %w", folder, filename, err)
 	}
 	return obj.URL, nil
 }
