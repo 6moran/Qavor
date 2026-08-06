@@ -30,7 +30,7 @@ from typing import Any
 from docling.datamodel.base_models import InputFormat
 from docling.document_converter import DocumentConverter
 
-from rapid_ocr import ocr_image, ocr_pdf
+from rapid_ocr import IMAGE_EXTENSIONS, ocr_image, ocr_pdf
 
 
 @dataclass
@@ -94,13 +94,13 @@ def _convert_with_docling(file_path: Path, result: ParseResult) -> str:
     images_dir = file_path.parent / "images"
     images_dir.mkdir(exist_ok=True)
     replacements: list[str] = []
-    for pic in doc.pictures:
+    for index, pic in enumerate(doc.pictures):
         uri = str(pic.image.uri) if hasattr(pic, "image") and hasattr(pic.image, "uri") else ""
         if uri.startswith("data:"):
             try:
                 image_data, mime_type = _parse_data_uri(uri)
                 ext = mime_type.split("/")[-1]
-                name = f"img_{int(time.time() * 1_000_000)}.{ext}"
+                name = f"img_{int(time.time() * 1_000_000)}_{index}.{ext}"
                 image_path = images_dir / name
                 image_path.write_bytes(image_data)
                 posix = image_path.as_posix()
@@ -136,7 +136,7 @@ def main() -> None:
         elif suffix == ".pdf":
             result.markdown, result.pages = ocr_pdf(path)
             result.metadata["parser"] = "rapidocr"
-        elif suffix in (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif"):
+        elif suffix in IMAGE_EXTENSIONS:
             result.markdown = ocr_image(path)
             result.metadata["parser"] = "rapidocr"
         else:

@@ -7,6 +7,7 @@ PDF 使用 PyMuPDF 逐页渲染为图片后识别,流式处理避免内存峰值
 """
 
 import os
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -79,9 +80,14 @@ def ocr_pdf(pdf_path: str | Path, zoom: float = 2.0) -> tuple[str, list[dict]]:
     matrix = fitz.Matrix(zoom, zoom)
     try:
         for number in range(pdf.page_count):
-            pix = pdf[number].get_pixmap(matrix=matrix, alpha=False)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            text = ocr_image(img)
+            try:
+                pix = pdf[number].get_pixmap(matrix=matrix, alpha=False)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                text = ocr_image(img)
+            except Exception as exc:  # noqa: BLE001
+                # 单页失败降级为空文本,不中断整个文档解析
+                print(f"第 {number + 1} 页 OCR 失败: {exc}", file=sys.stderr)
+                text = ""
             pages.append({"number": number + 1, "text": text})
             if text:
                 texts.append(f"<!-- page:{number + 1} -->\n{text}")
