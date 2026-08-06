@@ -39,6 +39,23 @@ func NewContextManager(
 	}
 }
 
+// LoadHistory 加载对话历史（含短期记忆摘要），返回裁剪后的消息列表
+// 实现 run.ContextProvider 接口
+func (m *contextManager) LoadHistory(ctx context.Context, conversationID uint) ([]*schema.Message, error) {
+	window, err := m.FetchContext(ctx, &ContextHistoryQuery{
+		ConversationID: conversationID,
+		Limit:          50,
+	})
+	if err != nil {
+		return nil, err
+	}
+	window, err = m.CompressContext(ctx, window)
+	if err != nil {
+		return nil, err
+	}
+	return window.Messages, nil
+}
+
 // FetchContext 提取历史消息与短期记忆
 func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistoryQuery) (*ContextWindow, error) {
 	messages, err := m.fetcher.LoadHistory(ctx, query)

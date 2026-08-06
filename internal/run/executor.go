@@ -32,7 +32,7 @@ func NewAgentExecutor(agentMgr *agent.AgentManager, resolver ModelResolver) Agen
 }
 
 // Execute 执行 Agent，通过 emit 回调发出流式事件，返回完整的 Assistant 消息列表（用于持久化）
-func (e *agentExecutor) Execute(ctx context.Context, slug, query string, emit func(StreamEvent)) ([]*schema.Message, error) {
+func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent)) ([]*schema.Message, error) {
 	// 1. 获取 Agent 配置，解析模型 ID
 	cfg, err := e.agentMgr.GetConfig(ctx, slug)
 	if err != nil {
@@ -58,7 +58,7 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, emit fu
 
 	// 3. 执行并遍历事件
 	var assistantMsgs []*schema.Message
-	iter := a.ExecuteIter(ctx, query)
+	iter := a.ExecuteIter(ctx, query, history...)
 	for {
 		event, ok := iter.Next()
 		if !ok {

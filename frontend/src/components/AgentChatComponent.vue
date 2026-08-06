@@ -1989,6 +1989,7 @@ const buildOptimisticHumanMessage = ({
     type: 'human',
     content: text,
     message_type: imageContent ? 'multimodal_image' : 'text',
+    request_id: requestId,
     extra_metadata: {
       request_id: requestId,
       attachments
@@ -2610,13 +2611,13 @@ const selectChat = async (chatId) => {
     return
 
   // 中断之前线程的流式输出（如果存在）
-  if (previousThreadId && previousThreadId !== chatId) {
+  if (previousThreadId && String(previousThreadId) !== String(chatId)) {
     stopThreadStream(previousThreadId)
     stopRunStreamSubscription(previousThreadId)
     stopAllRequestStreams(previousThreadId)
   }
 
-  if (previousThreadId !== chatId) {
+  if (String(previousThreadId) !== String(chatId)) {
     resetAgentPanelState()
   }
 
@@ -2678,7 +2679,7 @@ const selectThreadFromRoute = async (threadId) => {
     return true
   }
 
-  if (chatState.currentThreadId === threadId) {
+  if (String(chatState.currentThreadId) === String(threadId)) {
     return true
   }
 
