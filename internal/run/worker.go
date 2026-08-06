@@ -230,8 +230,8 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 
 	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, emit)
 
-	// 3.1 持久化 Assistant 消息（刷新后可从 DB 加载）
-	if conversationID > 0 {
+	// 3.1 持久化 Assistant 消息（刷新后可从 DB 加载）—— 无论成功或失败都保存已生成的消息
+	if conversationID > 0 && len(assistantMsgs) > 0 {
 		for _, msg := range assistantMsgs {
 			if msg == nil || msg.Content == "" {
 				continue
@@ -244,7 +244,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				RequestID:      requestID,
 			}
 			if err := w.messageRepo.Create(aiMsg); err != nil {
-				w.logger.Warn("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))
+				w.logger.Error("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))
 			}
 		}
 	}
@@ -256,6 +256,12 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	case errors.Is(execErr, ErrInterrupted):
 		w.finish(ctx, run, eventbus.StatusInterrupted, "interrupted")
 	case execErr != nil:
+		w.logger.Error("Run 执行失败",
+			zap.String("run_id", run.ID),
+			zap.String("agent_slug", item.AgentSlug),
+			zap.String("error", execErr.Error()),
+			zap.Int("assistant_msgs_count", len(assistantMsgs)),
+		)
 		w.publishError(ctx, run, execErr)
 		w.finish(ctx, run, eventbus.StatusFailed, "failed")
 	default:

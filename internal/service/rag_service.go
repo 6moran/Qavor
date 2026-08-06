@@ -72,11 +72,11 @@ func (s *rAGService) validateRequest(kbIDs []string, query string) (string, erro
 func mapRAGRetrievalError(err error) error {
 	switch {
 	case errors.Is(err, rag.ErrEmbeddingNotConfigured):
-		return apperrors.New(CodeRAGNotConfigured, "RAG 未配置")
+		return apperrors.NewWithErr(CodeRAGNotConfigured, "RAG 未配置", err)
 	case errors.Is(err, rag.ErrEmbeddingUnavailable):
-		return apperrors.New(CodeRAGEmbeddingFailed, "Embedding 服务不可用")
+		return apperrors.NewWithErr(CodeRAGEmbeddingFailed, "Embedding 服务不可用", err)
 	case errors.Is(err, rag.ErrRetrievalUnavailable), errors.Is(err, rag.ErrEmbeddingModelMismatch):
-		return apperrors.New(CodeRAGRetrievalFailed, "向量检索失败")
+		return apperrors.NewWithErr(CodeRAGRetrievalFailed, "向量检索失败", err)
 	default:
 		return nil
 	}
@@ -112,7 +112,7 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 		if logger.Initialized() {
 			logger.Warn("RAG 检索失败", zap.Error(err))
 		}
-		return nil, apperrors.New(CodeRAGRetrievalFailed, "向量检索失败")
+		return nil, apperrors.NewWithErr(CodeRAGRetrievalFailed, "向量检索失败", err)
 	}
 
 	chunks := rag.BuildRetrievedChunks(docs)
