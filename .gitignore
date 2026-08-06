@@ -84,3 +84,6 @@ AGENT.md
 *_test.go
 *_test_helper.go
 internal/testhelper/
+# Python
+__pycache__/
+*.pyc
