@@ -425,7 +425,22 @@ watch(
   }
 )
 
-const DEFAULT_SUPPORTED_TYPES = ['.txt', '.pdf', '.jpg', '.jpeg', '.md', '.docx']
+// 与后端 ingestion.Parser 支持的格式保持一致:
+// .txt/.md 直读;.docx/.pptx/.xlsx 经 Docling 转换;.pdf 与图片经 RapidOCR 识别
+const DEFAULT_SUPPORTED_TYPES = [
+  '.txt',
+  '.md',
+  '.docx',
+  '.pptx',
+  '.xlsx',
+  '.pdf',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.bmp',
+  '.tiff',
+  '.tif'
+]
 
 const normalizeExtensions = (extensions) => {
   if (!Array.isArray(extensions)) {
