@@ -467,7 +467,7 @@ func (a *App) initDependencies() error {
 			time.Duration(a.cfg.Run.LockTTLSeconds)*time.Second, blockDur)
 
 		executor := run.NewAgentExecutor(agentMgr, modelSvc)
-		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, logger.GetLogger(), a.cfg.Run.WorkerCount)
+		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, logger.GetLogger(), a.cfg.Run.WorkerCount)
 
 		// 启动 Run Worker 池
 		runWorkerCtx, cancelRunWorker := context.WithCancel(context.Background())

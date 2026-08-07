@@ -5,7 +5,12 @@
         <span>最近</span>
         <ChevronDown :size="14" class="collapse-icon" :class="{ collapsed: listCollapsed }" />
       </div>
-      <div v-show="!listCollapsed" class="conversation-list">
+      <div
+        v-show="!listCollapsed"
+        ref="listRef"
+        class="conversation-list"
+        @scroll="handleListScroll"
+      >
         <template v-if="sortedChats.length > 0">
           <div
             v-for="chat in sortedChats"
@@ -57,16 +62,7 @@
           </div>
         </template>
         <div v-else-if="!collapsed" class="empty-list">暂无对话历史</div>
-        <div v-if="hasMoreChats && !collapsed" class="load-more-wrapper">
-          <a-button
-            type="text"
-            class="load-more-btn"
-            :loading="isLoadingMore"
-            @click="$emit('load-more-chats')"
-          >
-            {{ isLoadingMore ? '加载中...' : '加载更多' }}
-          </a-button>
-        </div>
+        <div v-if="isLoadingMore" class="load-more-hint">加载中...</div>
       </div>
     </div>
   </section>
@@ -105,14 +101,11 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits([
-  'select-chat',
-  'delete-chat',
-  'rename-chat',
-  'toggle-pin',
-  'load-more-chats'
-])
+const emit = defineEmits(['select-chat', 'delete-chat', 'rename-chat', 'toggle-pin', 'load-more-chats'])
 
+const SCROLL_THRESHOLD = 48
+
+const listRef = ref(null)
 const listCollapsed = ref(false)
 
 const sortedChats = computed(() => {
@@ -126,6 +119,14 @@ const sortedChats = computed(() => {
     return dateA.diff(dateB)
   })
 })
+
+const handleListScroll = () => {
+  const el = listRef.value
+  if (!el || props.isLoadingMore || !props.hasMoreChats) return
+  const remaining = el.scrollHeight - el.scrollTop - el.clientHeight
+  if (remaining > SCROLL_THRESHOLD) return
+  emit('load-more-chats')
+}
 
 const renameChat = async (chatId) => {
   const chat = props.chatsList.find((item) => String(item.id) === String(chatId))
@@ -229,6 +230,7 @@ const renameChat = async (chatId) => {
 <style lang="less" scoped>
 .conversation-nav-section {
   display: flex;
+  flex: 1;
   min-height: 0;
   flex-direction: column;
   gap: 8px;
@@ -237,6 +239,7 @@ const renameChat = async (chatId) => {
 }
 
 .conversation-title {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -277,7 +280,7 @@ const renameChat = async (chatId) => {
 
 .conversation-list {
   min-height: 0;
-  flex: 1;
+  max-height: calc(8 * 40px + 7 * 2px);
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
@@ -290,6 +293,7 @@ const renameChat = async (chatId) => {
   position: relative;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   width: 100%;
   height: 40px;
   padding: 0 8px;
@@ -400,13 +404,10 @@ const renameChat = async (chatId) => {
   padding: 8px;
 }
 
-.load-more-wrapper {
+.load-more-hint {
   padding: 8px;
+  color: var(--gray-400);
+  font-size: 13px;
   text-align: center;
-}
-
-.load-more-btn {
-  color: var(--main-color);
-  font-size: 14px;
 }
 </style>

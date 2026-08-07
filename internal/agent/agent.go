@@ -60,6 +60,11 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		return nil, fmt.Errorf("llm is required")
 	}
 
+	// 未配置系统提示词时使用默认提示词，避免 LLM 返回无意义的通用回复
+	if cfg.Instruction == "" {
+		cfg.Instruction = "你是一个智能助手，可以根据用户的问题调用可用的工具来提供帮助。请用中文回答用户的问题。"
+	}
+
 	// 获取 MCP 工具（只获取配置的服务器）
 	var mcpTools []einotool.BaseTool
 	if len(cfg.MCPServers) > 0 {
@@ -173,16 +178,19 @@ func (a *Agent) executionContext(ctx context.Context, query string) context.Cont
 }
 
 // Execute 执行智能体
-func (a *Agent) Execute(ctx context.Context, query string) (*AgentResponse, error) {
+func (a *Agent) Execute(ctx context.Context, query string, history ...*schema.Message) (*AgentResponse, error) {
 	ctx = a.executionContext(ctx, query)
 
+	messages := make([]*schema.Message, 0, len(history)+1)
+	messages = append(messages, history...)
+	messages = append(messages, &schema.Message{
+		Role:    schema.User,
+		Content: query,
+	})
+
 	input := &adk.AgentInput{
-		Messages: []*schema.Message{
-			{
-				Role:    schema.User,
-				Content: query,
-			},
-		},
+		Messages:        messages,
+		EnableStreaming: true,
 	}
 
 	// 构建模型调用选项（temperature、max_tokens）
@@ -231,16 +239,19 @@ func (it *AgentEventIterator) Next() (*adk.AgentEvent, bool) {
 }
 
 // ExecuteIter 执行智能体并返回事件迭代器（用于流式输出）
-func (a *Agent) ExecuteIter(ctx context.Context, query string) *AgentEventIterator {
+func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schema.Message) *AgentEventIterator {
 	ctx = a.executionContext(ctx, query)
 
+	messages := make([]*schema.Message, 0, len(history)+1)
+	messages = append(messages, history...)
+	messages = append(messages, &schema.Message{
+		Role:    schema.User,
+		Content: query,
+	})
+
 	input := &adk.AgentInput{
-		Messages: []*schema.Message{
-			{
-				Role:    schema.User,
-				Content: query,
-			},
-		},
+		Messages:        messages,
+		EnableStreaming: true,
 	}
 
 	// 构建模型调用选项（temperature、max_tokens）
