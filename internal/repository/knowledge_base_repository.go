@@ -38,6 +38,19 @@ func (r *knowledgeBaseRepository) FindByKBID(kbID string) (*entity.KnowledgeBase
 	return &base, nil
 }
 
+// FindByKBIDs 批量根据知识库ID查询，单条 SQL 完成；空输入返回空切片。
+func (r *knowledgeBaseRepository) FindByKBIDs(kbIDs []string) ([]*entity.KnowledgeBase, error) {
+	if len(kbIDs) == 0 {
+		return nil, nil
+	}
+	var bases []*entity.KnowledgeBase
+	err := r.db.Where("kb_id IN ?", kbIDs).Find(&bases).Error
+	if err != nil {
+		return nil, err
+	}
+	return bases, nil
+}
+
 // List 分页查询知识库列表
 func (r *knowledgeBaseRepository) List(offset, limit int, keyword string) ([]*entity.KnowledgeBase, int64, error) {
 	// 构建查询条件

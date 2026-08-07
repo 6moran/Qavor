@@ -19,6 +19,8 @@ type KnowledgeBaseRepository interface {
 	Create(base *entity.KnowledgeBase) error
 	// FindByKBID 根据知识库ID查询
 	FindByKBID(kbID string) (*entity.KnowledgeBase, error)
+	// FindByKBIDs 批量根据知识库ID查询，单条 SQL 完成，缺失的 ID 不返回
+	FindByKBIDs(kbIDs []string) ([]*entity.KnowledgeBase, error)
 	// List 分页查询知识库列表
 	List(offset, limit int, keyword string) ([]*entity.KnowledgeBase, int64, error)
 	// Update 更新知识库记录

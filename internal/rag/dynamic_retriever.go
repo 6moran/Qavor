@@ -2,11 +2,14 @@ package rag
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
+	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 
 	"github.com/cloudwego/eino/components/retriever"
@@ -57,7 +60,15 @@ func (r *DynamicRetriever) Retrieve(ctx context.Context, query string, opts ...r
 		return nil, errors.New("knowledge base ids are required")
 	}
 
-	// 1. 按知识库解析 Embedding 模型，按模型分组。
+	// 1. 按知识库解析 Embedding 模型，按模型分组（一次批量查询）。
+	bases, err := r.kbRepo.FindByKBIDs(pgOpts.KnowledgeBaseIDs)
+	if err != nil {
+		return nil, fmt.Errorf("find knowledge bases: %w", err)
+	}
+	byID := make(map[string]*entity.KnowledgeBase, len(bases))
+	for _, base := range bases {
+		byID[base.KBID] = base
+	}
 	type kbGroup struct {
 		embeddingID uint
 		kbIDs       []string
@@ -66,10 +77,7 @@ func (r *DynamicRetriever) Retrieve(ctx context.Context, query string, opts ...r
 	var groupOrder []uint
 
 	for _, kbID := range pgOpts.KnowledgeBaseIDs {
-		base, err := r.kbRepo.FindByKBID(kbID)
-		if err != nil {
-			return nil, fmt.Errorf("find knowledge base %s: %w", kbID, err)
-		}
+		base := byID[kbID]
 		if base == nil {
 			return nil, fmt.Errorf("knowledge base %s not found", kbID)
 		}
@@ -112,17 +120,34 @@ func (r *DynamicRetriever) Retrieve(ctx context.Context, query string, opts ...r
 		allDocs = append(allDocs, docs...)
 	}
 
-	// 4. 按相似度降序排序并截断 TopK。
+	// 4. 按相似度降序排序，按内容去重后截断 TopK。
+	// 同一内容出现在多个知识库（同一文档被上传到不同库）时，仅保留相似度最高的一条。
 	sort.Slice(allDocs, func(i, j int) bool {
 		si, _ := allDocs[i].MetaData[MetaKeyScore].(float64)
 		sj, _ := allDocs[j].MetaData[MetaKeyScore].(float64)
 		return si > sj
 	})
-	if len(allDocs) > topK {
-		allDocs = allDocs[:topK]
+	deduped := make([]*schema.Document, 0, len(allDocs))
+	seen := make(map[string]struct{}, len(allDocs))
+	for _, d := range allDocs {
+		key := contentDigest(d.Content)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		deduped = append(deduped, d)
+	}
+	if len(deduped) > topK {
+		deduped = deduped[:topK]
 	}
 
-	return allDocs, nil
+	return deduped, nil
+}
+
+// contentDigest 计算片段内容的 SHA-256 摘要，用于检索结果去重。
+func contentDigest(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
 }
 
 var _ retriever.Retriever = (*DynamicRetriever)(nil)
