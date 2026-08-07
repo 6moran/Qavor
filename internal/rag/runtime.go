@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 
 	"github.com/cloudwego/eino/components/embedding"
@@ -71,7 +72,7 @@ func (i *DynamicDocumentIndexer) Index(ctx context.Context, in IndexInput) (*Ind
 	if overlap < 0 {
 		overlap = i.overlap
 	}
-	transformer := NewDocumentTransformer(chunkTokens, overlap)
+	transformer := NewDocumentTransformer(chunkTokens, overlap, in.ChunkPreset)
 	indexer := NewPGVectorIndexer(emb, i.chunkRepo, i.batchSize, i.dimension)
 	pipeline, err := NewDocumentIndexPipeline(transformer, indexer)
 	if err != nil {
@@ -107,11 +108,16 @@ func (e *DynamicAnswerEngine) Answer(ctx context.Context, in AnswerInput) (*Answ
 		return nil, errors.New("knowledge base ids are required")
 	}
 	var chatID uint
+	bases, err := e.kbRepo.FindByKBIDs(in.KnowledgeBaseIDs)
+	if err != nil {
+		return nil, fmt.Errorf("find knowledge bases: %w", err)
+	}
+	byID := make(map[string]*entity.KnowledgeBase, len(bases))
+	for _, base := range bases {
+		byID[base.KBID] = base
+	}
 	for _, kbID := range in.KnowledgeBaseIDs {
-		base, err := e.kbRepo.FindByKBID(kbID)
-		if err != nil {
-			return nil, fmt.Errorf("find knowledge base: %w", err)
-		}
+		base := byID[kbID]
 		if base == nil {
 			return nil, errors.New("knowledge base not found")
 		}

@@ -188,7 +188,7 @@ func (w *DocumentWorker) processIndexJob(ctx context.Context, job *entity.Docume
 	}
 
 	// 从任务的 ProcessingParams 中提取分块参数。
-	chunkTokens, overlapTokens := w.parseChunkParams(job)
+	chunkTokens, overlapTokens, chunkPreset := w.parseChunkParams(job)
 
 	out, err := w.indexer.Index(ctx, rag.IndexInput{
 		KBID:          job.KBID,
@@ -197,6 +197,7 @@ func (w *DocumentWorker) processIndexJob(ctx context.Context, job *entity.Docume
 		Markdown:      string(markdown),
 		ChunkTokens:   chunkTokens,
 		OverlapTokens: overlapTokens,
+		ChunkPreset:   chunkPreset,
 	})
 	if err != nil {
 		if logger.Initialized() {
@@ -231,11 +232,17 @@ func (w *DocumentWorker) processIndexJob(ctx context.Context, job *entity.Docume
 }
 
 // parseChunkParams 从任务的 ProcessingParams 中提取分块参数。
-func (w *DocumentWorker) parseChunkParams(job *entity.DocumentProcessingJob) (chunkTokens, overlapTokens int) {
+// 返回 chunkTokens、overlapTokens（-1 表示未设置）和 chunkPreset（空表示未设置）。
+func (w *DocumentWorker) parseChunkParams(job *entity.DocumentProcessingJob) (chunkTokens, overlapTokens int, chunkPreset string) {
 	if job.ProcessingParams == nil {
-		return 0, -1
+		return 0, -1, ""
 	}
 	params := map[string]any(job.ProcessingParams)
+	if v, ok := params["chunk_preset_id"]; ok {
+		if s, isStr := v.(string); isStr {
+			chunkPreset = s
+		}
+	}
 	if v, ok := params["chunk_token_num"]; ok {
 		switch n := v.(type) {
 		case float64:
@@ -256,7 +263,7 @@ func (w *DocumentWorker) parseChunkParams(job *entity.DocumentProcessingJob) (ch
 			}
 		}
 	}
-	return chunkTokens, overlapTokens
+	return chunkTokens, overlapTokens, chunkPreset
 }
 
 // failJob 标记任务失败但不更新文件状态（用于通用错误）。
