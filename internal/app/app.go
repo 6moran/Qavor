@@ -290,8 +290,8 @@ func (a *App) initDependencies() error {
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
-	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo)
 	storage := service.NewMinIOObjectStorage()
+	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo)

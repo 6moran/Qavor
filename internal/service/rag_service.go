@@ -53,16 +53,22 @@ func (s *rAGService) validateRequest(kbIDs []string, query string) (string, erro
 		return "", apperrors.New(CodeRAGInvalidRequest, "query 过长")
 	}
 
-	// 校验每个知识库存在。
+	// 校验每个知识库存在（一次批量查询，避免逐库往返）。
 	for _, id := range kbIDs {
 		if id == "" {
 			return "", apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 存在空值")
 		}
-		kb, err := s.kbRepo.FindByKBID(id)
-		if err != nil {
-			return "", apperrors.New(CodeRAGRetrievalFailed, "校验知识库失败")
-		}
-		if kb == nil {
+	}
+	bases, err := s.kbRepo.FindByKBIDs(kbIDs)
+	if err != nil {
+		return "", apperrors.New(CodeRAGRetrievalFailed, "校验知识库失败")
+	}
+	found := make(map[string]bool, len(bases))
+	for _, base := range bases {
+		found[base.KBID] = true
+	}
+	for _, id := range kbIDs {
+		if !found[id] {
 			return "", apperrors.New(CodeRAGKBNotFound, "知识库不存在")
 		}
 	}

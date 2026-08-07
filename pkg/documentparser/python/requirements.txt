@@ -1,4 +1,4 @@
-# 文档解析模块依赖包
+﻿# 文档解析模块依赖包
 # Office 文档(docx/pptx/xlsx)使用 Docling 转换;图片与 PDF 使用 RapidOCR 识别
 
 docling>=2.68.0                   # Office 文档 -> Markdown

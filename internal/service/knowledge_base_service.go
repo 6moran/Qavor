@@ -2,6 +2,9 @@
 package service
 
 import (
+	"context"
+	"errors"
+
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/model/dto/response"
 	"Qavor/internal/model/entity"
@@ -15,6 +18,8 @@ import (
 type knowledgeBaseService struct {
 	repo      repository.KnowledgeBaseRepository
 	modelRepo repository.ModelRepository
+	fileRepo  repository.KnowledgeFileRepository
+	storage   ObjectStorage
 }
 
 // Get 根据知识库ID获取知识库详情
@@ -139,7 +144,7 @@ func (s *knowledgeBaseService) Update(kbID string, req *request.UpdateKnowledgeB
 	return knowledgeBaseResponse(base), nil
 }
 
-// Delete 删除知识库
+// Delete 删除知识库：先清理对象存储中的原文件与解析结果，再在单事务中级联删除分块、文件、处理任务和知识库记录。
 func (s *knowledgeBaseService) Delete(kbID string) error {
 	// 查询要删除的知识库
 	base, err := s.repo.FindByKBID(kbID)
@@ -149,7 +154,24 @@ func (s *knowledgeBaseService) Delete(kbID string) error {
 	if base == nil {
 		return knowledgeBaseNotFoundError()
 	}
-	// 执行删除
+	// 收集文件记录，用于清理对象存储；记录缺失时跳过对象清理。
+	files, err := s.fileRepo.ListAllByKBID(context.Background(), kbID)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if file.Path != "" {
+			if err := s.storage.Delete(file.Path); err != nil && !errors.Is(err, ErrObjectNotFound) {
+				return err
+			}
+		}
+		if file.MarkdownFile != "" {
+			if err := s.storage.Delete(file.MarkdownFile); err != nil && !errors.Is(err, ErrObjectNotFound) {
+				return err
+			}
+		}
+	}
+	// 级联删除数据库记录（同一事务）。
 	return s.repo.DeleteByKBID(kbID)
 }
 
@@ -158,9 +180,10 @@ func knowledgeBaseNotFoundError() error {
 	return bizerrors.New(bizerrors.CodeResourceNotFound, "知识库不存在")
 }
 
-// NewKnowledgeBaseService 创建知识库服务实例
-func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository, modelRepo repository.ModelRepository) KnowledgeBaseService {
-	return &knowledgeBaseService{repo: repo, modelRepo: modelRepo}
+// NewKnowledgeBaseService 创建知识库服务实例。
+// fileRepo 与 storage 用于删除知识库时清理文件记录与对象存储。
+func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository, modelRepo repository.ModelRepository, fileRepo repository.KnowledgeFileRepository, storage ObjectStorage) KnowledgeBaseService {
+	return &knowledgeBaseService{repo: repo, modelRepo: modelRepo, fileRepo: fileRepo, storage: storage}
 }
 
 // Create 创建知识库

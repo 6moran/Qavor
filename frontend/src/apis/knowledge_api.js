@@ -651,7 +651,8 @@ export const typeApi = {
    * @returns {Promise} - 分块策略列表
    */
   getChunkPresets: async () => {
-    return apiGet('/api/knowledge/chunk-presets')
+    const response = await apiGet('/api/knowledge/chunk-presets')
+    return unwrapKnowledgeResponse(response)
   },
 
   /**

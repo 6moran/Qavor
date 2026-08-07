@@ -10,6 +10,8 @@ type IndexInput struct {
 	Markdown      string
 	ChunkTokens   int
 	OverlapTokens int
+	// ChunkPreset 分块预设 ID（general/faq 等），空值由运行时回退默认。
+	ChunkPreset string
 }
 
 // IndexedChunk 分块索引结果，用于后续 Embedding 与持久化。

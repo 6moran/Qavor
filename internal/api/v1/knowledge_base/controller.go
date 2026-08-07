@@ -3,6 +3,7 @@ package knowledge_base
 
 import (
 	"Qavor/internal/model/dto/request"
+	"Qavor/internal/rag"
 	"Qavor/internal/service"
 	"Qavor/pkg/errors"
 	"Qavor/pkg/logger"
@@ -112,4 +113,10 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 		return
 	}
 	response.Success(c, nil)
+}
+
+// ChunkPresets 获取支持的分块预设列表。
+// 响应格式与前端 useChunkPresetOptions 的 {value, label, description} 解析一致。
+func (ctrl *Controller) ChunkPresets(c *gin.Context) {
+	response.Success(c, map[string]any{"chunk_presets": rag.ChunkPresetList()})
 }

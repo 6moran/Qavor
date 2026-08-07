@@ -27,6 +27,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+# Windows 下管道输出默认使用 GBK 编码,Go 侧按 UTF-8 解析,必须显式统一编码
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from docling.datamodel.base_models import InputFormat
 from docling.document_converter import DocumentConverter
 
@@ -37,7 +42,7 @@ from rapid_ocr import IMAGE_EXTENSIONS, ocr_image, ocr_pdf
 class ParseResult:
     """解析结果,与 Go 侧 ingestion.ParseResult 字段一一对应。"""
 
-    markdown: str
+    markdown: str = ""
     picture_paths: list[str] = field(default_factory=list)
     pages: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
