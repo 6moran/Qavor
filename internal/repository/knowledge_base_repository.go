@@ -77,9 +77,21 @@ func (r *knowledgeBaseRepository) Update(base *entity.KnowledgeBase) error {
 	return r.db.Save(base).Error
 }
 
-// DeleteByKBID 根据知识库ID删除
+// DeleteByKBID 级联删除知识库：在同一数据库事务中删除分块、文件、处理任务和知识库记录。
+// 调用方负责先清理对象存储中的文件对象。
 func (r *knowledgeBaseRepository) DeleteByKBID(kbID string) error {
-	return r.db.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeBase{}).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeChunk{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeFile{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("kb_id = ?", kbID).Delete(&entity.DocumentProcessingJob{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeBase{}).Error
+	})
 }
 
 // GetStatsByKBIDs 批量获取知识库统计信息
