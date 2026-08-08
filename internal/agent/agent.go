@@ -111,6 +111,19 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		maxIteration = cfg.MaxIteration
 	}
 
+	// 工具错误喂回中间件：将非 interrupt 的 error 转成 tool result 喂回 LLM
+	toolErrorMW := []compose.ToolMiddleware{
+		{
+			Name: "qavor_tool_error",
+			Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+				return WrapToolError(next, security.ErrDenied)
+			},
+			Streamable: func(next compose.StreamableToolEndpoint) compose.StreamableToolEndpoint {
+				return WrapStreamToolError(next, security.ErrDenied)
+			},
+		},
+	}
+
 	// 组装中间件列表：工具过滤 + Skill 激活检测 + 工具审批
 	handlers := []adk.TypedChatModelAgentMiddleware[*schema.Message]{middleware}
 	if skillsMiddleware != nil {
@@ -128,7 +141,8 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 			Model:       llm,
 			ToolsConfig: adk.ToolsConfig{
 				ToolsNodeConfig: compose.ToolsNodeConfig{
-					Tools: nil, // 工具列表为空，由中间件注入
+					Tools:               nil, // 工具列表为空，由中间件注入
+					ToolCallMiddlewares: toolErrorMW,
 				},
 			},
 			MaxIterations: maxIteration,
@@ -195,7 +209,7 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		Description:            cfg.Description,
 		ChatModel:              llm,
 		Instruction:            cfg.Instruction,
-		ToolsConfig:            adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil}},
+		ToolsConfig:            adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil, ToolCallMiddlewares: toolErrorMW}},
 		MaxIteration:           maxIteration,
 		WithoutGeneralSubAgent: !enableGeneralSubAgent,
 		Background:             backgroundCfg,

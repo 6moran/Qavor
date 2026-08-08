@@ -70,7 +70,7 @@ func (b *LocalBackend) resolve(p string) (string, error) {
 		abs = filepath.Clean(filepath.Join(b.root, filepath.FromSlash(p)))
 	}
 	if !b.withinRoot(abs) {
-		return "", fmt.Errorf("path escapes workspace root: %s", p)
+		return "", fmt.Errorf("%w: 路径不在允许的工作空间范围内", security.ErrDenied)
 	}
 	// 技能白名单：跳过符号链接目标必须落在 root 内的校验
 	if b.isWhitelistedSkillPath(abs) {
@@ -78,7 +78,7 @@ func (b *LocalBackend) resolve(p string) (string, error) {
 	}
 	// 符号链接解析：真实路径也必须在 root 内
 	if real, err := filepath.EvalSymlinks(abs); err == nil && !b.withinRoot(real) {
-		return "", fmt.Errorf("path escapes workspace root via symlink: %s", p)
+		return "", fmt.Errorf("%w: 路径不在允许的工作空间范围内", security.ErrDenied)
 	}
 	return abs, nil
 }
@@ -92,7 +92,7 @@ func (b *LocalBackend) resolveForWrite(p string) (string, error) {
 		return "", err
 	}
 	if b.isWhitelistedSkillPath(abs) {
-		return "", fmt.Errorf("path is read-only (skill symlink): %s", p)
+		return "", fmt.Errorf("%w: 该路径为只读，不允许写入", security.ErrDenied)
 	}
 	if err := b.ensureParentWithinRoot(p, abs); err != nil {
 		return "", err
@@ -118,7 +118,7 @@ func (b *LocalBackend) ensureParentWithinRoot(p, abs string) error {
 		parent = next
 	}
 	if b.isWhitelistedSkillPath(parent) {
-		return fmt.Errorf("path is read-only (skill symlink): %s", p)
+		return fmt.Errorf("%w: 该路径为只读，不允许写入", security.ErrDenied)
 	}
 	real, err := filepath.EvalSymlinks(parent)
 	if err != nil {
@@ -127,7 +127,7 @@ func (b *LocalBackend) ensureParentWithinRoot(p, abs string) error {
 		return nil
 	}
 	if !b.withinRoot(real) {
-		return fmt.Errorf("path escapes workspace root via parent symlink: %s", p)
+		return fmt.Errorf("%w: 路径不在允许的工作空间范围内", security.ErrDenied)
 	}
 	return nil
 }
@@ -264,7 +264,7 @@ func (b *LocalBackend) Read(ctx context.Context, req *filesystem.ReadRequest) (*
 		return nil, err
 	}
 	if st.IsDir() {
-		return nil, fmt.Errorf("%s is a directory", req.FilePath)
+		return nil, fmt.Errorf("%s 是目录，不是文件", req.FilePath)
 	}
 	if st.Size() > maxReadBytes {
 		return &filesystem.FileContent{
@@ -417,7 +417,7 @@ func (b *LocalBackend) GlobInfo(ctx context.Context, req *filesystem.GlobInfoReq
 	}
 	fullPattern := filepath.Join(base, filepath.FromSlash(pattern))
 	if !b.withinRoot(fullPattern) {
-		return nil, fmt.Errorf("path escapes workspace root: %s", pattern)
+		return nil, fmt.Errorf("%w: 路径不在允许的工作空间范围内", security.ErrDenied)
 	}
 
 	matches, err := doublestar.FilepathGlob(fullPattern, doublestar.WithNoFollow())
@@ -496,16 +496,16 @@ func (b *LocalBackend) Edit(ctx context.Context, req *filesystem.EditRequest) er
 	content := oldContent
 	if req.ReplaceAll {
 		if !strings.Contains(content, req.OldString) {
-			return fmt.Errorf("old string not found in %s", req.FilePath)
+			return fmt.Errorf("在 %s 中未找到匹配内容", req.FilePath)
 		}
 		content = strings.ReplaceAll(content, req.OldString, req.NewString)
 	} else {
 		count := strings.Count(content, req.OldString)
 		if count == 0 {
-			return fmt.Errorf("old string not found in %s", req.FilePath)
+			return fmt.Errorf("在 %s 中未找到匹配内容", req.FilePath)
 		}
 		if count > 1 {
-			return fmt.Errorf("old string appears %d times in %s, set ReplaceAll to true", count, req.FilePath)
+			return fmt.Errorf("在 %s 中匹配到 %d 处，请设置 ReplaceAll", req.FilePath, count)
 		}
 		content = strings.Replace(content, req.OldString, req.NewString, 1)
 	}
@@ -581,7 +581,7 @@ func (b *LocalBackend) Delete(ctx context.Context, p string) error {
 	absRoot, _ := filepath.Abs(filepath.Clean(b.root))
 	absPath, _ := filepath.Abs(abs)
 	if absPath == absRoot {
-		return fmt.Errorf("cannot delete workspace root")
+		return fmt.Errorf("%w: 不允许删除工作空间根目录", security.ErrDenied)
 	}
 	return os.RemoveAll(abs)
 }
