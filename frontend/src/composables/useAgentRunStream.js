@@ -396,7 +396,8 @@ export function useAgentRunStream({
               msg: {
                 id: messageId,
                 type: 'AIMessageChunk',
-                content: payload.content || ''
+                content: payload.content || '',
+                reasoning_content: payload.reasoning || ''
               }
             }
           } else if (payload.type === 'tool_call') {

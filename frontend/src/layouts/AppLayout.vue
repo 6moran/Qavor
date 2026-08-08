@@ -11,7 +11,8 @@ import {
   MessageCirclePlus,
   Search,
   Settings,
-  Wrench
+  Wrench,
+  GitBranch
 } from 'lucide-vue-next'
 
 import { useConfigStore } from '@/stores/config'
@@ -130,6 +131,13 @@ const mainList = computed(() => {
     activePaths: ['/tools'],
     icon: Wrench,
     activeIcon: Wrench
+  })
+
+  items.push({
+    name: '链路追踪',
+    path: '/traces',
+    icon: GitBranch,
+    activeIcon: GitBranch
   })
 
   if (userStore.isSuperAdmin) {
