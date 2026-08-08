@@ -1,54 +1,56 @@
 <template>
   <div class="trace-list-page">
-    <a-card :bordered="false">
-      <!-- 筛选区 -->
-      <div class="filter-bar">
-        <a-input
-          v-model:value="filters.keyword"
-          placeholder="按问题关键词搜索"
-          allow-clear
-          style="width: 220px"
-          @press-enter="handleSearch"
-        />
-        <a-select
-          v-model:value="filters.agent_slug"
-          placeholder="全部 Agent"
-          allow-clear
-          style="width: 160px"
-        >
-          <a-select-option v-for="ag in agentOptions" :key="ag.value" :value="ag.value">
-            {{ ag.label }}
-          </a-select-option>
-        </a-select>
-        <a-select
-          v-model:value="filters.status"
-          placeholder="全部状态"
-          allow-clear
-          style="width: 130px"
-        >
-          <a-select-option value="running">运行中</a-select-option>
-          <a-select-option value="success">成功</a-select-option>
-          <a-select-option value="failed">失败</a-select-option>
-          <a-select-option value="cancelled">已取消</a-select-option>
-          <a-select-option value="timeout">超时</a-select-option>
-        </a-select>
-        <a-select
-          v-model:value="filters.source"
-          placeholder="全部来源"
-          allow-clear
-          style="width: 130px"
-        >
-          <a-select-option value="sync">同步</a-select-option>
-          <a-select-option value="stream">流式</a-select-option>
-          <a-select-option value="run">异步 Run</a-select-option>
-        </a-select>
-        <a-range-picker v-model:value="filters.range" style="width: 240px" />
-        <a-button type="primary" @click="handleSearch">查询</a-button>
-        <a-button @click="handleReset">重置</a-button>
-      </div>
+    <PageHeader title="链路追踪" :show-border="true" />
+    <div class="trace-list-content">
+      <a-card :bordered="false" class="trace-card">
+        <!-- 筛选区 -->
+        <div class="filter-bar">
+          <a-input
+            v-model:value="filters.keyword"
+            placeholder="按问题关键词搜索"
+            allow-clear
+            style="width: 220px"
+            @press-enter="handleSearch"
+          />
+          <a-select
+            v-model:value="filters.agent_slug"
+            placeholder="全部 Agent"
+            allow-clear
+            style="width: 160px"
+          >
+            <a-select-option v-for="ag in agentOptions" :key="ag.value" :value="ag.value">
+              {{ ag.label }}
+            </a-select-option>
+          </a-select>
+          <a-select
+            v-model:value="filters.status"
+            placeholder="全部状态"
+            allow-clear
+            style="width: 130px"
+          >
+            <a-select-option value="running">运行中</a-select-option>
+            <a-select-option value="success">成功</a-select-option>
+            <a-select-option value="failed">失败</a-select-option>
+            <a-select-option value="cancelled">已取消</a-select-option>
+            <a-select-option value="timeout">超时</a-select-option>
+          </a-select>
+          <a-select
+            v-model:value="filters.source"
+            placeholder="全部来源"
+            allow-clear
+            style="width: 130px"
+          >
+            <a-select-option value="sync">同步</a-select-option>
+            <a-select-option value="stream">流式</a-select-option>
+            <a-select-option value="run">异步 Run</a-select-option>
+          </a-select>
+          <a-range-picker v-model:value="filters.range" style="width: 240px" />
+          <a-button type="primary" @click="handleSearch">查询</a-button>
+          <a-button @click="handleReset">重置</a-button>
+        </div>
 
-      <!-- 表格 -->
-      <a-table
+        <!-- 表格 -->
+        <a-table
         :columns="columns"
         :data-source="items"
         :loading="loading"
@@ -89,7 +91,8 @@
           @change="loadTraces"
         />
       </div>
-    </a-card>
+      </a-card>
+    </div>
   </div>
 </template>
 
@@ -99,6 +102,7 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { traceApi } from '@/apis'
 import { agentApi } from '@/apis'
+import PageHeader from '@/components/shared/PageHeader.vue'
 
 const router = useRouter()
 
@@ -213,7 +217,22 @@ onMounted(() => {
 
 <style scoped>
 .trace-list-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--gray-0);
+}
+
+.trace-list-content {
+  flex: 1;
+  min-height: 0;
   padding: 16px;
+  overflow-y: auto;
+}
+
+.trace-card {
+  height: 100%;
 }
 
 .filter-bar {

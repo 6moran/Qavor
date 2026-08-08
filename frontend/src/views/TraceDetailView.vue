@@ -1,10 +1,14 @@
 <template>
   <div class="trace-detail-page">
-    <a-page-header title="Trace 详情" @back="router.back()">
-      <template #extra>
+    <PageHeader title="链路追踪 / Trace 详情" :show-border="true">
+      <template #actions>
+        <a-button @click="router.back()">
+          <template #icon><ArrowLeft :size="16" /></template>
+          返回
+        </a-button>
         <a-tag :color="statusColor(trace.status)">{{ statusLabel(trace.status) }}</a-tag>
       </template>
-    </a-page-header>
+    </PageHeader>
 
     <a-card :bordered="false" :loading="loading" class="detail-card">
       <template v-if="trace">
@@ -100,7 +104,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { ArrowLeft } from 'lucide-vue-next'
 import { traceApi } from '@/apis'
+import PageHeader from '@/components/shared/PageHeader.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -209,11 +215,17 @@ onMounted(loadDetail)
 
 <style scoped>
 .trace-detail-page {
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--gray-0);
 }
 
 .detail-card {
-  margin-top: 8px;
+  flex: 1;
+  margin: 16px;
+  overflow-y: auto;
 }
 
 .mono {

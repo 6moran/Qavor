@@ -191,7 +191,7 @@ func (a *Agent) Execute(ctx context.Context, query string) (*AgentResponse, erro
 }
 
 // execute 执行智能体（内部实现）
-func (a *Agent) execute(ctx context.Context, query string) (*AgentResponse, error) {
+func (a *Agent) execute(ctx context.Context, query string, history ...*schema.Message) (*AgentResponse, error) {
 	ctx = a.executionContext(ctx, query)
 
 	messages := make([]*schema.Message, 0, len(history)+1)
