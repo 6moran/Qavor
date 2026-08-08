@@ -10,6 +10,7 @@ import (
 func (ctrl *Controller) RegisterRoutes(v1 *gin.RouterGroup) {
 	group := v1.Group("/knowledge")
 	group.Use(middleware.Auth())
+	group.GET("/chunk-presets", ctrl.ChunkPresets)
 	group.GET("/databases", ctrl.List)
 	group.POST("/databases", ctrl.Create)
 	group.GET("/databases/:kb_id", ctrl.Get)

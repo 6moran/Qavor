@@ -12,6 +12,7 @@ import (
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/internal/run"
+	"Qavor/internal/trace"
 	"Qavor/pkg/errors"
 	"Qavor/pkg/response"
 
@@ -175,6 +176,7 @@ func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRun
 		AgentSlug: req.AgentSlug,
 		RequestID: requestID,
 		Query:     req.Query,
+		TraceID:   trace.TraceIDFromContext(ctx),
 		CreatedAt: now,
 	}
 	if err := h.queue.Enqueue(ctx, item); err != nil {

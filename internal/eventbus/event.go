@@ -50,6 +50,7 @@ type ChunkPayload struct {
 	Type      string        `json:"type"`                // text_delta / tool_call / tool_result / message_end
 	Role      string        `json:"role,omitempty"`      // assistant / tool
 	Content   string        `json:"content,omitempty"`   // 文本内容
+	Reasoning string        `json:"reasoning,omitempty"` // 推理内容增量（reasoning part 文本）
 	ToolCall  *ToolCallInfo `json:"tool_call,omitempty"` // 工具调用结构化字段
 }
 

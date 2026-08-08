@@ -55,6 +55,8 @@ func NewAgentExecutor(agentMgr *agent.AgentManager, resolver ModelResolver) Agen
 	return &agentExecutor{agentMgr: agentMgr, resolver: resolver}
 }
 
+// Execute 执行 Agent，通过 emit 回调发出流式事件，返回完整的 Assistant 消息列表（用于持久化）
+func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent)) ([]*schema.Message, error) {
 // ExecuteOption 执行选项（函数式选项，向后兼容）。
 type ExecuteOption func(*executeOptions)
 
@@ -128,6 +130,7 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, emit fu
 	} else {
 		iter = a.ExecuteIter(ctx, query)
 	}
+	iter := a.ExecuteIter(ctx, query, history...)
 	for {
 		event, ok := iter.Next()
 		if !ok {
@@ -269,5 +272,26 @@ func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamRea
 				Content:   chunk.Content,
 			})
 		}
+		if reasoning := extractReasoning(chunk); reasoning != "" {
+			emit(StreamEvent{
+				Type:      "text_delta",
+				MessageID: msgID,
+				Role:      "assistant",
+				Reasoning: reasoning,
+			})
+		}
 	}
+}
+
+// extractReasoning 从流式消息中提取推理内容增量（reasoning part）
+func extractReasoning(m *schema.Message) string {
+	if m == nil {
+		return ""
+	}
+	for _, part := range m.AssistantGenMultiContent {
+		if part.Type == schema.ChatMessagePartTypeReasoning && part.Reasoning != nil {
+			return part.Reasoning.Text
+		}
+	}
+	return ""
 }

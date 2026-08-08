@@ -35,8 +35,9 @@ type markdownSplitter interface {
 }
 
 // NewDocumentTransformer 创建 Eino 文档分块 Transformer。
-func NewDocumentTransformer(maxTokens, overlapTokens int) *DocumentTransformer {
-	return &DocumentTransformer{splitter: NewChunker(maxTokens, overlapTokens)}
+// presetID 为分块预设（general/faq 等），空值回退默认预设。
+func NewDocumentTransformer(maxTokens, overlapTokens int, presetID string) *DocumentTransformer {
+	return &DocumentTransformer{splitter: NewSplitter(presetID, maxTokens, overlapTokens)}
 }
 
 // Transform 实现 document.Transformer。

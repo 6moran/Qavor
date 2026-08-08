@@ -38,6 +38,19 @@ func (r *knowledgeBaseRepository) FindByKBID(kbID string) (*entity.KnowledgeBase
 	return &base, nil
 }
 
+// FindByKBIDs 批量根据知识库ID查询，单条 SQL 完成；空输入返回空切片。
+func (r *knowledgeBaseRepository) FindByKBIDs(kbIDs []string) ([]*entity.KnowledgeBase, error) {
+	if len(kbIDs) == 0 {
+		return nil, nil
+	}
+	var bases []*entity.KnowledgeBase
+	err := r.db.Where("kb_id IN ?", kbIDs).Find(&bases).Error
+	if err != nil {
+		return nil, err
+	}
+	return bases, nil
+}
+
 // List 分页查询知识库列表
 func (r *knowledgeBaseRepository) List(offset, limit int, keyword string) ([]*entity.KnowledgeBase, int64, error) {
 	// 构建查询条件
@@ -64,9 +77,21 @@ func (r *knowledgeBaseRepository) Update(base *entity.KnowledgeBase) error {
 	return r.db.Save(base).Error
 }
 
-// DeleteByKBID 根据知识库ID删除
+// DeleteByKBID 级联删除知识库：在同一数据库事务中删除分块、文件、处理任务和知识库记录。
+// 调用方负责先清理对象存储中的文件对象。
 func (r *knowledgeBaseRepository) DeleteByKBID(kbID string) error {
-	return r.db.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeBase{}).Error
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeChunk{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeFile{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("kb_id = ?", kbID).Delete(&entity.DocumentProcessingJob{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("kb_id = ?", kbID).Delete(&entity.KnowledgeBase{}).Error
+	})
 }
 
 // GetStatsByKBIDs 批量获取知识库统计信息

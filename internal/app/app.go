@@ -27,17 +27,21 @@ import (
 	"Qavor/internal/skill/remote"
 	"Qavor/internal/sse"
 
+	tracectrl "Qavor/internal/api/v1/trace"
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
+	"Qavor/internal/trace"
 	"Qavor/internal/worker"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
 	"Qavor/pkg/logger"
 	"Qavor/pkg/minio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -46,6 +50,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/adk/backgroundtask"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/gin-gonic/gin"
@@ -53,6 +58,25 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+// imageUploader 将 ObjectStorage 适配为 ingestion.ImageUploader。
+type imageUploader struct {
+	storage service.ObjectStorage
+}
+
+// UploadImage 上传图片字节到对象存储，返回可公开访问的 URL。
+func (u imageUploader) UploadImage(folder, filename string, data []byte) (string, error) {
+	// 优先按扩展名映射类型（http.DetectContentType 无法识别 TIFF 等格式）
+	contentType := mime.TypeByExtension(filepath.Ext(filename))
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+	obj, err := u.storage.UploadReader(folder, filename, contentType, bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", fmt.Errorf("上传图片 %s/%s 失败: %w", folder, filename, err)
+	}
+	return obj.URL, nil
+}
 
 // qavorDataDir 返回工作目录下的 qavor 数据目录，并确保目录存在。
 // 工作目录无法解析或创建失败时返回 error，调用方应终止初始化。
@@ -132,15 +156,16 @@ func checkCwdNotInAgentWorkspace() error {
 
 // App 应用结构体
 type App struct {
-	cfg           *config.Config
-	postgresDB    *gorm.DB
-	redis         *redis.Client
-	router        *api.Router
-	server        *http.Server
-	workerStop    context.CancelFunc
-	workerDone    chan struct{}
-	runWorkerStop context.CancelFunc
-	mcpManager    *mcp.MCPManager
+	cfg              *config.Config
+	postgresDB       *gorm.DB
+	redis            *redis.Client
+	router           *api.Router
+	server           *http.Server
+	workerStop       context.CancelFunc
+	workerDone       chan struct{}
+	runWorkerStop    context.CancelFunc
+	traceJanitorStop context.CancelFunc
+	mcpManager       *mcp.MCPManager
 	bgManager     *backgroundtask.Manager
 }
 
@@ -253,6 +278,8 @@ func (a *App) initDatabase() error {
 			&entity.KnowledgeFile{},
 			&entity.KnowledgeChunk{},
 			&entity.DocumentProcessingJob{},
+			&entity.AgentTrace{},
+			&entity.AgentTraceSpan{},
 		); err != nil {
 			logger.Warn("数据库迁移警告", zap.Error(err))
 		} else {
@@ -316,8 +343,8 @@ func (a *App) initDependencies() error {
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
-	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo)
 	storage := service.NewMinIOObjectStorage()
+	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo, a.cfg.Agent.WorkspaceRoot)
@@ -355,7 +382,11 @@ func (a *App) initDependencies() error {
 		workerCtx, cancelWorker := context.WithCancel(context.Background())
 		a.workerStop = cancelWorker
 		a.workerDone = make(chan struct{})
-		parser := ingestion.NewParser(ingestion.NewPythonParser("python", "pkg/documentparser/python/parse_document.py"))
+		imgUploader := imageUploader{storage: storage}
+		parser := ingestion.NewParser(
+			ingestion.NewPythonParser("python", "pkg/documentparser/python/parse_document.py", imgUploader),
+			imgUploader,
+		)
 		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser, indexer)
 		hostname, _ := os.Hostname()
 		workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
@@ -507,7 +538,7 @@ func (a *App) initDependencies() error {
 			time.Duration(a.cfg.Run.LockTTLSeconds)*time.Second, blockDur)
 
 		executor := run.NewAgentExecutor(agentMgr, modelSvc)
-		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, logger.GetLogger(), a.cfg.Run.WorkerCount)
+		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, logger.GetLogger(), a.cfg.Run.WorkerCount)
 
 		// 启动 Run Worker 池
 		runWorkerCtx, cancelRunWorker := context.WithCancel(context.Background())
@@ -522,8 +553,29 @@ func (a *App) initDependencies() error {
 		logger.Warn("Redis 不可用，Run 流式服务未启动")
 	}
 
+	// —— 链路追踪装配 ——
+	var traceCtrl *tracectrl.Controller
+	if a.cfg.Trace.Enabled && a.postgresDB != nil {
+		traceRepo := repository.NewTraceRepository(a.postgresDB)
+		trace.Init(traceRepo, true, a.cfg.Trace.MaxContentLength)
+		callbacks.AppendGlobalHandlers(trace.NewHandler())
+		traceSvc := service.NewTraceService(traceRepo)
+		traceCtrl = tracectrl.NewController(traceSvc)
+		jctx, cancelJanitor := context.WithCancel(context.Background())
+		a.traceJanitorStop = cancelJanitor
+		go trace.NewJanitor(traceRepo,
+			time.Duration(a.cfg.Trace.JanitorInterval)*time.Minute,
+			time.Duration(a.cfg.Trace.TimeoutMinutes)*time.Minute,
+			time.Duration(a.cfg.Trace.RetentionDays)*24*time.Hour,
+		).Run(jctx)
+		logger.Info("链路追踪已启用")
+	} else {
+		trace.Init(nil, false, a.cfg.Trace.MaxContentLength)
+	}
+
 	// 创建 Router
 	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, workspaceCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl)
 
 	return nil
 }
@@ -627,6 +679,10 @@ func (a *App) gracefulShutdown() {
 	if a.runWorkerStop != nil {
 		a.runWorkerStop()
 		logger.Info("Run Worker 已关闭")
+	}
+	if a.traceJanitorStop != nil {
+		a.traceJanitorStop()
+		logger.Info("Trace Janitor 已关闭")
 	}
 
 	// 关闭 MCP 服务器连接（SSE 断开、stdio 子进程终止等）

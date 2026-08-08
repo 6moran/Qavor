@@ -39,7 +39,7 @@ const copiedTimers = new WeakMap()
 const htmlPreviewFrames = new Map()
 let pendingMarkdownHtml = null
 
-const HTML_PREVIEW_HEIGHT_MESSAGE = 'yuxi-html-preview-height'
+const HTML_PREVIEW_HEIGHT_MESSAGE = 'qavor-html-preview-height'
 
 const getHtmlPreviewCssNumber = (slot, property, fallback) => {
   const preview = slot.closest('.html-preview-render')
@@ -50,7 +50,7 @@ const getHtmlPreviewCssNumber = (slot, property, fallback) => {
 
 const createMeasuredSrcdoc = (html, previewId) => {
   const scriptEndTag = '<' + '/script>'
-  const baseStyle = `<style data-yuxi-html-preview-base>
+  const baseStyle = `<style data-qavor-html-preview-base>
 html,
 body {
   margin: 0;

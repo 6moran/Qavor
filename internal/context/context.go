@@ -8,6 +8,9 @@ import (
 
 // ContextManager 上下文管理器接口
 type ContextManager interface {
+	// LoadHistory 加载对话历史（含短期记忆摘要），返回裁剪后的消息列表
+	LoadHistory(ctx context.Context, conversationID uint) ([]*schema.Message, error)
+
 	// FetchContext 提取历史与记忆（步骤1）
 	FetchContext(ctx context.Context, query *ContextHistoryQuery) (*ContextWindow, error)
 

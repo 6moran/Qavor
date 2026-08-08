@@ -10,6 +10,7 @@ import (
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/internal/sse"
+	"Qavor/internal/trace"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -95,16 +96,33 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 		return nil, fmt.Errorf("Agent 的 LLM 配置为空，请检查 agent_slug: %s 对应的模型配置", agentSlug)
 	}
 
-	// 获取 Agent（传入 LLM 客户端）
-	a, err := s.agentMgr.GetOrCreate(ctx, agentSlug, llmClient)
-	if err != nil {
-		return nil, fmt.Errorf("获取 Agent 失败: %w", err)
-	}
-
-	// 4. 执行 Agent
-	resp, err := a.Execute(ctx, message)
-	if err != nil {
-		return nil, fmt.Errorf("Agent 执行失败: %w", err)
+	var respContent string
+	if persist {
+		// 正常聊天：通过 Agent 执行（含工具调用）
+		a, err := s.agentMgr.GetOrCreate(ctx, agentSlug, llmClient)
+		if err != nil {
+			return nil, fmt.Errorf("获取 Agent 失败: %w", err)
+		}
+		resp, err := a.Execute(ctx, message)
+		if err != nil {
+			return nil, fmt.Errorf("Agent 执行失败: %w", err)
+		}
+		respContent = resp.Content
+	} else {
+		// 标题生成：直接调用 LLM，不走 Agent 工具链，避免工具调用拖慢标题生成
+		// 该路径不经 Agent.Execute，需手动收尾 trace（幂等：仅本路径创建的 trace 生效）
+		out, err := llmClient.Generate(ctx, []*schema.Message{
+			{Role: schema.User, Content: message},
+		})
+		if err != nil {
+			trace.FinishTrace(ctx, entity.TraceStatusFailed, err.Error())
+			return nil, fmt.Errorf("LLM 调用失败: %w", err)
+		}
+		respContent = out.Content
+		if tc := trace.FromContext(ctx); tc != nil {
+			tc.Query = message // 补全标题生成请求的查询内容，便于 trace 列表展示
+		}
+		trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
 	}
 
 	// 5. 保存 Assistant 消息
@@ -113,7 +131,7 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 		assistantMsg := &entity.Message{
 			ConversationID: conversationID,
 			Role:           "assistant",
-			Content:        resp.Content,
+			Content:        respContent,
 		}
 		if err := s.messageRepo.Create(assistantMsg); err != nil {
 			s.logger.Error("保存 Assistant 消息失败", zap.Error(err))
@@ -125,7 +143,7 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 		if s.contextMgr != nil {
 			assistantSchemaMsg := &schema.Message{
 				Role:    schema.Assistant,
-				Content: resp.Content,
+				Content: respContent,
 			}
 			if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, assistantSchemaMsg); err != nil {
 				s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
@@ -136,7 +154,7 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 	return &ChatResult{
 		MessageID:      messageID,
 		ConversationID: conversationID,
-		Content:        resp.Content,
+		Content:        respContent,
 		DeliveryStatus: "complete",
 	}, nil
 }
@@ -299,5 +317,25 @@ func (s *ChatServiceImpl) handleStreamingOutput(username string, msgID string, s
 			}))
 			index++
 		}
+		if reasoning := extractReasoning(chunk); reasoning != "" {
+			s.sendSSEEvent(username, sse.NewSSEEvent(sse.EventMessageDelta, sse.MessageDeltaData{
+				MessageID: msgID,
+				Reasoning: reasoning,
+				Index:     index,
+			}))
+		}
 	}
+}
+
+// extractReasoning 从流式消息中提取推理内容增量（reasoning part）
+func extractReasoning(m *schema.Message) string {
+	if m == nil {
+		return ""
+	}
+	for _, part := range m.AssistantGenMultiContent {
+		if part.Type == schema.ChatMessagePartTypeReasoning && part.Reasoning != nil {
+			return part.Reasoning.Text
+		}
+	}
+	return ""
 }

@@ -15,10 +15,12 @@ import (
 	ssectrl "Qavor/internal/api/v1/sse"
 	toolctrl "Qavor/internal/api/v1/tool"
 	workspaceapi "Qavor/internal/api/v1/workspace"
+	tracectrl "Qavor/internal/api/v1/trace"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/tool"
+	tracepkg "Qavor/internal/trace"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,6 +43,7 @@ type Router struct {
 	mcpServerCtrl     *mcpserverctrl.Controller
 	postStreamHandler *agentctrl.PostStreamHandler
 	runController     *agentctrl.RunController
+	traceCtrl         *tracectrl.Controller
 	workspaceCtrl     *workspaceapi.Controller
 }
 
@@ -64,6 +67,7 @@ func NewRouter(
 	mcpServerCtrl *mcpserverctrl.Controller,
 	postStreamHandler *agentctrl.PostStreamHandler,
 	runController *agentctrl.RunController,
+	traceCtrl *tracectrl.Controller,
 	workspaceCtrl *workspaceapi.Controller,
 ) *Router {
 	return &Router{
@@ -83,6 +87,7 @@ func NewRouter(
 		mcpServerCtrl:     mcpServerCtrl,
 		postStreamHandler: postStreamHandler,
 		runController:     runController,
+		traceCtrl:         traceCtrl,
 		workspaceCtrl:     workspaceCtrl,
 	}
 }
@@ -92,6 +97,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 	// 全局中间件
 	engine.Use(middleware.Recovery())
 	engine.Use(middleware.Logger())
+	engine.Use(tracepkg.Trace())
 	engine.Use(middleware.CORS())
 
 	// 健康检查
@@ -152,5 +158,10 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// 工作区路由
 		r.workspaceCtrl.RegisterRoutes(v1)
+
+		// 链路追踪路由
+		if r.traceCtrl != nil {
+			r.traceCtrl.RegisterRoutes(v1)
+		}
 	}
 }

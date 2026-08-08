@@ -92,18 +92,47 @@
         </div>
       </div>
 
-      <!-- Chunks 模式：使用 Grid 布局 -->
+      <!-- Chunks 模式：时间线列表，保留段落结构 -->
       <div v-else-if="viewMode === 'chunks'" class="chunks-panel">
         <div v-if="contentState.loading" class="loading-container">
           <a-spin tip="正在加载分块内容..." />
         </div>
-        <div v-else class="chunk-grid">
-          <div v-for="chunk in contentState.chunks" :key="chunk.chunk_id" class="chunk-card">
-            <div class="chunk-card-header">
-              <span class="chunk-order">#{{ chunk.chunk_index }}</span>
+        <div v-else class="chunk-list">
+          <div
+            v-for="chunk in contentState.chunks"
+            :key="chunk.chunk_id"
+            class="chunk-item"
+          >
+            <div class="chunk-marker">
+              <span class="chunk-order">{{ chunk.chunk_index + 1 }}</span>
             </div>
-            <div class="chunk-card-content">
-              {{ chunk.content.replace(/\n+/g, ' ') }}
+            <div class="chunk-card" :class="{ expanded: isExpanded(chunk.chunk_id) }">
+              <div class="chunk-card-header">
+                <span class="chunk-title">片段 #{{ chunk.chunk_index + 1 }}</span>
+                <span class="chunk-meta">
+                  <span v-if="chunk.token_count != null" class="meta-item">
+                    {{ chunk.token_count }} tokens
+                  </span>
+                  <span class="meta-item">{{ formatTextLength((chunk.content || '').length) }} 字符</span>
+                </span>
+              </div>
+              <div class="chunk-card-content" :class="{ 'line-clamped': !isExpanded(chunk.chunk_id) }">
+                {{ chunk.content }}
+              </div>
+              <button
+                v-if="needsExpand(chunk.content)"
+                class="chunk-expand-btn"
+                @click="toggleExpand(chunk.chunk_id)"
+              >
+                <template v-if="isExpanded(chunk.chunk_id)">
+                  收起
+                  <ChevronUp :size="12" />
+                </template>
+                <template v-else>
+                  展开全文
+                  <ChevronDown :size="12" />
+                </template>
+              </button>
             </div>
           </div>
         </div>
@@ -133,7 +162,7 @@ import {
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
-import { Download, ChevronDown, FileSearch, FileText, Rows3, X } from 'lucide-vue-next'
+import { Download, ChevronDown, ChevronUp, FileSearch, FileText, Rows3, X } from 'lucide-vue-next'
 
 const props = defineProps({
   open: {
@@ -224,7 +253,26 @@ const resetLocalState = () => {
   downloadingMarkdown.value = false
   resetContentState()
   resetSourcePreview()
+  expandedChunkIds.value = new Set()
   viewMode.value = 'markdown'
+}
+
+// 片段展开/收起状态，以 chunk_id 为键。
+const expandedChunkIds = ref(new Set())
+const isExpanded = (chunkId) => expandedChunkIds.value.has(chunkId)
+const toggleExpand = (chunkId) => {
+  const next = new Set(expandedChunkIds.value)
+  if (next.has(chunkId)) {
+    next.delete(chunkId)
+  } else {
+    next.add(chunkId)
+  }
+  expandedChunkIds.value = next
+}
+// 内容超过 6 行或 300 字符时提供展开按钮。
+const needsExpand = (content) => {
+  const text = content || ''
+  return text.split('\n').length > 6 || text.length > 300
 }
 
 const normalizeFileMeta = (meta = {}) => ({
@@ -675,18 +723,62 @@ onBeforeUnmount(resetLocalState)
   width: 100%;
 }
 
-/* Chunks 面板样式 */
-.chunk-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+/* Chunks 面板样式：时间线列表 */
+.chunk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.chunk-item {
+  display: flex;
   gap: 12px;
+  position: relative;
+}
+
+/* 时间线连接线：从序号徽章向下延伸 */
+.chunk-item::before {
+  content: '';
+  position: absolute;
+  left: 15px;
+  top: 40px;
+  bottom: -14px;
+  width: 2px;
+  background: var(--gray-200);
+}
+
+.chunk-item:last-child::before {
+  display: none;
+}
+
+.chunk-marker {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--main-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  box-shadow: 0 0 0 4px var(--gray-50);
+}
+
+.chunk-order {
+  font-weight: 600;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .chunk-card {
+  flex: 1;
+  min-width: 0;
   background: var(--gray-0);
   border: 1px solid var(--gray-200);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px 12px;
   transition: all 0.2s ease;
 }
 
@@ -698,24 +790,65 @@ onBeforeUnmount(resetLocalState)
 .chunk-card-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 8px;
 }
 
-.chunk-order {
+.chunk-title {
   font-weight: 600;
   color: var(--main-color);
   font-size: 12px;
 }
 
+.chunk-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.meta-item {
+  font-size: 11px;
+  color: var(--gray-500);
+  background: var(--gray-100);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
 .chunk-card-content {
   font-size: 12px;
   color: var(--gray-600);
-  line-height: 1.5;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+/* 收起状态：最多显示 6 行 */
+.chunk-card-content.line-clamped {
   display: -webkit-box;
-  -webkit-line-clamp: 4;
+  -webkit-line-clamp: 6;
   -webkit-box-orient: vertical;
+}
+
+.chunk-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--main-color);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.chunk-expand-btn:hover {
+  color: var(--main-color-dark, #006b87);
 }
 </style>
 

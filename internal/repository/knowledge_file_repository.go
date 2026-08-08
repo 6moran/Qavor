@@ -84,6 +84,18 @@ func (r *knowledgeFileRepository) ListByKBID(kbID string, offset, limit int, par
 	return files, total, nil
 }
 
+// ListAllByKBID 返回知识库下的全部文件记录（不分页），用于删除知识库时清理对象存储。
+func (r *knowledgeFileRepository) ListAllByKBID(ctx context.Context, kbID string) ([]*entity.KnowledgeFile, error) {
+	var files []*entity.KnowledgeFile
+	if err := r.db.WithContext(ctx).
+		Where("kb_id = ?", kbID).
+		Order("created_at DESC").
+		Find(&files).Error; err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
 // DeleteByKBIDAndFileID 根据知识库ID和文件ID删除
 func (r *knowledgeFileRepository) DeleteByKBIDAndFileID(kbID, fileID string) error {
 	return r.db.Where("kb_id = ? AND file_id = ?", kbID, fileID).Delete(&entity.KnowledgeFile{}).Error

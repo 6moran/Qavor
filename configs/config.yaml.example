@@ -55,8 +55,7 @@ document_queue:
 # JWT 配置
 jwt:
   secret: "your-jwt-secret-key-change-in-production"  # JWT 密钥，生产环境请修改
-  access_expire: 2                                     # 访问令牌过期时间（小时）
-  refresh_expire: 168                                  # 刷新令牌过期时间（小时），7天
+  expire_hours: 2                                      # 访问令牌过期时间（小时）
 
 # 日志配置
 log:
@@ -162,3 +161,13 @@ rag:
   request_timeout_seconds: 60
   embedding:
     batch_size: 15
+
+# 链路追踪：Agent 对话执行链路观测（eino Callback 全局采集）
+trace:
+  enabled: true             # 总开关，关闭后不注册 Handler/中间件透传/janitor 不启动
+  max_content_length: 500   # 内容字段截断长度（字符）
+  retention_days: 7         # 数据保留天数，过期物理删除
+  timeout_minutes: 30       # running 超过此时长标记为 timeout
+  janitor_interval: 5       # 清理任务执行间隔（分钟）
+
+

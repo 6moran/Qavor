@@ -204,7 +204,7 @@ const handleThreadChange = (threadId) => {
   if (syncingRouteThread.value) return
   const currentRouteThreadId = getRouteThreadId()
   const nextThreadId = threadId || ''
-  if (currentRouteThreadId === nextThreadId) return
+  if (String(currentRouteThreadId) === String(nextThreadId)) return
 
   if (nextThreadId) {
     router.replace({ name: 'AgentCompWithThreadId', params: { thread_id: nextThreadId } })

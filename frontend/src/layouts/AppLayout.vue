@@ -11,7 +11,8 @@ import {
   MessageCirclePlus,
   Search,
   Settings,
-  Wrench
+  Wrench,
+  GitBranch
 } from 'lucide-vue-next'
 
 import { useConfigStore } from '@/stores/config'
@@ -130,6 +131,13 @@ const mainList = computed(() => {
     activePaths: ['/tools'],
     icon: Wrench,
     activeIcon: Wrench
+  })
+
+  items.push({
+    name: '链路追踪',
+    path: '/traces',
+    icon: GitBranch,
+    activeIcon: GitBranch
   })
 
   if (userStore.isSuperAdmin) {
@@ -471,7 +479,7 @@ div.header,
   }
 
   .sidebar-conversations {
-    height: 100%;
+    flex: 1 1 0;
     min-height: 0;
     overflow: hidden;
   }
@@ -487,6 +495,8 @@ div.header,
   .fill {
     flex: 1 1 0;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .sidebar-footer {

@@ -4,16 +4,16 @@ import "time"
 
 // Record 记忆记录（公共类型）
 type Record struct {
-	ID                    string            `json:"id"`
-	Category              string            `json:"category"`
-	Content               string            `json:"content"`
-	Importance            float64           `json:"importance"`
-	Confidence            float64           `json:"confidence"`
-	SourceConversationID  uint              `json:"source_conversation_id"`
-	SourceMessages        []string          `json:"source_messages"`
-	Metadata              map[string]string `json:"metadata"`
-	CreatedAt             time.Time         `json:"created_at"`
-	UpdatedAt             time.Time         `json:"updated_at"`
+	ID                   string            `json:"id"`
+	Category             string            `json:"category"`
+	Content              string            `json:"content"`
+	Importance           float64           `json:"importance"`
+	Confidence           float64           `json:"confidence"`
+	SourceConversationID uint              `json:"source_conversation_id"`
+	SourceMessages       []string          `json:"source_messages"`
+	Metadata             map[string]string `json:"metadata"`
+	CreatedAt            time.Time         `json:"created_at"`
+	UpdatedAt            time.Time         `json:"updated_at"`
 }
 
 // Category 记忆类别

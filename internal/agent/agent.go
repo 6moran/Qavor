@@ -10,8 +10,10 @@ import (
 	"Qavor/internal/agent/localfs"
 	"Qavor/internal/agent/localfs/security"
 	"Qavor/internal/mcp"
+	"Qavor/internal/model/entity"
 	"Qavor/internal/skill"
 	"Qavor/internal/tool"
+	"Qavor/internal/trace"
 	"Qavor/pkg/logger"
 
 	"github.com/cloudwego/eino/adk"
@@ -87,6 +89,22 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		return nil, fmt.Errorf("llm is required")
 	}
 
+	// 未配置系统提示词时使用默认提示词，避免 LLM 返回无意义的通用回复
+	if cfg.Instruction == "" {
+		cfg.Instruction = "你是一个智能助手，可以根据用户的问题调用可用的工具来提供帮助。请用中文回答用户的问题。"
+	}
+
+	// 获取 MCP 工具（只获取配置的服务器）
+	var mcpTools []einotool.BaseTool
+	if len(cfg.MCPServers) > 0 {
+		mcpTools = mcpManager.GetToolsByServers(cfg.MCPServers)
+	}
+
+	// 获取内置工具
+	var builtinTools []einotool.BaseTool
+	if names := configuredBuiltinToolNames(cfg); len(names) > 0 {
+		builtinTools = toolRegistry.ToEinoToolsByNames(names)
+	}
 	// 获取工具（主智能体）
 	builtinTools, mcpTools := resolveAgentTools(cfg, mcpManager, toolRegistry)
 
@@ -274,9 +292,32 @@ func (a *Agent) executionContext(ctx context.Context, query string) context.Cont
 	return ctx
 }
 
-// Execute 执行智能体
+// Execute 执行智能体（包装：执行 + trace 收尾）
 func (a *Agent) Execute(ctx context.Context, query string) (*AgentResponse, error) {
+	resp, err := a.execute(ctx, query)
+	if err != nil {
+		trace.FinishTrace(ctx, entity.TraceStatusFailed, err.Error())
+		return nil, fmt.Errorf("Agent 执行失败: %w", err)
+	}
+	trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
+	return resp, nil
+}
+
+// execute 执行智能体（内部实现）
+func (a *Agent) execute(ctx context.Context, query string, history ...*schema.Message) (*AgentResponse, error) {
 	ctx = a.executionContext(ctx, query)
+
+	messages := make([]*schema.Message, 0, len(history)+1)
+	messages = append(messages, history...)
+	messages = append(messages, &schema.Message{
+		Role:    schema.User,
+		Content: query,
+	})
+
+	input := &adk.AgentInput{
+		Messages:        messages,
+		EnableStreaming: true,
+	}
 
 	// 构建模型调用选项（temperature、max_tokens）
 	var modelOpts []model.Option
@@ -324,9 +365,44 @@ func (it *AgentEventIterator) Next() (*adk.AgentEvent, bool) {
 	return it.iter.Next()
 }
 
+// traceFinishingIterator 迭代器代理：流结束/出错时收尾 trace
+// （ExecuteIter 的 ctx 由调用方注入 trace 上下文，adk 会将其传给组件回调）
+type traceFinishingIterator struct {
+	inner *adk.AsyncIterator[*adk.AgentEvent]
+	ctx   context.Context
+}
+
+func (it *traceFinishingIterator) Next() (*adk.AgentEvent, bool) {
+	ev, ok := it.inner.Next()
+	if !ok {
+		if it.ctx.Err() != nil {
+			trace.FinishTrace(it.ctx, entity.TraceStatusCancelled, "context cancelled")
+		} else {
+			trace.FinishTrace(it.ctx, entity.TraceStatusSuccess, "")
+		}
+		return nil, false
+	}
+	if ev.Err != nil {
+		trace.FinishTrace(it.ctx, entity.TraceStatusFailed, ev.Err.Error())
+	}
+	return ev, true
+}
+
 // ExecuteIter 执行智能体并返回事件迭代器（用于流式输出）
-func (a *Agent) ExecuteIter(ctx context.Context, query string) *AgentEventIterator {
+func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schema.Message) *AgentEventIterator {
 	ctx = a.executionContext(ctx, query)
+
+	messages := make([]*schema.Message, 0, len(history)+1)
+	messages = append(messages, history...)
+	messages = append(messages, &schema.Message{
+		Role:    schema.User,
+		Content: query,
+	})
+
+	input := &adk.AgentInput{
+		Messages:        messages,
+		EnableStreaming: true,
+	}
 
 	// 构建模型调用选项（temperature、max_tokens）
 	var modelOpts []model.Option
@@ -343,6 +419,8 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string) *AgentEventIterat
 		runOpts = append(runOpts, adk.WithChatModelOptions(modelOpts))
 	}
 
+	iter := a.agent.Run(ctx, input, runOpts...)
+	return &AgentEventIterator{iter: &traceFinishingIterator{inner: iter, ctx: ctx}}
 	messages := []*schema.Message{{Role: schema.User, Content: query}}
 	iter := a.runner.Run(ctx, messages, runOpts...)
 	return &AgentEventIterator{iter: iter}

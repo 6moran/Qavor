@@ -10,6 +10,7 @@ import (
 	"Qavor/internal/eventbus"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
+	"Qavor/internal/trace"
 
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
@@ -21,6 +22,7 @@ type StreamEvent struct {
 	MessageID string                 // 聚合同一段输出的 token（同一段输出共享）
 	Role      string                 // "assistant" / "tool"
 	Content   string                 // 文本内容
+	Reasoning string                 // 推理内容增量（reasoning part 文本）
 	ToolCall  *eventbus.ToolCallInfo // 工具调用结构化字段
 }
 
@@ -32,6 +34,7 @@ var ErrInterrupted = errors.New("run: agent interrupted for tool approval")
 // opts 支持 WithApprovalMode（审批模式）与 WithResume（审批恢复）。
 type AgentExecutor interface {
 	Execute(ctx context.Context, slug, query string, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error)
+	Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent)) ([]*schema.Message, error)
 }
 
 // Worker Run 执行器：从队列消费请求，执行 Agent，发布事件到 Redis Stream，持久化消息
@@ -42,6 +45,7 @@ type Worker struct {
 	messageRepo      repository.MessageRepository
 	conversationRepo repository.ConversationRepository
 	executor         AgentExecutor
+	contextMgr       ContextProvider
 	logger           *zap.Logger
 
 	// 运行中 Run 的取消函数注册表：run_id -> cancelFunc
@@ -51,10 +55,16 @@ type Worker struct {
 	block       time.Duration
 }
 
+// ContextProvider 上下文管理接口（用于加载对话历史和短期记忆）
+type ContextProvider interface {
+	LoadHistory(ctx context.Context, conversationID uint) ([]*schema.Message, error)
+	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message) error
+}
+
 // NewWorker 创建 Run 执行器
 func NewWorker(queue *RequestQueue, pub *eventbus.Publisher, runRepo repository.AgentRunRepository,
 	messageRepo repository.MessageRepository, conversationRepo repository.ConversationRepository,
-	executor AgentExecutor, logger *zap.Logger, workerCount int) *Worker {
+	executor AgentExecutor, contextMgr ContextProvider, logger *zap.Logger, workerCount int) *Worker {
 	if workerCount <= 0 {
 		workerCount = 3
 	}
@@ -65,6 +75,7 @@ func NewWorker(queue *RequestQueue, pub *eventbus.Publisher, runRepo repository.
 		messageRepo:      messageRepo,
 		conversationRepo: conversationRepo,
 		executor:         executor,
+		contextMgr:       contextMgr,
 		logger:           logger,
 		workerCount:      workerCount,
 		block:            5 * time.Second,
@@ -189,6 +200,19 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			zap.String("run_id", run.ID), zap.String("thread_id", threadID))
 	}
 
+	// 0.2 恢复 trace 上下文（异步透传：TraceID 来自入队时的 HTTP 请求）
+	if item.TraceID != "" && trace.Enabled() {
+		ctx = trace.WithTraceContext(ctx, &trace.TraceContext{
+			TraceID:        item.TraceID,
+			Source:         entity.TraceSourceRun,
+			AgentSlug:      item.AgentSlug,
+			ConversationID: conversationID,
+			RunID:          run.ID,
+			RequestID:      requestID,
+			Query:          item.Query,
+		})
+	}
+
 	// 0.1 保存用户消息
 	if conversationID > 0 && item.Query != "" {
 		userMsg := &entity.Message{
@@ -201,6 +225,20 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		if err := w.messageRepo.Create(userMsg); err != nil {
 			w.logger.Warn("worker 保存用户消息失败", zap.String("run_id", run.ID), zap.Error(err))
 		}
+
+		// 更新短期记忆（用户消息）
+		if w.contextMgr != nil {
+			userSchemaMsg := &schema.Message{Role: schema.User, Content: item.Query}
+			if err := w.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg); err != nil {
+				w.logger.Warn("更新 Short Memory（用户消息）失败", zap.String("run_id", run.ID), zap.Error(err))
+			}
+		}
+	}
+
+	// 0.2 加载对话历史（在保存用户消息之后，获取包含当前用户消息的完整历史）
+	var history []*schema.Message
+	if conversationID > 0 && w.contextMgr != nil {
+		history, _ = w.contextMgr.LoadHistory(ctx, conversationID)
 	}
 
 	// 1. 状态置 running
@@ -225,10 +263,12 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				Type:      ev.Type,
 				Role:      ev.Role,
 				Content:   ev.Content,
+				Reasoning: ev.Reasoning,
 				ToolCall:  ev.ToolCall,
 			})
 	}
 
+	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, history, emit)
 	// 执行选项：审批模式 + 恢复参数（resume 流程）
 	var execOpts []ExecuteOption
 	if item.ApprovalMode != "" {
@@ -256,14 +296,25 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			if err := w.messageRepo.Create(aiMsg); err != nil {
 				w.logger.Error("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))
 			}
+			// 更新短期记忆（助手消息）
+			if w.contextMgr != nil {
+				if err := w.contextMgr.UpdateShortMemory(ctx, conversationID, &schema.Message{
+					Role:    schema.Assistant,
+					Content: msg.Content,
+				}); err != nil {
+					w.logger.Warn("更新 Short Memory（助手消息）失败", zap.String("run_id", run.ID), zap.Error(err))
+				}
+			}
 		}
 	}
 
-	// 4. 根据结果发布终态事件
+	// 4. 根据结果发布终态事件并收尾 trace
 	switch {
 	case ctx.Err() == context.Canceled:
+		trace.FinishTrace(ctx, entity.TraceStatusCancelled, "context cancelled")
 		w.finish(ctx, run, eventbus.StatusCancelled, "cancelled")
 	case errors.Is(execErr, ErrInterrupted):
+		trace.FinishTrace(ctx, entity.TraceStatusCancelled, "interrupted")
 		// 提取审批信息并发布中断+审批事件
 		if ie, ok := execErr.(*InterruptedError); ok {
 			w.publishApproval(ctx, run, ie)
@@ -280,9 +331,11 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			zap.String("error", execErr.Error()),
 			zap.Int("assistant_msgs_count", len(assistantMsgs)),
 		)
+		trace.FinishTrace(ctx, entity.TraceStatusFailed, execErr.Error())
 		w.publishError(ctx, run, execErr)
 		w.finish(ctx, run, eventbus.StatusFailed, "failed")
 	default:
+		trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
 		w.finish(ctx, run, eventbus.StatusCompleted, "completed")
 	}
 }

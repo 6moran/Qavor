@@ -4,9 +4,9 @@ package request
 type StreamRequest struct {
 	ConversationID uint   `json:"conversation_id" binding:"required"`
 	Content        string `json:"content" binding:"required"`
-	AgentSlug      string `json:"agent_slug"`   // 可选：指定 Agent
-	ModelName      string `json:"model_name"`   // 可选：指定模型
-	FileIDs        []uint `json:"file_ids"`     // 可选：关联的文件ID列表
+	AgentSlug      string `json:"agent_slug"` // 可选：指定 Agent
+	ModelName      string `json:"model_name"` // 可选：指定模型
+	FileIDs        []uint `json:"file_ids"`   // 可选：关联的文件ID列表
 }
 
 // FileUploadRequest 文件上传请求

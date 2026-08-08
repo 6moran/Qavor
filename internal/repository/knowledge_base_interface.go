@@ -19,11 +19,13 @@ type KnowledgeBaseRepository interface {
 	Create(base *entity.KnowledgeBase) error
 	// FindByKBID 根据知识库ID查询
 	FindByKBID(kbID string) (*entity.KnowledgeBase, error)
+	// FindByKBIDs 批量根据知识库ID查询，单条 SQL 完成，缺失的 ID 不返回
+	FindByKBIDs(kbIDs []string) ([]*entity.KnowledgeBase, error)
 	// List 分页查询知识库列表
 	List(offset, limit int, keyword string) ([]*entity.KnowledgeBase, int64, error)
 	// Update 更新知识库记录
 	Update(base *entity.KnowledgeBase) error
-	// DeleteByKBID 根据知识库ID删除
+	// DeleteByKBID 级联删除知识库（分块、文件、处理任务、知识库记录在同一事务中删除）
 	DeleteByKBID(kbID string) error
 	// GetStatsByKBIDs 批量获取知识库统计信息
 	GetStatsByKBIDs(kbIDs []string) (map[string]*KnowledgeBaseStats, error)

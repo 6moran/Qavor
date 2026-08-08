@@ -117,10 +117,6 @@ const goToLogin = () => {
   router.push('/login')
 }
 
-const openDocs = () => {
-  window.open('https://xerrors.github.io/Yuxi/', '_blank', 'noopener,noreferrer')
-}
-
 const toggleTheme = () => {
   themeStore.toggleTheme()
 }

@@ -498,6 +498,101 @@ print(users_data['data']['total_page'])  # 总页数
 
 ---
 
+## 链路追踪（Trace）
+
+Agent 对话执行链路追踪：通过 eino Callback 全局采集 LLM / Tool / Retriever / Agent 组件调用，生成 Trace 与 Span 记录，供开发者排查 Agent 执行链路。
+
+### 获取 Trace 列表
+
+`GET /api/v1/traces`（需认证）
+
+**Query 参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| keyword | string | 按问题关键词模糊搜索 |
+| agent_slug | string | 按 Agent 筛选 |
+| conversation_id | int | 按会话 ID 筛选 |
+| status | string | running / success / failed / cancelled / timeout |
+| source | string | sync（同步）/ stream（流式）/ run（异步 Run） |
+| from | string | 开始时间（RFC3339） |
+| to | string | 结束时间（RFC3339） |
+| page | int | 页码，默认 1 |
+| page_size | int | 每页条数，默认 20，最大 100 |
+
+**响应示例：**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "items": [
+      {
+        "trace_id": "3f0c...",
+        "source": "stream",
+        "agent_slug": "assistant",
+        "query": "什么是退款政策？",
+        "status": "success",
+        "duration_ms": 2340,
+        "model_name": "gpt-4o",
+        "total_tokens": 356,
+        "started_at": "2026-08-08T10:00:00Z",
+        "ended_at": "2026-08-08T10:00:02Z"
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+### 获取 Trace 详情
+
+`GET /api/v1/traces/:trace_id`（需认证）
+
+**响应示例：**
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "trace": {
+      "trace_id": "3f0c...",
+      "source": "stream",
+      "status": "success",
+      "query": "什么是退款政策？",
+      "duration_ms": 2340,
+      "total_tokens": 356
+    },
+    "spans": [
+      {
+        "span_id": "a1b2...",
+        "parent_span_id": "",
+        "kind": "llm",
+        "name": "gpt-4o",
+        "status": "success",
+        "started_at": "2026-08-08T10:00:00Z",
+        "ended_at": "2026-08-08T10:00:02Z",
+        "duration_ms": 2100,
+        "input_summary": "用户问题摘要",
+        "output_summary": "模型回复摘要",
+        "tokens_in": 200,
+        "tokens_out": 156,
+        "reasoning_tokens": 0,
+        "error_message": ""
+      }
+    ]
+  }
+}
+```
+
+- `kind` 取值：`llm`（模型调用）/ `tool`（工具调用）/ `retriever`（知识检索）/ `agent`（Agent 节点）
+- spans 按 `started_at` 升序平铺返回，前端按 `parent_span_id` 组装层级树
+- 数据保留天数与超时标记由 `config.yaml` 的 `trace` 段配置，janitor 定期清理
+
+---
+
 ## 注意事项
 
 1. **双 Token 机制**: 

@@ -223,7 +223,7 @@ export const agentApi = {
       body: JSON.stringify({
         query: data.query ?? null,
         agent_slug: data.agent_slug || 'default',
-        thread_id: data.thread_id,
+        thread_id: data.thread_id != null ? String(data.thread_id) : null,
         meta: data.meta || null,
         image_content: data.image_content || null,
         model_spec: data.model_spec || null,

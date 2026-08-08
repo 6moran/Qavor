@@ -25,9 +25,10 @@ type ParsedPage struct {
 
 // ParseResult 是分块器消费的标准化表示。
 type ParseResult struct {
-	Markdown string         `json:"markdown"`
-	Pages    []ParsedPage   `json:"pages,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	Markdown     string         `json:"markdown"`
+	PicturePaths []string       `json:"picture_paths,omitempty"` // 提取的图片临时文件路径(绝对路径,正斜杠)
+	Pages        []ParsedPage   `json:"pages,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
 // DocumentParser 将源文档转换为 Markdown 格式。
