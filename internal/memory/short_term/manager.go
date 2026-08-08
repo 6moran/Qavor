@@ -10,9 +10,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// Store 短期记忆存储接口
+type Store interface {
+	Save(ctx context.Context, memory *SessionMemory) error
+	Load(ctx context.Context, conversationID uint) (*SessionMemory, error)
+	Delete(ctx context.Context, conversationID uint) error
+	RefreshTTL(ctx context.Context, conversationID uint) error
+}
+
 // ManagerImpl 短期记忆管理器实现
 type ManagerImpl struct {
-	store         *RedisStore
+	store         Store
 	bufferManager *MessageBufferManager
 	stateManager  *SessionStateManager
 	summaryGen    *SummaryGenerator
@@ -21,7 +29,7 @@ type ManagerImpl struct {
 
 // NewManager 创建短期记忆管理器
 func NewManager(
-	store *RedisStore,
+	store Store,
 	bufferManager *MessageBufferManager,
 	stateManager *SessionStateManager,
 	summaryGen *SummaryGenerator,

@@ -127,3 +127,18 @@ func (m *AgentManager) GetConfig(_ context.Context, slug string) (map[string]int
 
 	return result, nil
 }
+
+// ClearAgentCache 清除指定 Agent 缓存，强制下次请求重新创建
+func (m *AgentManager) ClearAgentCache(slug string) {
+	m.agents.Delete(slug)
+	logger.Info("Agent 缓存已清除", zap.String("slug", slug))
+}
+
+// ClearAllAgentCaches 清除所有 Agent 缓存
+func (m *AgentManager) ClearAllAgentCaches() {
+	m.agents.Range(func(key, value interface{}) bool {
+		m.agents.Delete(key)
+		return true
+	})
+	logger.Info("所有 Agent 缓存已清除")
+}

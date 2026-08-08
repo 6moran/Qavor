@@ -14,6 +14,8 @@ type KnowledgeFileRepository interface {
 	FindByKBIDAndFileID(kbID, fileID string) (*entity.KnowledgeFile, error)
 	// ListByKBID 分页查询知识库下的文件列表
 	ListByKBID(kbID string, offset, limit int, parentID, pathPrefix string, recursive bool, status string) ([]*entity.KnowledgeFile, int64, error)
+	// ListAllByKBID 返回知识库下的全部文件记录，用于删除知识库时清理对象存储。
+	ListAllByKBID(ctx context.Context, kbID string) ([]*entity.KnowledgeFile, error)
 	// SearchByKBID 按文件名、原始文件名或路径检索知识库文件。
 	SearchByKBID(kbID, query string, offset, limit int) ([]*entity.KnowledgeFile, int64, error)
 	// DeleteByKBIDAndFileID 根据知识库ID和文件ID删除

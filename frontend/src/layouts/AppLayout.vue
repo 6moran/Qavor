@@ -479,7 +479,7 @@ div.header,
   }
 
   .sidebar-conversations {
-    height: 100%;
+    flex: 1 1 0;
     min-height: 0;
     overflow: hidden;
   }
@@ -495,6 +495,8 @@ div.header,
   .fill {
     flex: 1 1 0;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .sidebar-footer {

@@ -434,6 +434,17 @@ func (s *knowledgeFileService) RetryParse(ctx context.Context, kbID, fileID stri
 	return &response.ProcessingJobEnqueueItem{FileID: fileID, JobID: job.JobID, Status: entity.FileParseQueued}, nil
 }
 
+// chunkPresetFromAdditionalParams 从知识库 additional_params 中解析分块预设 ID。
+func chunkPresetFromAdditionalParams(params entity.JSON) string {
+	if params == nil {
+		return ""
+	}
+	if v, ok := params["chunk_preset_id"].(string); ok {
+		return v
+	}
+	return ""
+}
+
 // IndexFiles 对指定文件执行手动入库。
 func (s *knowledgeFileService) IndexFiles(ctx context.Context, kbID string, req *request.IndexKnowledgeFilesRequest) (*response.ProcessingJobBatchResponse, error) {
 	if s.jobRepo == nil || s.queue == nil {
@@ -441,8 +452,19 @@ func (s *knowledgeFileService) IndexFiles(ctx context.Context, kbID string, req 
 	}
 	result := &response.ProcessingJobBatchResponse{}
 	indexableStatuses := []string{entity.FileParsed, entity.FileIndexFailed, entity.FileIndexed, "ready"}
+	// 分块预设：文件级未指定时回退知识库级默认。
+	presetID := req.Params.ChunkPresetID
+	if presetID == "" {
+		base, err := s.baseRepo.FindByKBID(kbID)
+		if err != nil {
+			return nil, err
+		}
+		if base != nil {
+			presetID = chunkPresetFromAdditionalParams(base.AdditionalParams)
+		}
+	}
 	processingParams := entity.JSON{
-		"chunk_preset_id":    req.Params.ChunkPresetID,
+		"chunk_preset_id":    presetID,
 		"chunk_token_num":    req.Params.ChunkParserConfig.ChunkTokenNum,
 		"overlapped_percent": req.Params.ChunkParserConfig.OverlappedPercent,
 	}

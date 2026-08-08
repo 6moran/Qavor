@@ -197,7 +197,7 @@ export function useAgentRunStream({
       ts.activeRunId = runId
       saveActiveRunSnapshot(threadId, runId, ts.runLastSeq)
     } else {
-      ts.activeRunId = null
+      ts.activeRunId = runId
       clearActiveRunSnapshot(threadId)
       touchedThreadIds.forEach((id) => clearPendingInterruptForRun(id, runId))
     }
@@ -205,9 +205,13 @@ export function useAgentRunStream({
     ts.replyLoadingVisible = false
     ts.pendingRequestId = null
     fetchThreadMessages({ agentId: unref(currentAgentId), threadId, delay }).finally(() => {
-      const latest = getThreadState(threadId)
-      if (!latest?.activeRunId || latest.activeRunId === runId) {
-        resetOnGoingConv(threadId, { preserveRequestStreams: true })
+      // 刷新历史完成后清理 onGoingConv，防止 optimistic 人类消息或流式 AI 消息
+      // 与服务器历史重复渲染（服务器历史已包含本轮 Run 的完整消息）。
+      ts.onGoingConv = {
+        msgChunks: {},
+        currentRequestKey: null,
+        currentAssistantKey: null,
+        toolCallBuffers: {}
       }
       fetchAgentState(unref(currentAgentId), threadId)
       if (scroll) onScrollToBottom()
@@ -463,7 +467,10 @@ export function useAgentRunStream({
 
         if (event === 'error') {
           sawTerminalEvent = true
-          finalizeRunStream(threadId, runId, touchedThreadIds, { delay: 300, scroll: true })
+          const errorMessage = payload?.message || data?.message || 'Agent 执行失败'
+          console.error('[SSE] Run error:', { runId, errorMessage, payload })
+          handleChatError(new Error(errorMessage), 'stream')
+          finalizeRunStream(threadId, runId, touchedThreadIds, { delay: 300, scroll: true, status: 'failed' })
         }
       })
 

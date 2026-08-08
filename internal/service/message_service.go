@@ -225,6 +225,7 @@ func (s *messageService) toResponse(msg *entity.Message) *dto.MessageResponse {
 		MessageType:    msg.MessageType,
 		TokenCount:     msg.TokenCount,
 		ImageContent:   msg.ImageContent,
+		ExtraMetadata:  msg.ExtraMetadata,
 		RunID:          msg.RunID,
 		RequestID:      msg.RequestID,
 		DeliveryStatus: msg.DeliveryStatus,

@@ -32,7 +32,7 @@ var ErrInterrupted = errors.New("run: agent interrupted for tool approval")
 // AgentExecutor 执行 Agent 并通过 emit 回调发出流式事件，返回完整的 Assistant 消息列表（用于持久化）。
 // 由 agent 包提供适配实现，解耦 run 与 eino adk。
 type AgentExecutor interface {
-	Execute(ctx context.Context, slug, query string, emit func(StreamEvent)) ([]*schema.Message, error)
+	Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent)) ([]*schema.Message, error)
 }
 
 // Worker Run 执行器：从队列消费请求，执行 Agent，发布事件到 Redis Stream，持久化消息
@@ -43,6 +43,7 @@ type Worker struct {
 	messageRepo      repository.MessageRepository
 	conversationRepo repository.ConversationRepository
 	executor         AgentExecutor
+	contextMgr       ContextProvider
 	logger           *zap.Logger
 
 	// 运行中 Run 的取消函数注册表：run_id -> cancelFunc
@@ -52,10 +53,16 @@ type Worker struct {
 	block       time.Duration
 }
 
+// ContextProvider 上下文管理接口（用于加载对话历史和短期记忆）
+type ContextProvider interface {
+	LoadHistory(ctx context.Context, conversationID uint) ([]*schema.Message, error)
+	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message) error
+}
+
 // NewWorker 创建 Run 执行器
 func NewWorker(queue *RequestQueue, pub *eventbus.Publisher, runRepo repository.AgentRunRepository,
 	messageRepo repository.MessageRepository, conversationRepo repository.ConversationRepository,
-	executor AgentExecutor, logger *zap.Logger, workerCount int) *Worker {
+	executor AgentExecutor, contextMgr ContextProvider, logger *zap.Logger, workerCount int) *Worker {
 	if workerCount <= 0 {
 		workerCount = 3
 	}
@@ -66,6 +73,7 @@ func NewWorker(queue *RequestQueue, pub *eventbus.Publisher, runRepo repository.
 		messageRepo:      messageRepo,
 		conversationRepo: conversationRepo,
 		executor:         executor,
+		contextMgr:       contextMgr,
 		logger:           logger,
 		workerCount:      workerCount,
 		block:            5 * time.Second,
@@ -215,6 +223,20 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		if err := w.messageRepo.Create(userMsg); err != nil {
 			w.logger.Warn("worker 保存用户消息失败", zap.String("run_id", run.ID), zap.Error(err))
 		}
+
+		// 更新短期记忆（用户消息）
+		if w.contextMgr != nil {
+			userSchemaMsg := &schema.Message{Role: schema.User, Content: item.Query}
+			if err := w.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg); err != nil {
+				w.logger.Warn("更新 Short Memory（用户消息）失败", zap.String("run_id", run.ID), zap.Error(err))
+			}
+		}
+	}
+
+	// 0.2 加载对话历史（在保存用户消息之后，获取包含当前用户消息的完整历史）
+	var history []*schema.Message
+	if conversationID > 0 && w.contextMgr != nil {
+		history, _ = w.contextMgr.LoadHistory(ctx, conversationID)
 	}
 
 	// 1. 状态置 running
@@ -244,10 +266,10 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			})
 	}
 
-	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, emit)
+	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, history, emit)
 
-	// 3.1 持久化 Assistant 消息（刷新后可从 DB 加载）
-	if conversationID > 0 {
+	// 3.1 持久化 Assistant 消息（刷新后可从 DB 加载）—— 无论成功或失败都保存已生成的消息
+	if conversationID > 0 && len(assistantMsgs) > 0 {
 		for _, msg := range assistantMsgs {
 			if msg == nil || msg.Content == "" {
 				continue
@@ -260,7 +282,16 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				RequestID:      requestID,
 			}
 			if err := w.messageRepo.Create(aiMsg); err != nil {
-				w.logger.Warn("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))
+				w.logger.Error("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))
+			}
+			// 更新短期记忆（助手消息）
+			if w.contextMgr != nil {
+				if err := w.contextMgr.UpdateShortMemory(ctx, conversationID, &schema.Message{
+					Role:    schema.Assistant,
+					Content: msg.Content,
+				}); err != nil {
+					w.logger.Warn("更新 Short Memory（助手消息）失败", zap.String("run_id", run.ID), zap.Error(err))
+				}
 			}
 		}
 	}
@@ -274,6 +305,12 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		trace.FinishTrace(ctx, entity.TraceStatusCancelled, "interrupted")
 		w.finish(ctx, run, eventbus.StatusInterrupted, "interrupted")
 	case execErr != nil:
+		w.logger.Error("Run 执行失败",
+			zap.String("run_id", run.ID),
+			zap.String("agent_slug", item.AgentSlug),
+			zap.String("error", execErr.Error()),
+			zap.Int("assistant_msgs_count", len(assistantMsgs)),
+		)
 		trace.FinishTrace(ctx, entity.TraceStatusFailed, execErr.Error())
 		w.publishError(ctx, run, execErr)
 		w.finish(ctx, run, eventbus.StatusFailed, "failed")
