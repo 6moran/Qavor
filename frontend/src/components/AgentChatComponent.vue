@@ -2847,7 +2847,7 @@ const handleEditMessage = async (msg) => {
 
 // 删除消息
 const handleDeleteMessage = async (msg) => {
-  if (!msg || !currentChatId.value) return
+  if (!msg || !currentChatId.value || !msg.id) return
 
   try {
     // 确认删除
@@ -2862,7 +2862,13 @@ const handleDeleteMessage = async (msg) => {
 
     if (!confirmed) return
 
-    // TODO: 调用 API 删除消息
+    const threadId = currentChatId.value
+    await agentApi.deleteMessage(threadId, msg.id)
+
+    // 本地移除消息
+    const messages = threadMessages.value[threadId] || []
+    threadMessages.value[threadId] = messages.filter((item) => item.id !== msg.id)
+
     message.success('消息已删除')
   } catch (error) {
     console.error('删除消息失败:', error)

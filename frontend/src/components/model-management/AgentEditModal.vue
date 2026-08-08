@@ -123,7 +123,8 @@ const openEdit = async (agent) => {
     slug: detail.id || detail.slug || '',
     name: detail.name || '',
     backend_id: detail.backend_id || DEFAULT_AGENT_BACKEND_ID,
-    description: detail.description || ''
+    description: detail.description || '',
+    instruction: detail.config?.instruction || detail.config_json?.context?.instruction || ''
   })
   await agentStore.selectAgent(detail.id, { allowSubagent: true })
   showAgentModal.value = true

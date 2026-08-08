@@ -24,20 +24,6 @@ func QueryFrom(ctx context.Context) string {
 	return ""
 }
 
-// activatedSkillsKey context key 用于传递已激活的技能 slug 列表
-type activatedSkillsKey struct{}
-
-func WithActivatedSkills(ctx context.Context, slugs []string) context.Context {
-	return context.WithValue(ctx, activatedSkillsKey{}, slugs)
-}
-
-func ActivatedSkillsFrom(ctx context.Context) []string {
-	if v, ok := ctx.Value(activatedSkillsKey{}).([]string); ok {
-		return v
-	}
-	return nil
-}
-
 type RetrievalConfig struct {
 	Enabled   bool
 	Threshold int

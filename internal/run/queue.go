@@ -29,6 +29,12 @@ type QueueItem struct {
 	RequestID string    `json:"request_id"`
 	Query     string    `json:"query"`
 	CreatedAt time.Time `json:"created_at"`
+
+	// 审批相关（仅审批/恢复流程填充）
+	ApprovalMode string         `json:"approval_mode,omitempty"` // default/always_trust
+	ResumeRunID  string         `json:"resume_run_id,omitempty"` // 被恢复的父 Run ID（created_by_run_id 语义）
+	CheckpointID string         `json:"checkpoint_id,omitempty"` // 中断时保存的 checkpoint key
+	Targets      map[string]any `json:"targets,omitempty"`       // 中断地址 → 审批决定（approve/reject）
 }
 
 // RequestQueue 请求队列（Redis list + 每线程锁）

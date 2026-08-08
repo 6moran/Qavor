@@ -29,8 +29,9 @@ var ErrInterrupted = errors.New("run: agent interrupted for tool approval")
 
 // AgentExecutor 执行 Agent 并通过 emit 回调发出流式事件，返回完整的 Assistant 消息列表（用于持久化）。
 // 由 agent 包提供适配实现，解耦 run 与 eino adk。
+// opts 支持 WithApprovalMode（审批模式）与 WithResume（审批恢复）。
 type AgentExecutor interface {
-	Execute(ctx context.Context, slug, query string, emit func(StreamEvent)) ([]*schema.Message, error)
+	Execute(ctx context.Context, slug, query string, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error)
 }
 
 // Worker Run 执行器：从队列消费请求，执行 Agent，发布事件到 Redis Stream，持久化消息
@@ -228,7 +229,16 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			})
 	}
 
-	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, emit)
+	// 执行选项：审批模式 + 恢复参数（resume 流程）
+	var execOpts []ExecuteOption
+	if item.ApprovalMode != "" {
+		execOpts = append(execOpts, WithApprovalMode(item.ApprovalMode))
+	}
+	if item.ResumeRunID != "" && item.CheckpointID != "" {
+		execOpts = append(execOpts, WithResume(item.CheckpointID, item.Targets))
+	}
+
+	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, emit, execOpts...)
 
 	// 3.1 持久化 Assistant 消息（刷新后可从 DB 加载）—— 无论成功或失败都保存已生成的消息
 	if conversationID > 0 && len(assistantMsgs) > 0 {
@@ -254,6 +264,14 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	case ctx.Err() == context.Canceled:
 		w.finish(ctx, run, eventbus.StatusCancelled, "cancelled")
 	case errors.Is(execErr, ErrInterrupted):
+		// 提取审批信息并发布中断+审批事件
+		if ie, ok := execErr.(*InterruptedError); ok {
+			w.publishApproval(ctx, run, ie)
+		}
+		// 保存中断信息到 run 记录
+		if ie, ok := execErr.(*InterruptedError); ok {
+			w.saveInterruptInfo(ctx, run, ie)
+		}
 		w.finish(ctx, run, eventbus.StatusInterrupted, "interrupted")
 	case execErr != nil:
 		w.logger.Error("Run 执行失败",
@@ -287,6 +305,44 @@ func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoS
 func (w *Worker) publishError(ctx context.Context, run *entity.AgentRun, execErr error) {
 	_, _ = w.pub.PublishPayload(ctx, eventbus.EventError, run.ID, run.ConversationThreadID, run.RequestID,
 		eventbus.ErrorPayload{Code: "AGENT_ERROR", Message: execErr.Error()})
+}
+
+// publishApproval 发布审批请求事件。
+// 前端 useApproval.js 的 processApprovalInStream 检查 chunk.status === 'human_approval_required'。
+// approval.action_requests 与 approval.review_configs 长度必须相等（前端 useApproval.js:27 强校验）。
+func (w *Worker) publishApproval(ctx context.Context, run *entity.AgentRun, ie *InterruptedError) {
+	approval := &eventbus.ApprovalPayload{}
+	for _, req := range ie.Requests {
+		approval.ActionRequests = append(approval.ActionRequests, eventbus.ApprovalActionRequest{
+			Name: req.ToolName,
+			Args: req.Args,
+		})
+		// review_configs 与 action_requests 一一对应，前端要求长度相等
+		approval.ReviewConfigs = append(approval.ReviewConfigs, eventbus.ApprovalReviewConfig{
+			ToolName: req.ToolName,
+			Args:     req.Args,
+			Reason:   "此操作需要用户审批",
+		})
+	}
+	_, _ = w.pub.PublishPayload(ctx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
+		eventbus.EndPayload{
+			Status:   eventbus.StatusInterrupted,
+			Approval: approval,
+		})
+}
+
+// saveInterruptInfo 保存中断信息到 run 记录（checkpointID + approval info），
+// 供 resume 时读取。
+func (w *Worker) saveInterruptInfo(ctx context.Context, run *entity.AgentRun, ie *InterruptedError) {
+	run.CheckpointID = ie.CheckpointID
+	// ApprovalInfo 与 EndPayload 的 approval 结构一致（前端解析用）
+	run.ApprovalInfo = entity.JSON{
+		"action_requests": ie.Requests,
+		"checkpoint_id":   ie.CheckpointID,
+	}
+	if err := w.runRepo.Update(run); err != nil {
+		w.logger.Warn("worker 保存中断信息失败", zap.String("run_id", run.ID), zap.Error(err))
+	}
 }
 
 // CancelRun 取消运行中的 Run（调用其 cancel 函数）。返回是否找到运行中的 Run。

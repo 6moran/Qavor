@@ -20,6 +20,7 @@ type Config struct {
 	MCP           MCPConfig           `mapstructure:"mcp"`
 	SSE           SSEConfig           `mapstructure:"sse"` // SSE 流式服务配置
 	Agent         AgentConfig         `mapstructure:"agent"`
+	Run           RunConfig           `mapstructure:"run"` // Run 执行器 / 队列配置
 }
 
 // AgentConfig agent 运行时配置（本地文件系统与安全管控）。
@@ -115,7 +116,6 @@ func (c *AgentConfig) ApplyDefaults() {
 	if c.Security.Output.OffloadTokenLimit <= 0 {
 		c.Security.Output.OffloadTokenLimit = 20000
 	}
-	Run           RunConfig           `mapstructure:"run"` // Run 执行器 / 队列配置
 }
 
 // RunConfig Run 执行器与请求队列配置

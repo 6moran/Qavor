@@ -68,7 +68,27 @@ type ItemsPayload struct {
 
 // EndPayload end 事件负载
 type EndPayload struct {
-	Status string `json:"status"` // completed / interrupted / cancelled
+	Status   string           `json:"status"`             // completed / interrupted / cancelled
+	Approval *ApprovalPayload `json:"approval,omitempty"` // 审批信息（仅 interrupted 时填充）
+}
+
+// ApprovalPayload 审批信息（嵌入 EndPayload）
+type ApprovalPayload struct {
+	ActionRequests []ApprovalActionRequest `json:"action_requests"`
+	ReviewConfigs  []ApprovalReviewConfig  `json:"review_configs"`
+}
+
+// ApprovalActionRequest 待审批的工具调用（前端展示用）
+type ApprovalActionRequest struct {
+	Name string `json:"name"`
+	Args string `json:"args"`
+}
+
+// ApprovalReviewConfig 审批配置（前端展示用）
+type ApprovalReviewConfig struct {
+	ToolName string `json:"tool_name"`
+	Args     string `json:"args"`
+	Reason   string `json:"reason"`
 }
 
 // ErrorPayload error 事件负载

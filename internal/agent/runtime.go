@@ -3,6 +3,7 @@ package agent
 import (
 	"Qavor/internal/agent/localfs/security"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/backgroundtask"
 )
 
@@ -13,8 +14,12 @@ type AgentRuntime struct {
 	Policies *security.Policies
 	// WorkspaceRoot agent 默认工作区根目录，每个 agent 在其下建 <slug> 子目录。
 	WorkspaceRoot string
+	// SkillsDir 系统技能源目录，用于 localfs 技能符号链接白名单。
+	SkillsDir string
 	// ShellTimeoutSeconds 单条 shell 命令超时（0=无显式超时，依赖后台任务管理器的前台超时兜底）。
 	ShellTimeoutSeconds int
 	// Background 全局后台任务管理器。
 	Background *backgroundtask.Manager
+	// CheckPointStore 审批中断恢复的 checkpoint 存储（Redis）。
+	CheckPointStore adk.CheckPointStore
 }

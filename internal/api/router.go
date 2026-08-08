@@ -14,6 +14,7 @@ import (
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
 	toolctrl "Qavor/internal/api/v1/tool"
+	workspaceapi "Qavor/internal/api/v1/workspace"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 	skillapi "Qavor/internal/skill/api"
@@ -40,6 +41,7 @@ type Router struct {
 	mcpServerCtrl     *mcpserverctrl.Controller
 	postStreamHandler *agentctrl.PostStreamHandler
 	runController     *agentctrl.RunController
+	workspaceCtrl     *workspaceapi.Controller
 }
 
 // NewRouter 创建路由
@@ -53,6 +55,7 @@ func NewRouter(
 	messageService service.MessageService,
 	agentService service.AgentService,
 	agentOpts agentctrl.OptionsProvider,
+	agentCacheInvalidator agentctrl.AgentCacheInvalidator,
 	chatCtrl *chatctrl.Controller,
 	ragCtrl *ragctrl.Controller,
 	toolRegistry *tool.Registry,
@@ -61,6 +64,7 @@ func NewRouter(
 	mcpServerCtrl *mcpserverctrl.Controller,
 	postStreamHandler *agentctrl.PostStreamHandler,
 	runController *agentctrl.RunController,
+	workspaceCtrl *workspaceapi.Controller,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -70,7 +74,7 @@ func NewRouter(
 		modelCtrl:         model.NewController(modelService),
 		conversationCtrl:  conversation.NewController(conversationService),
 		messageCtrl:       message.NewController(messageService),
-		agentCtrl:         agentctrl.NewController(agentService, agentOpts),
+		agentCtrl:         agentctrl.NewController(agentService, agentOpts, agentCacheInvalidator),
 		chatCtrl:          chatCtrl,
 		ragCtrl:           ragCtrl,
 		toolCtrl:          toolctrl.NewController(toolRegistry),
@@ -79,6 +83,7 @@ func NewRouter(
 		mcpServerCtrl:     mcpServerCtrl,
 		postStreamHandler: postStreamHandler,
 		runController:     runController,
+		workspaceCtrl:     workspaceCtrl,
 	}
 }
 
@@ -144,5 +149,8 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// SSE 流式服务路由
 		ssectrl.RegisterRoutes(v1, r.sseCtrl)
+
+		// 工作区路由
+		r.workspaceCtrl.RegisterRoutes(v1)
 	}
 }

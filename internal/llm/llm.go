@@ -68,3 +68,20 @@ func NewClient(ctx context.Context, provider, model, apiKey, baseURL string, tim
 
 	return factory(ctx, provider, model, apiKey, baseURL, timeout)
 }
+
+// ClearAllCaches 清除所有 LLM 客户端缓存
+func ClearAllCaches() {
+	ClearOpenAICache()
+	ClearOllamaCache()
+}
+
+// ClearCache 根据 provider 类型清除对应的 LLM 客户端缓存
+func ClearCache(provider, modelName, apiKey, baseURL string) {
+	switch provider {
+	case "ollama":
+		ClearOllamaCacheByKey(modelName, baseURL)
+	default:
+		// OpenAI 兼容协议
+		ClearOpenAICacheByKey(modelName, apiKey, baseURL)
+	}
+}
