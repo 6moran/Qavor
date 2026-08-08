@@ -9,6 +9,8 @@ import (
 	"Qavor/internal/llm"
 	"Qavor/internal/model/dto/request"
 	dto "Qavor/internal/model/dto/response"
+	"Qavor/internal/model/entity"
+	"Qavor/internal/trace"
 	"Qavor/pkg/errors"
 
 	"github.com/cloudwego/eino/schema"
@@ -129,11 +131,15 @@ func (s *modelService) testChatConnection(ctx context.Context, req *request.Mode
 		Content: "Reply with OK.",
 	}})
 	if err != nil {
+		// 连接测试路径不经 Agent.Execute，需手动收尾 trace，避免留下 running 记录
+		trace.FinishTrace(ctx, entity.TraceStatusFailed, err.Error())
 		return nil, err
 	}
 	if reply == nil || strings.TrimSpace(reply.Content) == "" {
+		trace.FinishTrace(ctx, entity.TraceStatusFailed, "模型未返回有效回复")
 		return nil, errors.New(errors.CodeLLMResponseInvalid, "模型未返回有效回复")
 	}
+	trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
 	return &dto.ModelConnectionTestResponse{
 		ModelType: req.ModelType,
 	}, nil
