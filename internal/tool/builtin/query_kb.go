@@ -3,7 +3,6 @@ package builtin
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"Qavor/internal/service"
@@ -49,12 +48,16 @@ func (t *QueryKBTool) Execute(ctx context.Context, args map[string]any) (any, er
 		return nil, errors.New("query_text must be a non-empty string")
 	}
 
-	topK := 0
+	// 默认 top_k，当 LLM 传入值超出有效范围时使用
+	const defaultTopK = 10
+
+	topK := defaultTopK
 	if raw, exists := args["top_k"]; exists {
-		topK = parseTopK(raw)
-		if topK < 1 || topK > 20 {
-			return nil, fmt.Errorf("top_k must be an integer between 1 and 20, got %v", raw)
+		parsed := parseTopK(raw)
+		if parsed >= 1 && parsed <= 20 {
+			topK = parsed
 		}
+		// 无效值（超出范围或非整数）静默使用默认值，不报错
 	}
 
 	result, err := t.ragSvc.Retrieve(ctx, kbIDs, query, topK)

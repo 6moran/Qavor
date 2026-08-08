@@ -102,10 +102,28 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 	msgID := uuid.New().String()
 
 	// 流式输出：逐 chunk 发 text_delta，共享 msgID
+	// 流式工具调用（chunk.ToolCalls）在流结束后统一补发，避免事件丢失
 	if mv.IsStreaming && mv.MessageStream != nil {
-		content := e.emitStream(ctx, mv.MessageStream, msgID, emit)
+		content, toolCalls := e.emitStream(ctx, mv.MessageStream, msgID, emit)
+		for _, tc := range toolCalls {
+			idx := 0
+			if tc.Index != nil {
+				idx = *tc.Index
+			}
+			emit(StreamEvent{
+				Type:      "tool_call",
+				MessageID: msgID,
+				Role:      "assistant",
+				ToolCall: &eventbus.ToolCallInfo{
+					ID:    tc.ID,
+					Name:  tc.Function.Name,
+					Args:  tc.Function.Arguments,
+					Index: idx,
+				},
+			})
+		}
 		emit(StreamEvent{Type: "message_end", MessageID: msgID, Role: "assistant"})
-		return &schema.Message{Role: schema.Assistant, Content: content}
+		return &schema.Message{Role: schema.Assistant, Content: content, ToolCalls: toolCalls}
 	}
 
 	// 非流式完整消息
@@ -143,18 +161,46 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 }
 
 // emitStream 读取流式输出，逐 chunk 发出 text_delta 事件，返回累积的完整内容
-func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamReader[*schema.Message], msgID string, emit func(StreamEvent)) string {
+// 同时收集流式工具调用：chunk.ToolCalls 中每个 index 的 ID/name 相同、args 为增量片段，
+// 按 index 拼接为完整的 ToolCall，供调用方在流结束后补发 tool_call 事件
+func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamReader[*schema.Message], msgID string, emit func(StreamEvent)) (string, []schema.ToolCall) {
 	defer stream.Close()
 	var sb strings.Builder
+	// index → toolCalls 切片位置，避免 map 与切片双份拷贝不同步
+	toolCallIdx := make(map[int]int)
+	var toolCalls []schema.ToolCall
+	mergeToolCall := func(tc *schema.ToolCall) {
+		idx := 0
+		if tc.Index != nil {
+			idx = *tc.Index
+		}
+		if pos, ok := toolCallIdx[idx]; ok {
+			existing := &toolCalls[pos]
+			if tc.ID != "" {
+				existing.ID = tc.ID
+			}
+			if tc.Function.Name != "" {
+				existing.Function.Name = tc.Function.Name
+			}
+			existing.Function.Arguments += tc.Function.Arguments
+			return
+		}
+		clone := *tc
+		toolCallIdx[idx] = len(toolCalls)
+		toolCalls = append(toolCalls, clone)
+	}
 	for {
 		if ctx.Err() != nil {
-			return sb.String()
+			return sb.String(), toolCalls
 		}
 		chunk, err := stream.Recv()
 		if err != nil {
-			return sb.String()
+			return sb.String(), toolCalls
 		}
-		if chunk != nil && chunk.Content != "" {
+		if chunk == nil {
+			continue
+		}
+		if chunk.Content != "" {
 			sb.WriteString(chunk.Content)
 			emit(StreamEvent{
 				Type:      "text_delta",
@@ -170,6 +216,9 @@ func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamRea
 				Role:      "assistant",
 				Reasoning: reasoning,
 			})
+		}
+		for i := range chunk.ToolCalls {
+			mergeToolCall(&chunk.ToolCalls[i])
 		}
 	}
 }
