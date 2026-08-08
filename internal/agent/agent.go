@@ -5,8 +5,10 @@ import (
 	"fmt"
 
 	"Qavor/internal/mcp"
+	"Qavor/internal/model/entity"
 	"Qavor/internal/skill"
 	"Qavor/internal/tool"
+	"Qavor/internal/trace"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
@@ -172,8 +174,19 @@ func (a *Agent) executionContext(ctx context.Context, query string) context.Cont
 	return ctx
 }
 
-// Execute 执行智能体
+// Execute 执行智能体（包装：执行 + trace 收尾）
 func (a *Agent) Execute(ctx context.Context, query string) (*AgentResponse, error) {
+	resp, err := a.execute(ctx, query)
+	if err != nil {
+		trace.FinishTrace(ctx, entity.TraceStatusFailed, err.Error())
+		return nil, fmt.Errorf("Agent 执行失败: %w", err)
+	}
+	trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
+	return resp, nil
+}
+
+// execute 执行智能体（内部实现）
+func (a *Agent) execute(ctx context.Context, query string) (*AgentResponse, error) {
 	ctx = a.executionContext(ctx, query)
 
 	input := &adk.AgentInput{
@@ -230,6 +243,29 @@ func (it *AgentEventIterator) Next() (*adk.AgentEvent, bool) {
 	return it.iter.Next()
 }
 
+// traceFinishingIterator 迭代器代理：流结束/出错时收尾 trace
+// （ExecuteIter 的 ctx 由调用方注入 trace 上下文，adk 会将其传给组件回调）
+type traceFinishingIterator struct {
+	inner *adk.AsyncIterator[*adk.AgentEvent]
+	ctx   context.Context
+}
+
+func (it *traceFinishingIterator) Next() (*adk.AgentEvent, bool) {
+	ev, ok := it.inner.Next()
+	if !ok {
+		if it.ctx.Err() != nil {
+			trace.FinishTrace(it.ctx, entity.TraceStatusCancelled, "context cancelled")
+		} else {
+			trace.FinishTrace(it.ctx, entity.TraceStatusSuccess, "")
+		}
+		return nil, false
+	}
+	if ev.Err != nil {
+		trace.FinishTrace(it.ctx, entity.TraceStatusFailed, ev.Err.Error())
+	}
+	return ev, true
+}
+
 // ExecuteIter 执行智能体并返回事件迭代器（用于流式输出）
 func (a *Agent) ExecuteIter(ctx context.Context, query string) *AgentEventIterator {
 	ctx = WithQuery(ctx, query)
@@ -259,7 +295,7 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string) *AgentEventIterat
 	}
 
 	iter := a.agent.Run(ctx, input, runOpts...)
-	return &AgentEventIterator{iter: iter}
+	return &AgentEventIterator{iter: &traceFinishingIterator{inner: iter, ctx: ctx}}
 }
 
 // GetMCPManager 获取 MCP 管理器

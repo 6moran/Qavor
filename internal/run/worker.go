@@ -10,6 +10,7 @@ import (
 	"Qavor/internal/eventbus"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
+	"Qavor/internal/trace"
 
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
@@ -21,6 +22,7 @@ type StreamEvent struct {
 	MessageID string                 // 聚合同一段输出的 token（同一段输出共享）
 	Role      string                 // "assistant" / "tool"
 	Content   string                 // 文本内容
+	Reasoning string                 // 推理内容增量（reasoning part 文本）
 	ToolCall  *eventbus.ToolCallInfo // 工具调用结构化字段
 }
 
@@ -188,6 +190,19 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			zap.String("run_id", run.ID), zap.String("thread_id", threadID))
 	}
 
+	// 0.2 恢复 trace 上下文（异步透传：TraceID 来自入队时的 HTTP 请求）
+	if item.TraceID != "" && trace.Enabled() {
+		ctx = trace.WithTraceContext(ctx, &trace.TraceContext{
+			TraceID:        item.TraceID,
+			Source:         entity.TraceSourceRun,
+			AgentSlug:      item.AgentSlug,
+			ConversationID: conversationID,
+			RunID:          run.ID,
+			RequestID:      requestID,
+			Query:          item.Query,
+		})
+	}
+
 	// 0.1 保存用户消息
 	if conversationID > 0 && item.Query != "" {
 		userMsg := &entity.Message{
@@ -224,6 +239,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				Type:      ev.Type,
 				Role:      ev.Role,
 				Content:   ev.Content,
+				Reasoning: ev.Reasoning,
 				ToolCall:  ev.ToolCall,
 			})
 	}
@@ -249,16 +265,20 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		}
 	}
 
-	// 4. 根据结果发布终态事件
+	// 4. 根据结果发布终态事件并收尾 trace
 	switch {
 	case ctx.Err() == context.Canceled:
+		trace.FinishTrace(ctx, entity.TraceStatusCancelled, "context cancelled")
 		w.finish(ctx, run, eventbus.StatusCancelled, "cancelled")
 	case errors.Is(execErr, ErrInterrupted):
+		trace.FinishTrace(ctx, entity.TraceStatusCancelled, "interrupted")
 		w.finish(ctx, run, eventbus.StatusInterrupted, "interrupted")
 	case execErr != nil:
+		trace.FinishTrace(ctx, entity.TraceStatusFailed, execErr.Error())
 		w.publishError(ctx, run, execErr)
 		w.finish(ctx, run, eventbus.StatusFailed, "failed")
 	default:
+		trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
 		w.finish(ctx, run, eventbus.StatusCompleted, "completed")
 	}
 }

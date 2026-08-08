@@ -24,9 +24,11 @@ import (
 	"Qavor/internal/skill/remote"
 	"Qavor/internal/sse"
 
+	tracectrl "Qavor/internal/api/v1/trace"
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
+	"Qavor/internal/trace"
 	"Qavor/internal/worker"
 	"Qavor/pkg/config"
 	"Qavor/pkg/database"
@@ -43,6 +45,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -93,15 +96,16 @@ func expandSkillDir(path string) (string, error) {
 
 // App 应用结构体
 type App struct {
-	cfg           *config.Config
-	postgresDB    *gorm.DB
-	redis         *redis.Client
-	router        *api.Router
-	server        *http.Server
-	workerStop    context.CancelFunc
-	workerDone    chan struct{}
-	runWorkerStop context.CancelFunc
-	mcpManager    *mcp.MCPManager
+	cfg              *config.Config
+	postgresDB       *gorm.DB
+	redis            *redis.Client
+	router           *api.Router
+	server           *http.Server
+	workerStop       context.CancelFunc
+	workerDone       chan struct{}
+	runWorkerStop    context.CancelFunc
+	traceJanitorStop context.CancelFunc
+	mcpManager       *mcp.MCPManager
 }
 
 // NewApp 创建应用实例
@@ -206,6 +210,8 @@ func (a *App) initDatabase() error {
 			&entity.KnowledgeFile{},
 			&entity.KnowledgeChunk{},
 			&entity.DocumentProcessingJob{},
+			&entity.AgentTrace{},
+			&entity.AgentTraceSpan{},
 		); err != nil {
 			logger.Warn("数据库迁移警告", zap.Error(err))
 		} else {
@@ -457,8 +463,28 @@ func (a *App) initDependencies() error {
 		logger.Warn("Redis 不可用，Run 流式服务未启动")
 	}
 
+	// —— 链路追踪装配 ——
+	var traceCtrl *tracectrl.Controller
+	if a.cfg.Trace.Enabled && a.postgresDB != nil {
+		traceRepo := repository.NewTraceRepository(a.postgresDB)
+		trace.Init(traceRepo, true, a.cfg.Trace.MaxContentLength)
+		callbacks.AppendGlobalHandlers(trace.NewHandler())
+		traceSvc := service.NewTraceService(traceRepo)
+		traceCtrl = tracectrl.NewController(traceSvc)
+		jctx, cancelJanitor := context.WithCancel(context.Background())
+		a.traceJanitorStop = cancelJanitor
+		go trace.NewJanitor(traceRepo,
+			time.Duration(a.cfg.Trace.JanitorInterval)*time.Minute,
+			time.Duration(a.cfg.Trace.TimeoutMinutes)*time.Minute,
+			time.Duration(a.cfg.Trace.RetentionDays)*24*time.Hour,
+		).Run(jctx)
+		logger.Info("链路追踪已启用")
+	} else {
+		trace.Init(nil, false, a.cfg.Trace.MaxContentLength)
+	}
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl)
 
 	return nil
 }
@@ -562,6 +588,10 @@ func (a *App) gracefulShutdown() {
 	if a.runWorkerStop != nil {
 		a.runWorkerStop()
 		logger.Info("Run Worker 已关闭")
+	}
+	if a.traceJanitorStop != nil {
+		a.traceJanitorStop()
+		logger.Info("Trace Janitor 已关闭")
 	}
 
 	// 关闭 MCP 服务器连接（SSE 断开、stdio 子进程终止等）
