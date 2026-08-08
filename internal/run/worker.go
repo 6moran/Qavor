@@ -33,8 +33,7 @@ var ErrInterrupted = errors.New("run: agent interrupted for tool approval")
 // 由 agent 包提供适配实现，解耦 run 与 eino adk。
 // opts 支持 WithApprovalMode（审批模式）与 WithResume（审批恢复）。
 type AgentExecutor interface {
-	Execute(ctx context.Context, slug, query string, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error)
-	Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent)) ([]*schema.Message, error)
+	Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error)
 }
 
 // Worker Run 执行器：从队列消费请求，执行 Agent，发布事件到 Redis Stream，持久化消息
@@ -268,7 +267,6 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			})
 	}
 
-	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, history, emit)
 	// 执行选项：审批模式 + 恢复参数（resume 流程）
 	var execOpts []ExecuteOption
 	if item.ApprovalMode != "" {
@@ -278,7 +276,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		execOpts = append(execOpts, WithResume(item.CheckpointID, item.Targets))
 	}
 
-	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, emit, execOpts...)
+	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, history, emit, execOpts...)
 
 	// 3.1 持久化 Assistant 消息（刷新后可从 DB 加载）—— 无论成功或失败都保存已生成的消息
 	if conversationID > 0 && len(assistantMsgs) > 0 {

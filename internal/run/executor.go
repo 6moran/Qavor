@@ -55,8 +55,6 @@ func NewAgentExecutor(agentMgr *agent.AgentManager, resolver ModelResolver) Agen
 	return &agentExecutor{agentMgr: agentMgr, resolver: resolver}
 }
 
-// Execute 执行 Agent，通过 emit 回调发出流式事件，返回完整的 Assistant 消息列表（用于持久化）
-func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent)) ([]*schema.Message, error) {
 // ExecuteOption 执行选项（函数式选项，向后兼容）。
 type ExecuteOption func(*executeOptions)
 
@@ -87,7 +85,7 @@ func WithResume(checkpointID string, targets map[string]any) ExecuteOption {
 // 支持两种模式：
 //   - 首次执行：正常 Run，敏感工具触发审批时返回 *InterruptedError。
 //   - resume 恢复：WithResume 提供 checkpointID + 审批决定，从断点继续执行。
-func (e *agentExecutor) Execute(ctx context.Context, slug, query string, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error) {
+func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error) {
 	opt := &executeOptions{}
 	for _, o := range opts {
 		o(opt)
@@ -128,9 +126,8 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, emit fu
 			return nil, fmt.Errorf("恢复 Agent 执行失败: %w", err)
 		}
 	} else {
-		iter = a.ExecuteIter(ctx, query)
+		iter = a.ExecuteIter(ctx, query, history...)
 	}
-	iter := a.ExecuteIter(ctx, query, history...)
 	for {
 		event, ok := iter.Next()
 		if !ok {

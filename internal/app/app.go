@@ -50,8 +50,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/adk/backgroundtask"
+	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -166,7 +166,7 @@ type App struct {
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
 	mcpManager       *mcp.MCPManager
-	bgManager     *backgroundtask.Manager
+	bgManager        *backgroundtask.Manager
 }
 
 // NewApp 创建应用实例
@@ -574,8 +574,7 @@ func (a *App) initDependencies() error {
 	}
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, workspaceCtrl)
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, workspaceCtrl)
 
 	return nil
 }

@@ -48,6 +48,14 @@ type approvalState struct {
 	Args     string
 }
 
+// checkpoint 使用 gob 编码，ApprovalRequest/approvalState 作为 interface 值存入
+// InterruptSignal，必须注册具体类型，否则 gob 反序列化会报
+// "type not registered for interface"。
+func init() {
+	schema.RegisterName[*ApprovalRequest]("agent.ApprovalRequest")
+	schema.RegisterName[approvalState]("agent.approvalState")
+}
+
 // ApprovalMiddleware 工具审批中间件。
 // 拦截敏感工具（SensitiveTools，如 execute）的执行：首次调用触发 tool.StatefulInterrupt，
 // 暂停 agent 等待用户审批；恢复时按用户决定放行（approve）或拒绝（reject）。

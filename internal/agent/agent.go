@@ -94,17 +94,6 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		cfg.Instruction = "你是一个智能助手，可以根据用户的问题调用可用的工具来提供帮助。请用中文回答用户的问题。"
 	}
 
-	// 获取 MCP 工具（只获取配置的服务器）
-	var mcpTools []einotool.BaseTool
-	if len(cfg.MCPServers) > 0 {
-		mcpTools = mcpManager.GetToolsByServers(cfg.MCPServers)
-	}
-
-	// 获取内置工具
-	var builtinTools []einotool.BaseTool
-	if names := configuredBuiltinToolNames(cfg); len(names) > 0 {
-		builtinTools = toolRegistry.ToEinoToolsByNames(names)
-	}
 	// 获取工具（主智能体）
 	builtinTools, mcpTools := resolveAgentTools(cfg, mcpManager, toolRegistry)
 
@@ -333,9 +322,7 @@ func (a *Agent) execute(ctx context.Context, query string, history ...*schema.Me
 	if len(modelOpts) > 0 {
 		runOpts = append(runOpts, adk.WithChatModelOptions(modelOpts))
 	}
-
-	messages := []*schema.Message{{Role: schema.User, Content: query}}
-	iter := a.runner.Run(ctx, messages, runOpts...)
+	iter := a.agent.Run(ctx, input, runOpts...)
 	var result string
 	for {
 		event, ok := iter.Next()
@@ -421,9 +408,6 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schem
 
 	iter := a.agent.Run(ctx, input, runOpts...)
 	return &AgentEventIterator{iter: &traceFinishingIterator{inner: iter, ctx: ctx}}
-	messages := []*schema.Message{{Role: schema.User, Content: query}}
-	iter := a.runner.Run(ctx, messages, runOpts...)
-	return &AgentEventIterator{iter: iter}
 }
 
 // Resume 从审批中断点恢复执行。
