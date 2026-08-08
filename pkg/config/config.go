@@ -18,8 +18,9 @@ type Config struct {
 	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
 	RAG           RAGConfig           `mapstructure:"rag"`
 	MCP           MCPConfig           `mapstructure:"mcp"`
-	SSE           SSEConfig           `mapstructure:"sse"` // SSE 流式服务配置
-	Run           RunConfig           `mapstructure:"run"` // Run 执行器 / 队列配置
+	SSE           SSEConfig           `mapstructure:"sse"`   // SSE 流式服务配置
+	Run           RunConfig           `mapstructure:"run"`   // Run 执行器 / 队列配置
+	Trace         TraceConfig         `mapstructure:"trace"` // 链路追踪配置
 }
 
 // RunConfig Run 执行器与请求队列配置
@@ -292,6 +293,31 @@ type LogConfig struct {
 	MaxBackups int    `mapstructure:"max_backups"` // 保留的旧日志文件数量
 	MaxAge     int    `mapstructure:"max_age"`     // 保留旧日志文件的最大天数
 	Compress   bool   `mapstructure:"compress"`    // 是否压缩
+}
+
+// TraceConfig 链路追踪配置
+type TraceConfig struct {
+	Enabled          bool `mapstructure:"enabled"`            // 总开关
+	MaxContentLength int  `mapstructure:"max_content_length"` // 内容字段截断长度（字符）
+	RetentionDays    int  `mapstructure:"retention_days"`     // 数据保留天数，过期物理删除
+	TimeoutMinutes   int  `mapstructure:"timeout_minutes"`    // running 超过此时长标记为 timeout
+	JanitorInterval  int  `mapstructure:"janitor_interval"`   // 清理任务执行间隔（分钟）
+}
+
+// ApplyDefaults 为 Trace 配置设置安全默认值
+func (c *TraceConfig) ApplyDefaults() {
+	if c.MaxContentLength <= 0 {
+		c.MaxContentLength = 500
+	}
+	if c.RetentionDays <= 0 {
+		c.RetentionDays = 7
+	}
+	if c.TimeoutMinutes <= 0 {
+		c.TimeoutMinutes = 30
+	}
+	if c.JanitorInterval <= 0 {
+		c.JanitorInterval = 5
+	}
 }
 
 // CORSConfig CORS 配置

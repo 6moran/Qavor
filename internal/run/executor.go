@@ -163,5 +163,26 @@ func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamRea
 				Content:   chunk.Content,
 			})
 		}
+		if reasoning := extractReasoning(chunk); reasoning != "" {
+			emit(StreamEvent{
+				Type:      "text_delta",
+				MessageID: msgID,
+				Role:      "assistant",
+				Reasoning: reasoning,
+			})
+		}
 	}
+}
+
+// extractReasoning 从流式消息中提取推理内容增量（reasoning part）
+func extractReasoning(m *schema.Message) string {
+	if m == nil {
+		return ""
+	}
+	for _, part := range m.AssistantGenMultiContent {
+		if part.Type == schema.ChatMessagePartTypeReasoning && part.Reasoning != nil {
+			return part.Reasoning.Text
+		}
+	}
+	return ""
 }

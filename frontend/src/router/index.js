@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '@/layouts/AppLayout.vue'
-import BlankLayout from '@/layouts/BlankLayout.vue'
 import { useUserStore } from '@/stores/user'
 
 const router = createRouter({
@@ -57,6 +56,25 @@ const router = createRouter({
           path: '',
           name: 'DashboardComp',
           component: () => import('../views/DashboardView.vue'),
+          meta: { keepAlive: false, requiresAuth: true }
+        }
+      ]
+    },
+    {
+      path: '/traces',
+      name: 'traces',
+      component: AppLayout,
+      children: [
+        {
+          path: '',
+          name: 'TraceListComp',
+          component: () => import('../views/TraceListView.vue'),
+          meta: { keepAlive: false, requiresAuth: true }
+        },
+        {
+          path: ':trace_id',
+          name: 'TraceDetailComp',
+          component: () => import('../views/TraceDetailView.vue'),
           meta: { keepAlive: false, requiresAuth: true }
         }
       ]

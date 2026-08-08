@@ -62,6 +62,7 @@ func Load(configPath string) (*Config, error) {
 	config.RAG.ApplyDefaults()
 	config.SSE.ApplyDefaults()
 	config.Run.ApplyDefaults()
+	config.Trace.ApplyDefaults()
 
 	err := godotenv.Load(".env")
 	if err != nil {

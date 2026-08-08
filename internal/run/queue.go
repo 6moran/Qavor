@@ -28,6 +28,7 @@ type QueueItem struct {
 	AgentSlug string    `json:"agent_slug"`
 	RequestID string    `json:"request_id"`
 	Query     string    `json:"query"`
+	TraceID   string    `json:"trace_id,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -61,6 +62,7 @@ func (q *RequestQueue) Enqueue(ctx context.Context, item QueueItem) error {
 		"agent_slug": item.AgentSlug,
 		"request_id": item.RequestID,
 		"query":      item.Query,
+		"trace_id":   item.TraceID,
 		"created_at": item.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}).Err(); err != nil {
 		return fmt.Errorf("queue: hset queued: %w", err)
@@ -112,6 +114,7 @@ func (q *RequestQueue) GetQueued(ctx context.Context, runID string) (*QueueItem,
 		AgentSlug: val["agent_slug"],
 		RequestID: val["request_id"],
 		Query:     val["query"],
+		TraceID:   val["trace_id"],
 		CreatedAt: createdAt,
 	}, nil
 }

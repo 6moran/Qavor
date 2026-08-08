@@ -77,6 +77,7 @@ type MessageStartData struct {
 type MessageDeltaData struct {
 	MessageID string `json:"message_id"`
 	Content   string `json:"content"`
+	Reasoning string `json:"reasoning,omitempty"`
 	Index     int    `json:"index"`
 }
 
