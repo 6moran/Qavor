@@ -289,5 +289,25 @@ func (s *ChatServiceImpl) handleStreamingOutput(username string, msgID string, s
 			}))
 			index++
 		}
+		if reasoning := extractReasoning(chunk); reasoning != "" {
+			s.sendSSEEvent(username, sse.NewSSEEvent(sse.EventMessageDelta, sse.MessageDeltaData{
+				MessageID: msgID,
+				Reasoning: reasoning,
+				Index:     index,
+			}))
+		}
 	}
+}
+
+// extractReasoning 从流式消息中提取推理内容增量（reasoning part）
+func extractReasoning(m *schema.Message) string {
+	if m == nil {
+		return ""
+	}
+	for _, part := range m.AssistantGenMultiContent {
+		if part.Type == schema.ChatMessagePartTypeReasoning && part.Reasoning != nil {
+			return part.Reasoning.Text
+		}
+	}
+	return ""
 }
