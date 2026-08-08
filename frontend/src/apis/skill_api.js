@@ -12,15 +12,6 @@ export const listSkills = async () => {
   return { success: result?.code === 0, data: result?.data || [], message: result?.message }
 }
 
-export const listAccessibleSkills = async () => {
-  // 后端响应为 { code, data: { skills: [...], total } }
-  const result = await apiGet(`${USER_BASE_URL}/accessible`)
-  if (result?.data?.skills) {
-    return { success: result.code === 0, data: result.data.skills, message: result.message }
-  }
-  return { success: result?.code === 0, data: result?.data || [], message: result?.message }
-}
-
 export const prepareSkillUpload = async (file) => {
   const formData = new FormData()
   formData.append('file', file)
@@ -36,11 +27,6 @@ export const prepareRemoteSkills = async (payload) => {
   return apiPost(`${USER_BASE_URL}/remote/prepare`, payload)
 }
 
-export const getSkillDependencyOptions = async (slug) => {
-  const query = slug ? `?slug=${encodeURIComponent(slug)}` : ''
-  return apiGet(`${BASE_URL}/dependency-options${query}`)
-}
-
 export const getSkillTree = async (slug) => {
   return apiGet(`${BASE_URL}/${encodeURIComponent(slug)}/tree`)
 }
@@ -51,10 +37,6 @@ export const getSkillFile = async (slug, path) => {
 
 export const updateSkillFile = async (slug, payload) => {
   return apiPut(`${BASE_URL}/${encodeURIComponent(slug)}/file`, payload)
-}
-
-export const updateSkillDependencies = async (slug, payload) => {
-  return apiPut(`${BASE_URL}/${encodeURIComponent(slug)}/dependencies`, payload)
 }
 
 export const updateSkillEnabled = async (slug, enabled) => {
@@ -75,15 +57,12 @@ export const deleteSkillsBatch = async (slugs) => {
 
 export const skillApi = {
   listSkills,
-  listAccessibleSkills,
   prepareSkillUpload,
   listRemoteSkills,
   prepareRemoteSkills,
-  getSkillDependencyOptions,
   getSkillTree,
   getSkillFile,
   updateSkillFile,
-  updateSkillDependencies,
   updateSkillEnabled,
   exportSkill,
   deleteSkill,

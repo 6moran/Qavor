@@ -3,6 +3,8 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"Qavor/internal/agent"
@@ -15,11 +17,12 @@ import (
 )
 
 type agentService struct {
-	agentRepo repository.AgentRepository
+	agentRepo     repository.AgentRepository
+	workspaceRoot string // agent 工作区根目录，主智能体创建时自动建 <slug> 子目录
 }
 
-func NewAgentService(agentRepo repository.AgentRepository) AgentService {
-	return &agentService{agentRepo: agentRepo}
+func NewAgentService(agentRepo repository.AgentRepository, workspaceRoot string) AgentService {
+	return &agentService{agentRepo: agentRepo, workspaceRoot: workspaceRoot}
 }
 
 func (s *agentService) CreateAgent(req *request.CreateAgentRequest) (*dto.AgentResponse, error) {
@@ -35,6 +38,15 @@ func (s *agentService) CreateAgent(req *request.CreateAgentRequest) (*dto.AgentR
 
 	// 根据 BackendID 判断是否为子智能体
 	isSubagent := req.BackendID == "SubAgentBackend"
+
+	// 仅主智能体自动创建工作根目录（文件操作限定在此目录内）。
+	// 子智能体无文件操作能力，不建目录。
+	if !isSubagent && s.workspaceRoot != "" {
+		workDir := filepath.Join(s.workspaceRoot, slug)
+		if err := os.MkdirAll(workDir, 0o755); err != nil {
+			return nil, fmt.Errorf("创建 agent 工作目录失败: %w", err)
+		}
+	}
 
 	// 构建配置，所有默认值在此处设置并存入数据库
 	defaultTemperature := 0.7
@@ -434,6 +446,7 @@ func mergeContext(cfg *agent.AgentConfig, ctx map[string]interface{}) {
 // 默认值已在创建时存入数据库，此处不设置 Default。
 func buildConfigurableItems(backendID string) map[string]dto.ConfigurableItem {
 	items := map[string]dto.ConfigurableItem{
+		"instruction":              {Name: "系统提示词", Kind: "prompt", Description: "定义智能体的角色和行为规则"},
 		"model_id":                 {Name: "模型", Kind: "llm", Description: "选择智能体使用的模型"},
 		"temperature":              {Name: "温度", Kind: "number", Type: "float", Description: "控制生成随机性（0-2）"},
 		"max_tokens":               {Name: "最大Token数", Kind: "number", Type: "int", Description: "最大输出 token 数量"},

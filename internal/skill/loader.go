@@ -110,11 +110,7 @@ func parseFrontmatter(content string) (*SkillMeta, error) {
 		return nil, err
 	}
 
-	meta := &SkillMeta{
-		ToolDependencies:  []string{},
-		MCPDependencies:   []string{},
-		SkillDependencies: []string{},
-	}
+	meta := &SkillMeta{}
 
 	lines := strings.Split(frontmatter, "\n")
 	for _, line := range lines {
@@ -140,20 +136,6 @@ func parseFrontmatter(content string) (*SkillMeta, error) {
 			meta.Version = value
 		case "author":
 			meta.Author = value
-		case "tool_dependencies":
-			meta.ToolDependencies = parseListValue(value)
-		case "mcp_dependencies":
-			meta.MCPDependencies = parseListValue(value)
-		case "skill_dependencies":
-			meta.SkillDependencies = parseListValue(value)
-		}
-	}
-
-	// 处理多行 YAML 数组（以 "  - " 开头的行）
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "- ") {
-			// 这种情况在单行解析中已被处理
 		}
 	}
 

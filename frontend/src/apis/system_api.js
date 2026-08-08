@@ -15,7 +15,7 @@ export const healthApi = {
    * @returns {Promise} - 健康检查结果
    */
   checkHealth: () => {
-    return apiGet('/api/system/health', {}, false)
+    return apiGet('/api/v1/health', {}, false)
   }
 }
 

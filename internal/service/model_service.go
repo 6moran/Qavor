@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"Qavor/internal/embedding"
 	"Qavor/internal/llm"
@@ -39,11 +40,14 @@ type ModelService interface {
 	ResolveChatModel(ctx context.Context, modelID uint) (einoModel.ToolCallingChatModel, error)
 	// TestConnection 测试未保存的模型配置是否能正常连接。
 	TestConnection(ctx context.Context, req *request.ModelConnectionTestRequest) (*dto.ModelConnectionTestResponse, error)
+	// SetModelConfigChangeCallback 设置模型配置变更回调
+	SetModelConfigChangeCallback(callback func(modelID string))
 }
 
 // modelService 模型服务实现
 type modelService struct {
-	modelRepo repository.ModelRepository
+	modelRepo           repository.ModelRepository
+	onModelConfigChange func(modelID string) // 模型配置变更回调
 }
 
 // NewModelService 创建模型服务
@@ -51,6 +55,11 @@ func NewModelService(modelRepo repository.ModelRepository) ModelService {
 	return &modelService{
 		modelRepo: modelRepo,
 	}
+}
+
+// SetModelConfigChangeCallback 设置模型配置变更回调
+func (s *modelService) SetModelConfigChangeCallback(callback func(modelID string)) {
+	s.onModelConfigChange = callback
 }
 
 // CreateModel 创建模型
@@ -129,6 +138,14 @@ func (s *modelService) UpdateModel(id uint, req *request.UpdateModelRequest) (*d
 		return nil, errors.New(errors.CodeInvalidParam, "模型不存在")
 	}
 
+	// 保存旧的配置，用于清除缓存
+	oldModel := &entity.Model{
+		Name:     model.Name,
+		Protocol: model.Protocol,
+		BaseURL:  model.BaseURL,
+		APIKey:   model.APIKey,
+	}
+
 	// 更新字段
 	if req.Name != "" {
 		model.Name = req.Name
@@ -168,6 +185,21 @@ func (s *modelService) UpdateModel(id uint, req *request.UpdateModelRequest) (*d
 		return nil, err
 	}
 
+	// 清除 LLM 客户端缓存
+	// 解密旧的 API Key 用于清除缓存
+	if oldModel.APIKey != "" {
+		decryptedOldKey, err := crypto.Decrypt(oldModel.APIKey)
+		if err == nil {
+			llm.ClearCache(oldModel.Protocol, oldModel.Name, decryptedOldKey, oldModel.BaseURL)
+		}
+	}
+
+	// 调用回调函数，清除使用该模型的 Agent 缓存
+	if s.onModelConfigChange != nil {
+		modelIDStr := fmt.Sprintf("%d", id)
+		s.onModelConfigChange(modelIDStr)
+	}
+
 	return s.toResponse(model), nil
 }
 
@@ -179,6 +211,14 @@ func (s *modelService) DeleteModel(id uint) error {
 	}
 	if model == nil {
 		return errors.New(errors.CodeInvalidParam, "模型不存在")
+	}
+
+	// 清除 LLM 客户端缓存
+	if model.APIKey != "" {
+		decryptedKey, err := crypto.Decrypt(model.APIKey)
+		if err == nil {
+			llm.ClearCache(model.Protocol, model.Name, decryptedKey, model.BaseURL)
+		}
 	}
 
 	return s.modelRepo.Delete(id)

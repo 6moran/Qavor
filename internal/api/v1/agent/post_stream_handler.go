@@ -46,7 +46,7 @@ func NewPostStreamHandler(sub *eventbus.Subscriber, runRepo repository.AgentRunR
 	}
 }
 
-// CreateRunRequest 创建 Run / 断线重连请求体
+// CreateRunRequest 创建 Run / 断线重连 / 审批恢复 请求体
 type CreateRunRequest struct {
 	Query            string          `json:"query"`
 	AgentSlug        string          `json:"agent_slug"`
@@ -56,6 +56,7 @@ type CreateRunRequest struct {
 	ModelSpec        json.RawMessage `json:"model_spec,omitempty"`
 	ToolApprovalMode string          `json:"tool_approval_mode,omitempty"`
 	Resume           *ResumeParam    `json:"resume,omitempty"`
+	ApprovalDecision string          `json:"approval_decision,omitempty"` // 工具审批决策（"approve"/"reject"），created_by_run_id 非空时使用
 	CreatedByRunID   string          `json:"created_by_run_id,omitempty"`
 	QueuePolicy      string          `json:"queue_policy,omitempty"`
 }
@@ -66,6 +67,15 @@ type ResumeParam struct {
 	LastSeq    string `json:"last_seq"`
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	Decision   string `json:"decision,omitempty"`
+}
+
+// approvalResumeData 审批恢复流程中从中断 run 提取的信息。
+type approvalResumeData struct {
+	ParentRunID  string
+	CheckpointID string
+	Targets      map[string]any // 中断地址 → 审批决定
+	AgentSlug    string
+	ThreadID     string
 }
 
 // CreateRunAndStream POST /api/v1/agent/runs
@@ -81,7 +91,16 @@ func (h *PostStreamHandler) CreateRunAndStream(c *gin.Context) {
 		afterSeq string
 	)
 
-	if req.Resume != nil {
+	if req.CreatedByRunID != "" {
+		// —— 审批恢复：从中断 Run 创建 resume Run ——
+		newRun, err := h.approvalResume(c.Request.Context(), &req)
+		if err != nil {
+			response.Error(c, errors.CodeInternalError, err.Error())
+			return
+		}
+		runRec = newRun
+		afterSeq = "0-0"
+	} else if req.Resume != nil {
 		// —— 断线重连：校验已有 Run，不创建新 Run ——
 		existing, err := h.runRepo.GetByID(req.Resume.RunID)
 		if err != nil || existing == nil {
@@ -163,6 +182,77 @@ func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRun
 	if err := h.queue.Enqueue(ctx, item); err != nil {
 		_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
 		return nil, fmt.Errorf("入队失败: %w", err)
+	}
+	return r, nil
+}
+
+// approvalResume 处理工具审批恢复：从中断 Run 创建 resume Run。
+// 前端提交 {resume: "approve"/"reject", created_by_run_id: "<中断run_id>"}，
+// 从父 Run 记录取 checkpointID + approval info，构建 resume targets 后入队。
+func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRequest) (*entity.AgentRun, error) {
+	// 1. 加载中断 Run 记录
+	parent, err := h.runRepo.GetByID(req.CreatedByRunID)
+	if err != nil || parent == nil {
+		return nil, fmt.Errorf("中断 Run 不存在: %s", req.CreatedByRunID)
+	}
+
+	// 2. 提取 checkpointID（worker 存在 ApprovalInfo 里）
+	checkpointID := ""
+	if parent.ApprovalInfo != nil {
+		if cid, ok := parent.ApprovalInfo["checkpoint_id"].(string); ok {
+			checkpointID = cid
+		}
+	}
+	if checkpointID == "" {
+		return nil, fmt.Errorf("中断 Run 缺少 checkpoint_id: %s", req.CreatedByRunID)
+	}
+
+	// 3. 构建 resume targets（中断地址 → 审批决定）
+	//    中断地址来自 ApprovalMiddleware 的 InterruptCtx.ID，
+	//    存在 ApprovalInfo.action_requests 里的 tool_name 可用于构建默认 target。
+	decision := req.ApprovalDecision
+	targets := map[string]any{
+		// 用默认中间件地址键（审批中间件的稳定地址格式）；
+		// 实际地址由 eino framework 生成，这里用占位符，后续可从 InterruptContexts 提取。
+		"qavor_approval": decision,
+	}
+
+	// 4. 创建 resume Run
+	runID := uuid.New().String()
+	requestID := uuid.New().String()
+	now := time.Now()
+	r := &entity.AgentRun{
+		ID:                   runID,
+		ConversationThreadID: req.ThreadID,
+		AgentSlug:            parent.AgentSlug,
+		Status:               entity.StatusPending,
+		RequestID:            requestID,
+		CreatedByRunID:       req.CreatedByRunID,
+		RunType:              "resume",
+		InputPayload:         entity.JSON{"decision": decision, "checkpoint_id": checkpointID},
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+	if err := h.runRepo.Create(r); err != nil {
+		return nil, fmt.Errorf("创建 resume Run 失败: %w", err)
+	}
+
+	// 5. 入队（携带 resume 参数）
+	item := run.QueueItem{
+		RunID:        runID,
+		ThreadID:     req.ThreadID,
+		AgentSlug:    parent.AgentSlug,
+		RequestID:    requestID,
+		Query:        "", // 恢复时 query 可空（由中断 Run 的输入决定）
+		CreatedAt:    now,
+		ApprovalMode: req.ToolApprovalMode,
+		ResumeRunID:  req.CreatedByRunID,
+		CheckpointID: checkpointID,
+		Targets:      targets,
+	}
+	if err := h.queue.Enqueue(ctx, item); err != nil {
+		_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+		return nil, fmt.Errorf("resume 入队失败: %w", err)
 	}
 	return r, nil
 }

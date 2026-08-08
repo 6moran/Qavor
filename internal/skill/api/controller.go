@@ -292,25 +292,6 @@ func (ctrl *Controller) PrepareSkillUpload(c *gin.Context) {
 	response.Success(c, results)
 }
 
-// GetSkillDependencyOptions 获取 Skill 依赖选项
-func (ctrl *Controller) GetSkillDependencyOptions(c *gin.Context) {
-	slug := c.Query("slug")
-
-	options, err := ctrl.svc.GetDependencyOptions(slug)
-	if err != nil {
-		if errors.IsBizError(err) {
-			logger.Warn("业务错误，获取Skill依赖选项失败", zap.Error(err))
-			response.BizError(c, err)
-		} else {
-			logger.Error("获取Skill依赖选项失败", zap.Error(err))
-			response.InternalServerError(c)
-		}
-		return
-	}
-
-	response.Success(c, options)
-}
-
 // ListBuiltinSkills 列出内置 Skills
 func (ctrl *Controller) ListBuiltinSkills(c *gin.Context) {
 	skills, err := ctrl.svc.ListBuiltinSkills()
@@ -411,52 +392,6 @@ func (ctrl *Controller) DeleteSkillFile(c *gin.Context) {
 	response.Success(c, nil)
 }
 
-// UpdateSkillDependencies 更新 Skill 依赖
-func (ctrl *Controller) UpdateSkillDependencies(c *gin.Context) {
-	slug := c.Param("slug")
-
-	var req struct {
-		ToolDependencies []string `json:"tool_dependencies"`
-		MCPDependencies  []string `json:"mcp_dependencies"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, err.Error())
-		return
-	}
-
-	skillEntity, err := ctrl.svc.GetBySlug(slug)
-	if err != nil {
-		if errors.IsBizError(err) {
-			logger.Warn("业务错误，获取Skill失败", zap.String("slug", slug), zap.Error(err))
-			response.BizError(c, err)
-		} else {
-			logger.Error("获取Skill失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalServerError(c)
-		}
-		return
-	}
-	if skillEntity == nil {
-		response.NotFound(c, "Skill 不存在")
-		return
-	}
-
-	skillEntity.ToolDependencies = toStringArray(req.ToolDependencies)
-	skillEntity.MCPDependencies = toStringArray(req.MCPDependencies)
-
-	if err := ctrl.svc.Update(slug, skillEntity); err != nil {
-		if errors.IsBizError(err) {
-			logger.Warn("业务错误，更新Skill依赖失败", zap.String("slug", slug), zap.Error(err))
-			response.BizError(c, err)
-		} else {
-			logger.Error("更新Skill依赖失败", zap.String("slug", slug), zap.Error(err))
-			response.InternalServerError(c)
-		}
-		return
-	}
-
-	response.Success(c, nil)
-}
-
 // UpdateSkillEnabled 更新 Skill 启用状态
 func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 	slug := c.Param("slug")
@@ -499,27 +434,6 @@ func (ctrl *Controller) UpdateSkillEnabled(c *gin.Context) {
 	}
 
 	response.Success(c, skillEntity)
-}
-
-// ListAccessibleSkills 列出用户可访问的 Skills
-func (ctrl *Controller) ListAccessibleSkills(c *gin.Context) {
-	// TODO: 实现基于用户权限的过滤
-	skills, total, err := ctrl.svc.List(0, 100, "")
-	if err != nil {
-		if errors.IsBizError(err) {
-			logger.Warn("业务错误，列出可访问Skills失败", zap.Error(err))
-			response.BizError(c, err)
-		} else {
-			logger.Error("列出可访问Skills失败", zap.Error(err))
-			response.InternalServerError(c)
-		}
-		return
-	}
-
-	response.Success(c, gin.H{
-		"skills": skills,
-		"total":  total,
-	})
 }
 
 // ListRemoteSkills 列出远程 Skills
@@ -698,15 +612,6 @@ func isSubPath(parent, child string) bool {
 		return false
 	}
 	return rel != ".." && len(rel) > 0 && rel[0] != '.'
-}
-
-// toStringArray 将 []string 转换为 entity.JSONArray
-func toStringArray(items []string) entity.JSONArray {
-	result := make(entity.JSONArray, len(items))
-	for i, item := range items {
-		result[i] = item
-	}
-	return result
 }
 
 // ImportSkill 导入 Skill

@@ -20,6 +20,30 @@ type ModelResolver interface {
 	ResolveChatModel(ctx context.Context, modelID uint) (model.ToolCallingChatModel, error)
 }
 
+// ApprovalRequest 待审批的工具调用（供前端展示 + SSE 发布）。
+type ApprovalRequest struct {
+	ToolName string `json:"name"`
+	Args     string `json:"args"`
+}
+
+// InterruptedError 工具审批中断错误，携带恢复所需信息。
+type InterruptedError struct {
+	// CheckpointID 中断时保存的 checkpoint key（resume 用）。
+	CheckpointID string
+	// Requests 待审批的工具调用列表（action_requests）。
+	Requests []ApprovalRequest
+}
+
+// Error 实现 error 接口。
+func (e *InterruptedError) Error() string {
+	return "agent interrupted for tool approval"
+}
+
+// Is 让 errors.Is(err, ErrInterrupted) 对 InterruptedError 成立（保留旧判定兼容）。
+func (e *InterruptedError) Is(target error) bool {
+	return target == ErrInterrupted
+}
+
 // agentExecutor AgentExecutor 的实现：桥接 eino adk 事件到 run.StreamEvent
 type agentExecutor struct {
 	agentMgr *agent.AgentManager
@@ -31,8 +55,42 @@ func NewAgentExecutor(agentMgr *agent.AgentManager, resolver ModelResolver) Agen
 	return &agentExecutor{agentMgr: agentMgr, resolver: resolver}
 }
 
-// Execute 执行 Agent，通过 emit 回调发出流式事件，返回完整的 Assistant 消息列表（用于持久化）
-func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent)) ([]*schema.Message, error) {
+// ExecuteOption 执行选项（函数式选项，向后兼容）。
+type ExecuteOption func(*executeOptions)
+
+type executeOptions struct {
+	approvalMode string            // 审批模式（default/always_trust）
+	resume       *agentResumeParam // 非 nil 时走 resume 恢复执行
+}
+
+// agentResumeParam resume 执行参数。
+type agentResumeParam struct {
+	checkpointID string
+	targets      map[string]any // 中断地址 → 审批决定
+}
+
+// WithApprovalMode 设置审批模式（default/always_trust）。
+func WithApprovalMode(mode string) ExecuteOption {
+	return func(o *executeOptions) { o.approvalMode = mode }
+}
+
+// WithResume 设置 resume 执行参数（审批恢复）。
+func WithResume(checkpointID string, targets map[string]any) ExecuteOption {
+	return func(o *executeOptions) {
+		o.resume = &agentResumeParam{checkpointID: checkpointID, targets: targets}
+	}
+}
+
+// Execute 执行 Agent，通过 emit 回调发出流式事件，返回完整的 Assistant 消息列表（用于持久化）。
+// 支持两种模式：
+//   - 首次执行：正常 Run，敏感工具触发审批时返回 *InterruptedError。
+//   - resume 恢复：WithResume 提供 checkpointID + 审批决定，从断点继续执行。
+func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error) {
+	opt := &executeOptions{}
+	for _, o := range opts {
+		o(opt)
+	}
+
 	// 1. 获取 Agent 配置，解析模型 ID
 	cfg, err := e.agentMgr.GetConfig(ctx, slug)
 	if err != nil {
@@ -56,9 +114,20 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 		return nil, fmt.Errorf("获取 Agent 失败: %w", err)
 	}
 
-	// 3. 执行并遍历事件
+	// 3. 审批模式写入 ctx（ApprovalMiddleware 从 ctx 读取）
+	ctx = agent.WithApprovalMode(ctx, opt.approvalMode)
+
+	// 4. 执行（首次 Run 或 resume）并遍历事件
 	var assistantMsgs []*schema.Message
-	iter := a.ExecuteIter(ctx, query, history...)
+	var iter *agent.AgentEventIterator
+	if opt.resume != nil {
+		iter, err = a.Resume(ctx, opt.resume.checkpointID, opt.resume.targets)
+		if err != nil {
+			return nil, fmt.Errorf("恢复 Agent 执行失败: %w", err)
+		}
+	} else {
+		iter = a.ExecuteIter(ctx, query, history...)
+	}
 	for {
 		event, ok := iter.Next()
 		if !ok {
@@ -69,7 +138,7 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 		}
 		// 工具审批中断
 		if event.Action != nil && event.Action.Interrupted != nil {
-			return assistantMsgs, ErrInterrupted
+			return assistantMsgs, e.interruptedError(event.Action.Interrupted)
 		}
 		if event.Output == nil || event.Output.MessageOutput == nil {
 			continue
@@ -81,16 +150,40 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 				assistantMsgs = append(assistantMsgs, msg)
 			}
 		case schema.Tool:
+			// 工具结果可能是流式（Message 为 nil，内容在 MessageStream 中），
+			// 统一通过 toolResultContent 取完整内容，避免 nil 解引用。
 			emit(StreamEvent{
 				Type:      "tool_result",
 				MessageID: uuid.New().String(),
 				Role:      "tool",
-				Content:   mv.Message.Content,
+				Content:   toolResultContent(mv),
 				ToolCall:  &eventbus.ToolCallInfo{Name: mv.ToolName},
 			})
 		}
 	}
 	return assistantMsgs, nil
+}
+
+// interruptedError 从中断事件提取审批信息。
+// CheckPointID 在顶层 InterruptInfo；审批的工具名/参数在根因 InterruptCtx 的 Info 中
+// （由 ApprovalMiddleware 以 *agent.ApprovalRequest 塞入）。
+func (e *agentExecutor) interruptedError(in *adk.InterruptInfo) *InterruptedError {
+	ie := &InterruptedError{CheckpointID: in.CheckPointID}
+	// 遍历中断上下文链，收集根因及所有层级的工具审批请求
+	var walk func(ictx *adk.InterruptCtx)
+	walk = func(ictx *adk.InterruptCtx) {
+		if ictx == nil {
+			return
+		}
+		if req, ok := ictx.Info.(*agent.ApprovalRequest); ok {
+			ie.Requests = append(ie.Requests, ApprovalRequest{ToolName: req.ToolName, Args: req.Args})
+		}
+		walk(ictx.Parent)
+	}
+	for _, c := range in.InterruptContexts {
+		walk(c)
+	}
+	return ie
 }
 
 // emitAssistant 处理 Assistant 输出：流式 token / 非流式完整消息 / 工具调用
@@ -158,6 +251,19 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 		return mv.Message
 	}
 	return nil
+}
+
+// toolResultContent 提取工具结果消息的内容。
+// 非流式 Tool 事件内容在 mv.Message 中；流式 Tool 事件（可流式工具）
+// Message 为 nil，需消费 MessageStream 合并。统一经 GetMessage 处理。
+func toolResultContent(mv *adk.MessageVariant) string {
+	if mv == nil {
+		return ""
+	}
+	if msg, err := mv.GetMessage(); err == nil && msg != nil {
+		return msg.Content
+	}
+	return ""
 }
 
 // emitStream 读取流式输出，逐 chunk 发出 text_delta 事件，返回累积的完整内容

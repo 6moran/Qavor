@@ -2,12 +2,15 @@ package app
 
 import (
 	agentpkg "Qavor/internal/agent"
+	"Qavor/internal/agent/localfs"
+	"Qavor/internal/agent/localfs/security"
 	"Qavor/internal/api"
 	agentctrl "Qavor/internal/api/v1/agent"
 	chatctrl "Qavor/internal/api/v1/chat"
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
+	workspaceapi "Qavor/internal/api/v1/workspace"
 	contextmgr "Qavor/internal/context"
 	"Qavor/internal/eventbus"
 	"Qavor/internal/ingestion"
@@ -47,6 +50,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cloudwego/eino/adk/backgroundtask"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/gin-gonic/gin"
@@ -115,6 +119,41 @@ func expandSkillDir(path string) (string, error) {
 	return path, nil
 }
 
+// resolveWorkspaceRoot 将 agent 工作区根目录解析为绝对路径。
+// 相对 workspace_root（默认 data/workspaces）依赖进程 cwd 解析；
+// 若从某 agent 工作区内（data/workspaces/<slug>）启动，相对路径会自我嵌套，
+// 生成 data/workspaces/<slug>/data/workspaces/<slug>/... 的重复目录。这里统一转绝对路径，
+// 并检测 cwd 已位于 agent 工作区内时直接报错，避免静默污染磁盘。
+func resolveWorkspaceRoot(root string) (string, error) {
+	if root == "" {
+		root = "data/workspaces"
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("解析 workspace_root(%q) 失败: %w", root, err)
+	}
+	if err := checkCwdNotInAgentWorkspace(); err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+// checkCwdNotInAgentWorkspace 检查进程 cwd 是否位于某个 agent 工作区内。
+// 所有 agent 工作区目录均以 agent-<纳秒时间戳> 命名（agent_service.generateSlug）；
+// 若 cwd 路径含该特征段，说明从工作区内启动，相对 workspace_root 会自我嵌套，拒绝启动。
+func checkCwdNotInAgentWorkspace() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("获取工作目录失败: %w", err)
+	}
+	for seg := range strings.SplitSeq(filepath.Clean(cwd), string(filepath.Separator)) {
+		if strings.HasPrefix(seg, "agent-") {
+			return fmt.Errorf("检测到进程工作目录位于 agent 工作区内(%s)：相对 workspace_root 会自我嵌套，请从项目根目录启动服务", cwd)
+		}
+	}
+	return nil
+}
+
 // App 应用结构体
 type App struct {
 	cfg              *config.Config
@@ -127,6 +166,7 @@ type App struct {
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
 	mcpManager       *mcp.MCPManager
+	bgManager        *backgroundtask.Manager
 }
 
 // NewApp 创建应用实例
@@ -179,6 +219,13 @@ func (a *App) initConfig() error {
 	if err := cfg.ValidateAuth(); err != nil {
 		return fmt.Errorf("认证配置无效: %w", err)
 	}
+	// 归一化 workspace_root 为绝对路径：相对路径依赖启动 cwd，
+	// 若从某 agent 工作区内启动会自我嵌套（见 resolveWorkspaceRoot 注释）。
+	root, err := resolveWorkspaceRoot(cfg.Agent.WorkspaceRoot)
+	if err != nil {
+		return err
+	}
+	cfg.Agent.WorkspaceRoot = root
 	a.cfg = cfg
 	return nil
 }
@@ -300,7 +347,7 @@ func (a *App) initDependencies() error {
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
-	agentSvc := service.NewAgentService(agentRepo)
+	agentSvc := service.NewAgentService(agentRepo, a.cfg.Agent.WorkspaceRoot)
 
 	// 构造按知识库绑定模型解析的 RAG 依赖,由于需要依赖其他模块,所以在这里初始化
 	// 模型连接信息来自模型管理表；RAG 配置文件只提供分块、TopK、超时等算法默认值。
@@ -398,8 +445,7 @@ func (a *App) initDependencies() error {
 		}
 	}
 	skillLoader := skill.NewLoader(skillsDir)
-	activation := skill.NewActivationState()
-	skillsMiddleware := skill.NewSkillsMiddleware(skillLoader, activation)
+	skillsMiddleware := skill.NewSkillsMiddleware(skillLoader)
 	skillRepo := skill.NewSkillRepository(a.postgresDB)
 	skillSvc := skill.NewSkillService(skillRepo, skillLoader)
 	installSvc := skill.NewInstallService(skillRepo, skillLoader)
@@ -409,8 +455,27 @@ func (a *App) initDependencies() error {
 
 	skillCtrl := skillapi.NewController(skillSvc, skillLoader, installSvc)
 
-	// 创建 AgentManager
-	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, agentSvc)
+	// 创建 agent 运行时（本地文件系统安全策略 + 全局后台任务管理器）
+	// 安全策略构建后只读，可跨 agent 共享；后台任务管理器在应用关闭时统一回收。
+	bgManager := backgroundtask.New(context.Background(), &backgroundtask.Config{})
+	a.bgManager = bgManager
+	// 安全策略构建后只读，跨 agent 运行时与 workspace 共享
+	sharedPolicies := security.NewPolicies(&a.cfg.Agent.Security)
+	agentRuntime := &agentpkg.AgentRuntime{
+		Policies:            sharedPolicies,
+		WorkspaceRoot:       a.cfg.Agent.WorkspaceRoot,
+		SkillsDir:           skillsDir,
+		ShellTimeoutSeconds: a.cfg.Agent.Security.ShellTimeoutSeconds,
+		Background:          bgManager,
+	}
+
+	// 创建 AgentManager（modelSvc 实现 SubagentLLMResolver，用于子智能体 LLM 解析）
+	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, agentSvc, agentRuntime, modelSvc)
+
+	// 工作区 API：root = data/workspaces（已归一化为绝对路径），复用共享安全策略
+	workspaceBackend := localfs.NewLocalBackend(a.cfg.Agent.WorkspaceRoot, sharedPolicies)
+	workspaceSvc := service.NewWorkspaceService(workspaceBackend)
+	workspaceCtrl := workspaceapi.NewController(workspaceSvc)
 
 	// 创建 Service
 	conversationSvc := service.NewConversationService(conversationRepo)
@@ -509,7 +574,7 @@ func (a *App) initDependencies() error {
 	}
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, workspaceCtrl)
 
 	return nil
 }
@@ -622,6 +687,13 @@ func (a *App) gracefulShutdown() {
 	// 关闭 MCP 服务器连接（SSE 断开、stdio 子进程终止等）
 	if a.mcpManager != nil {
 		a.mcpManager.CloseAll()
+	}
+
+	// 关闭 agent 后台任务管理器（终止运行中的后台任务并回收进程）
+	if a.bgManager != nil {
+		if err := a.bgManager.Close(ctx); err != nil {
+			logger.Warn("关闭 agent 后台任务管理器失败", zap.Error(err))
+		}
 	}
 
 	// 关闭数据库连接

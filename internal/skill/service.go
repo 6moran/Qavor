@@ -1,8 +1,13 @@
 package skill
 
 import (
+	"archive/zip"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"Qavor/internal/model/entity"
 )
@@ -17,36 +22,16 @@ type SkillService interface {
 	GetOptions() ([]*SkillOption, error)
 	Import(slug string, data []byte) error
 	Export(slug string) ([]byte, error)
-	GetDependencyOptions(slug string) (*DependencyOptions, error)
 	ListBuiltinSkills() ([]*entity.Skill, error)
 	SyncBuiltinSkills() error
 }
 
-// DependencyOptions 依赖选项
-type DependencyOptions struct {
-	Tools []ToolOption `json:"tools"`
-	MCPs  []MCPOption  `json:"mcps"`
-}
-
-// ToolOption 工具选项
-type ToolOption struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-// MCPOption MCP 选项
-type MCPOption struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
 // SkillOption 前端选项
 type SkillOption struct {
-	Slug         string            `json:"slug"`
-	Name         string            `json:"name"`
-	Description  string            `json:"description"`
-	Dependencies *DependencyBundle `json:"dependencies"`
-	Enabled      bool              `json:"enabled"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
 }
 
 type skillService struct {
@@ -118,59 +103,13 @@ func (s *skillService) GetOptions() ([]*SkillOption, error) {
 
 	var options []*SkillOption
 	for _, sk := range skills {
-		option := &SkillOption{
+		options = append(options, &SkillOption{
 			Slug:        sk.Slug,
 			Name:        sk.Name,
 			Description: sk.Description,
 			Enabled:     sk.Enabled,
-		}
-
-		// 尝试从文件加载依赖信息
-		meta, err := s.loader.LoadMeta(sk.Slug)
-		if err == nil && meta != nil {
-			option.Dependencies = &DependencyBundle{
-				ToolNames: meta.ToolDependencies,
-				MCPNames:  meta.MCPDependencies,
-			}
-		} else {
-			option.Dependencies = &DependencyBundle{
-				ToolNames: toStringSlice(sk.ToolDependencies),
-				MCPNames:  toStringSlice(sk.MCPDependencies),
-			}
-		}
-
-		options = append(options, option)
+		})
 	}
-	return options, nil
-}
-
-// toStringSlice 将 JSONArray 转换为 []string
-func toStringSlice(arr entity.JSONArray) []string {
-	var result []string
-	for _, v := range arr {
-		if s, ok := v.(string); ok {
-			result = append(result, s)
-		}
-	}
-	return result
-}
-
-// GetDependencyOptions 获取依赖选项
-func (s *skillService) GetDependencyOptions(slug string) (*DependencyOptions, error) {
-	options := &DependencyOptions{
-		Tools: []ToolOption{},
-		MCPs:  []MCPOption{},
-	}
-
-	// 如果指定了 slug，获取该 skill 的依赖信息
-	if slug != "" {
-		meta, err := s.loader.LoadMeta(slug)
-		if err == nil && meta != nil {
-			// 这里可以根据实际需求填充工具和 MCP 选项
-			// 目前返回空列表，后续可以集成工具注册表
-		}
-	}
-
 	return options, nil
 }
 
@@ -180,8 +119,42 @@ func (s *skillService) ListBuiltinSkills() ([]*entity.Skill, error) {
 }
 
 // SyncBuiltinSkills 同步内置 Skills
+// 扫描磁盘 skills 目录，将数据库中缺失的 skill 补录为内置来源记录。
 func (s *skillService) SyncBuiltinSkills() error {
-	// TODO: 实现内置 Skills 同步逻辑
+	metas, err := s.loader.ScanAll()
+	if err != nil {
+		return fmt.Errorf("扫描内置 Skills 失败: %w", err)
+	}
+
+	for _, meta := range metas {
+		if meta == nil || meta.Slug == "" {
+			continue
+		}
+
+		existing, err := s.repo.FindBySlug(meta.Slug)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			continue
+		}
+
+		name := meta.Name
+		if name == "" {
+			name = meta.Slug
+		}
+		skillEntity := &entity.Skill{
+			Slug:        meta.Slug,
+			Name:        name,
+			Description: meta.Description,
+			SourceType:  "builtin",
+			DirPath:     meta.Slug,
+			Enabled:     true,
+		}
+		if err := s.repo.Create(skillEntity); err != nil {
+			return fmt.Errorf("创建内置 Skill '%s' 失败: %w", meta.Slug, err)
+		}
+	}
 	return nil
 }
 
@@ -216,14 +189,97 @@ func (s *skillService) Export(slug string) ([]byte, error) {
 	return createZipFromSkill(skillDir)
 }
 
-// createSkillFromZip 从 zip 数据创建 skill 目录
+// createSkillFromZip 从 zip 数据解压到 skill 目录
+// 支持 zip 内带单层公共顶层目录（如 my-skill/SKILL.md）或不带顶层目录（如 SKILL.md）。
 func createSkillFromZip(skillDir string, data []byte) error {
-	// TODO: 实现 zip 解压逻辑
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return fmt.Errorf("解析 zip 失败: %w", err)
+	}
+
+	var names []string
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		names = append(names, filepath.ToSlash(f.Name))
+	}
+	top := commonTopDir(names)
+
+	for _, f := range zr.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+
+		rel := filepath.ToSlash(f.Name)
+		// 拒绝含 .. 路径段的条目，防止 zip-slip 路径穿越
+		for _, seg := range strings.Split(rel, "/") {
+			if seg == ".." {
+				return fmt.Errorf("非法路径: %s", f.Name)
+			}
+		}
+		if top != "" {
+			rel = strings.TrimPrefix(rel, top)
+		}
+		rel = filepath.FromSlash(rel)
+		if rel == "" || rel == "." {
+			continue
+		}
+
+		dest := filepath.Join(skillDir, rel)
+		// 防止 zip-slip 路径穿越
+		if relTo, relErr := filepath.Rel(skillDir, dest); relErr != nil ||
+			relTo == ".." || strings.HasPrefix(relTo, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("非法路径: %s", f.Name)
+		}
+
+		if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+			return fmt.Errorf("创建目录失败: %w", err)
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("读取 zip 条目 %s 失败: %w", f.Name, err)
+		}
+		content, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return fmt.Errorf("读取 zip 条目 %s 失败: %w", f.Name, err)
+		}
+
+		if err := os.WriteFile(dest, content, 0644); err != nil {
+			return fmt.Errorf("写入文件 %s 失败: %w", rel, err)
+		}
+	}
 	return nil
 }
 
-// createZipFromSkill 从 skill 目录创建 zip 数据
+// createZipFromSkill 从 skill 目录打包 zip 数据
+// zip 内条目带 skill 目录名作为顶层目录，保证可被 InstallFromZip 重新导入。
 func createZipFromSkill(skillDir string) ([]byte, error) {
-	// TODO: 实现 zip 压缩逻辑
-	return nil, nil
+	entries, err := readSkillDir(skillDir)
+	if err != nil {
+		return nil, fmt.Errorf("读取 skill 目录失败: %w", err)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("skill 目录为空")
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	prefix := filepath.Base(skillDir)
+	for rel, content := range entries {
+		name := filepath.ToSlash(filepath.Join(prefix, rel))
+		w, err := zw.Create(name)
+		if err != nil {
+			return nil, fmt.Errorf("创建 zip 条目 %s 失败: %w", name, err)
+		}
+		if _, err := w.Write(content); err != nil {
+			return nil, fmt.Errorf("写入 zip 条目 %s 失败: %w", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, fmt.Errorf("关闭 zip 失败: %w", err)
+	}
+	return buf.Bytes(), nil
 }

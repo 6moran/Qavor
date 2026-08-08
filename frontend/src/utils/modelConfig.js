@@ -18,7 +18,7 @@ export const createDefaultModelForm = () => ({
   base_url: '',
   api_key: '',
   headers: formatJsonText({}),
-  timeout: 30000,
+  timeout: 60000,
   enabled: true,
   model_type: 'chat',
   params: formatJsonText(DEFAULT_MODEL_PARAMS)
@@ -44,7 +44,7 @@ export const buildModelPayload = (form) => ({
   base_url: form.base_url.trim(),
   api_key: form.api_key || '',
   headers: parseJsonObject(form.headers, '请求头'),
-  timeout: Number(form.timeout) || 30000,
+  timeout: Number(form.timeout) || 60000,
   enabled: Boolean(form.enabled),
   model_type: form.model_type,
   params: parseJsonObject(form.params, '参数')
@@ -74,7 +74,7 @@ export const modelToForm = (model) => ({
   base_url: model.base_url || '',
   api_key: '',
   headers: formatJsonText(model.headers),
-  timeout: model.timeout || 30000,
+  timeout: model.timeout || 60000,
   enabled: model.enabled !== false,
   model_type: model.model_type || 'chat',
   params: formatJsonText(model.params || DEFAULT_MODEL_PARAMS)

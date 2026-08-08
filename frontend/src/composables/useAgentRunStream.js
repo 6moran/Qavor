@@ -197,7 +197,7 @@ export function useAgentRunStream({
       ts.activeRunId = runId
       saveActiveRunSnapshot(threadId, runId, ts.runLastSeq)
     } else {
-      ts.activeRunId = runId
+      ts.activeRunId = null
       clearActiveRunSnapshot(threadId)
       touchedThreadIds.forEach((id) => clearPendingInterruptForRun(id, runId))
     }
@@ -205,13 +205,12 @@ export function useAgentRunStream({
     ts.replyLoadingVisible = false
     ts.pendingRequestId = null
     fetchThreadMessages({ agentId: unref(currentAgentId), threadId, delay }).finally(() => {
-      // 刷新历史完成后清理 onGoingConv，防止 optimistic 人类消息或流式 AI 消息
-      // 与服务器历史重复渲染（服务器历史已包含本轮 Run 的完整消息）。
-      ts.onGoingConv = {
-        msgChunks: {},
-        currentRequestKey: null,
-        currentAssistantKey: null,
-        toolCallBuffers: {}
+      const shouldPreserveMessages = status === 'failed' || status === 'cancelled'
+      if (shouldPreserveMessages) {
+        // 失败/取消时保留已流式显示的消息，避免 resetOnGoingConv 清空它们
+        // 后续新的 Run 开始时 resetOnGoingConv 会自然清理
+      } else {
+        resetOnGoingConv(threadId, { preserveRequestStreams: true })
       }
       fetchAgentState(unref(currentAgentId), threadId)
       if (scroll) onScrollToBottom()

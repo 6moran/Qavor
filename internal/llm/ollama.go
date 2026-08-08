@@ -28,6 +28,20 @@ var (
 	ollamaClientCache sync.Map
 )
 
+// ClearOllamaCache 清除 Ollama 客户端缓存
+func ClearOllamaCache() {
+	ollamaClientCache.Range(func(key, value interface{}) bool {
+		ollamaClientCache.Delete(key)
+		return true
+	})
+}
+
+// ClearOllamaCacheByKey 根据 key 清除特定的 Ollama 客户端缓存
+func ClearOllamaCacheByKey(modelName, baseURL string) {
+	key := ollamaCacheKey(modelName, baseURL)
+	ollamaClientCache.Delete(key)
+}
+
 // ollamaCacheKey 生成缓存 key
 func ollamaCacheKey(modelName, baseURL string) string {
 	return modelName + ":" + baseURL

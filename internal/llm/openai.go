@@ -28,6 +28,20 @@ var (
 	openaiClientCache sync.Map
 )
 
+// ClearOpenAICache 清除 OpenAI 客户端缓存
+func ClearOpenAICache() {
+	openaiClientCache.Range(func(key, value interface{}) bool {
+		openaiClientCache.Delete(key)
+		return true
+	})
+}
+
+// ClearOpenAICacheByKey 根据 key 清除特定的 OpenAI 客户端缓存
+func ClearOpenAICacheByKey(modelName, apiKey, baseURL string) {
+	key := openaiCacheKey(modelName, apiKey, baseURL)
+	openaiClientCache.Delete(key)
+}
+
 // openaiCacheKey 生成缓存 key
 func openaiCacheKey(modelName, apiKey, baseURL string) string {
 	return modelName + ":" + apiKey + ":" + baseURL

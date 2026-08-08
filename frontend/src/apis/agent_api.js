@@ -109,6 +109,15 @@ export const agentApi = {
   },
 
   /**
+   * 删除消息
+   * @param {string|number} threadId - 会话ID
+   * @param {string|number} messageId - 消息ID
+   * @returns {Promise} - 删除结果
+   */
+  deleteMessage: (threadId, messageId) =>
+    apiDelete(`/api/v1/conversations/${threadId}/messages/${messageId}`),
+
+  /**
    * 获取指定会话的 AgentState
    * @param {string} threadId - 会话ID
    * @returns {Promise} - AgentState（后端未实现，返回空对象）
