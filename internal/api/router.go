@@ -14,6 +14,7 @@ import (
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
 	toolctrl "Qavor/internal/api/v1/tool"
+	workspaceapi "Qavor/internal/api/v1/workspace"
 	tracectrl "Qavor/internal/api/v1/trace"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
@@ -43,6 +44,7 @@ type Router struct {
 	postStreamHandler *agentctrl.PostStreamHandler
 	runController     *agentctrl.RunController
 	traceCtrl         *tracectrl.Controller
+	workspaceCtrl     *workspaceapi.Controller
 }
 
 // NewRouter 创建路由
@@ -56,6 +58,7 @@ func NewRouter(
 	messageService service.MessageService,
 	agentService service.AgentService,
 	agentOpts agentctrl.OptionsProvider,
+	agentCacheInvalidator agentctrl.AgentCacheInvalidator,
 	chatCtrl *chatctrl.Controller,
 	ragCtrl *ragctrl.Controller,
 	toolRegistry *tool.Registry,
@@ -65,6 +68,7 @@ func NewRouter(
 	postStreamHandler *agentctrl.PostStreamHandler,
 	runController *agentctrl.RunController,
 	traceCtrl *tracectrl.Controller,
+	workspaceCtrl *workspaceapi.Controller,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -74,7 +78,7 @@ func NewRouter(
 		modelCtrl:         model.NewController(modelService),
 		conversationCtrl:  conversation.NewController(conversationService),
 		messageCtrl:       message.NewController(messageService),
-		agentCtrl:         agentctrl.NewController(agentService, agentOpts),
+		agentCtrl:         agentctrl.NewController(agentService, agentOpts, agentCacheInvalidator),
 		chatCtrl:          chatCtrl,
 		ragCtrl:           ragCtrl,
 		toolCtrl:          toolctrl.NewController(toolRegistry),
@@ -84,6 +88,7 @@ func NewRouter(
 		postStreamHandler: postStreamHandler,
 		runController:     runController,
 		traceCtrl:         traceCtrl,
+		workspaceCtrl:     workspaceCtrl,
 	}
 }
 
@@ -150,6 +155,9 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// SSE 流式服务路由
 		ssectrl.RegisterRoutes(v1, r.sseCtrl)
+
+		// 工作区路由
+		r.workspaceCtrl.RegisterRoutes(v1)
 
 		// 链路追踪路由
 		if r.traceCtrl != nil {

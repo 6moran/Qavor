@@ -123,7 +123,8 @@ const openEdit = async (agent) => {
     slug: detail.id || detail.slug || '',
     name: detail.name || '',
     backend_id: detail.backend_id || DEFAULT_AGENT_BACKEND_ID,
-    description: detail.description || ''
+    description: detail.description || '',
+    instruction: detail.config?.instruction || detail.config_json?.context?.instruction || ''
   })
   await agentStore.selectAgent(detail.id, { allowSubagent: true })
   showAgentModal.value = true
@@ -164,9 +165,11 @@ const saveAgent = async () => {
   try {
     const payload = buildAgentPayload()
     if (editingAgentId.value) {
+      const needsConfigSave = agentStore.hasConfigChanges
       const updated = await agentStore.updateAgentProfile(editingAgentId.value, payload)
-      // 如果有配置变更，保存运行时配置
-      if (agentStore.hasConfigChanges) {
+      // 如果有配置变更，保存运行时配置；同步最新系统提示词，避免覆盖回旧值
+      if (needsConfigSave) {
+        agentStore.agentConfig.instruction = agentForm.instruction.trim()
         await agentStore.saveAgentConfig()
       }
       agentStore.originalAgentConfig = { ...agentStore.agentConfig }

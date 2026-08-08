@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { agentApi, databaseApi, mcpApi, skillApi } from '@/apis'
+import { agentApi, databaseApi, mcpApi } from '@/apis'
 import { isDefaultAllAgentResourceKind } from '@/utils/agentConfigUtils'
 import { handleChatError } from '@/utils/errorHandler'
 
@@ -50,7 +50,6 @@ export const useAgentStore = defineStore(
 
     const availableKnowledgeBases = ref([])
     const availableMcps = ref([])
-    const availableSkills = ref([])
 
     const agentConfig = ref({})
     const originalAgentConfig = ref({})
@@ -91,14 +90,12 @@ export const useAgentStore = defineStore(
 
     async function fetchMentionResources() {
       try {
-        const [dbsRes, mcpsRes, skillsRes] = await Promise.all([
+        const [dbsRes, mcpsRes] = await Promise.all([
           databaseApi.getAccessibleDatabases().catch(() => ({ databases: [] })),
-          mcpApi.getMcpServers().catch(() => ({ data: [] })),
-          skillApi.listAccessibleSkills().catch(() => ({ data: [] }))
+          mcpApi.getMcpServers().catch(() => ({ data: [] }))
         ])
         availableKnowledgeBases.value = dbsRes.databases || []
         availableMcps.value = mcpsRes.data || []
-        availableSkills.value = skillsRes.data || []
       } catch (e) {
         console.warn('Failed to fetch mention resources:', e)
       }
@@ -277,7 +274,6 @@ export const useAgentStore = defineStore(
       selectedAgentId.value = null
       availableKnowledgeBases.value = []
       availableMcps.value = []
-      availableSkills.value = []
       agentConfig.value = {}
       originalAgentConfig.value = {}
       agentDetails.value = {}
@@ -294,7 +290,6 @@ export const useAgentStore = defineStore(
       selectedAgentId,
       availableKnowledgeBases,
       availableMcps,
-      availableSkills,
       agentConfig,
       originalAgentConfig,
       agentDetails,

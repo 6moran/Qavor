@@ -44,13 +44,7 @@
         </button>
         <WorkspaceSidebar
           :active-key="activeSourceKey"
-          :current-path="currentPath"
-          :databases="databases"
-          :loading-databases="loadingDatabases"
-          :current-uid="userStore.uid"
           @select-personal="selectPersonalWorkspace"
-          @select-database="selectDatabase"
-          @select-path="selectWorkspacePath"
         />
       </div>
       <button
@@ -69,7 +63,7 @@
         :class="{ 'is-inline-preview': showInlinePreview }"
         :style="workspaceMainStyle"
       >
-        <template v-if="activeSourceKey === 'personal' || selectedDatabase">
+        <template v-if="activeSourceKey === 'personal'">
           <WorkspaceFileList
             :entries="entries"
             :current-path="currentPath"
@@ -78,10 +72,7 @@
             :deleting-paths="deletingPaths"
             :selection-mode="selectionMode"
             :loading="loadingTree"
-            :readonly="isKnowledgeSource"
-            :root-label="selectedDatabase?.name || '工作区'"
-            :breadcrumb-items="isKnowledgeSource ? knowledgeBreadcrumbItems : null"
-            :pagination="isKnowledgeSource ? knowledgePagination : null"
+            :root-label="'工作区'"
             @select-entry="handleSelectEntry"
             @breadcrumb-click="handleListBreadcrumbClick"
             @update:selected-paths="selectedPaths = $event"
@@ -89,7 +80,6 @@
             @delete-selected="confirmDeleteEntries(selectedEntries)"
             @delete-entry="(entry) => confirmDeleteEntries([entry])"
             @download-entry="downloadEntry"
-            @page-change="handleKnowledgePageChange"
           />
           <div
             v-if="showInlinePreview"
@@ -104,18 +94,11 @@
             :file="previewFile"
             :file-path="selectedPreviewPath"
             :loading="loadingPreview"
-            :editable="!isKnowledgeSource"
             :saving="savingPreviewFile"
             @close="closePreview"
             @save="handleSavePreviewFile"
           />
         </template>
-
-        <div v-else class="workspace-placeholder">
-          <LibraryBig :size="32" />
-          <h2>知识库</h2>
-          <p>请选择一个可访问知识库以浏览文件。</p>
-        </div>
       </main>
     </div>
 
@@ -196,35 +179,27 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { ChevronLeft, ChevronRight, CircleHelp, LibraryBig } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, CircleHelp } from 'lucide-vue-next'
 import PageHeader from '@/components/shared/PageHeader.vue'
 import AgentFilePreview from '@/components/AgentFilePreview.vue'
 import WorkspaceFileList from '@/components/workspace/WorkspaceFileList.vue'
 import WorkspacePreviewPane from '@/components/workspace/WorkspacePreviewPane.vue'
 import WorkspaceSidebar from '@/components/workspace/WorkspaceSidebar.vue'
-import { databaseApi } from '@/apis/knowledge_api'
-import { useUserStore } from '@/stores/user'
 import {
   createWorkspaceDirectory,
   deleteWorkspacePath,
   downloadWorkspaceFile,
-  downloadWorkspaceKnowledgeFile,
   getWorkspaceFileContent,
-  getWorkspaceKnowledgeFileContent,
-  getWorkspaceKnowledgeTree,
   getWorkspaceTree,
   saveWorkspaceFileContent,
   uploadWorkspaceFiles
 } from '@/apis/workspace_api'
 import { normalizePreviewResponse } from '@/utils/file_preview'
 
-const userStore = useUserStore()
-
 const activeSourceKey = ref('personal')
 const currentPath = ref('/')
-const knowledgeBreadcrumbItems = ref([])
 const entries = ref([])
 const selectedEntry = ref(null)
 const selectedPaths = ref([])
@@ -235,9 +210,6 @@ const previewModalVisible = ref(false)
 const loadingTree = ref(false)
 const loadingPreview = ref(false)
 const savingPreviewFile = ref(false)
-const loadingDatabases = ref(false)
-const databases = ref([])
-const selectedDatabase = ref(null)
 const workspaceMainRef = ref(null)
 const workspaceMainWidth = ref(0)
 const createDirectoryModalVisible = ref(false)
@@ -253,17 +225,8 @@ const previewRequestId = ref(0)
 const INLINE_PREVIEW_MIN_WIDTH = 960
 const MAX_WORKSPACE_UPLOAD_FILES = 50
 const AGENTS_WORKSPACE_PATH = '/agents'
-const knowledgeFileBrowser = reactive({
-  parentId: null,
-  pathPrefix: '',
-  page: 1,
-  pageSize: 100,
-  total: 0,
-  hasMore: false
-})
 
 const useInlinePreview = computed(() => workspaceMainWidth.value >= INLINE_PREVIEW_MIN_WIDTH)
-const isKnowledgeSource = computed(() => activeSourceKey.value.startsWith('database:'))
 const comparablePath = (path) => String(path || '/').replace(/\/$/, '') || '/'
 const isSameOrChildPath = (path, targetPath) => {
   const normalizedPath = comparablePath(path)
@@ -277,11 +240,7 @@ const isAgentsWorkspacePath = computed(
     activeSourceKey.value === 'personal' &&
     isSameOrChildPath(currentPath.value, AGENTS_WORKSPACE_PATH)
 )
-const selectedPreviewPath = computed(() =>
-  selectedEntry.value?.source === 'knowledge'
-    ? selectedEntry.value.name || ''
-    : selectedEntry.value?.path || ''
-)
+const selectedPreviewPath = computed(() => selectedEntry.value?.path || '')
 const showInlinePreview = computed(() => useInlinePreview.value && Boolean(previewFile.value))
 const workspaceMainStyle = computed(() => {
   if (!showInlinePreview.value) return {}
@@ -290,14 +249,6 @@ const workspaceMainStyle = computed(() => {
     gridTemplateColumns: `minmax(0, ${listWidthPercent}%) 3px minmax(280px, ${previewWidthPercent.value}%)`
   }
 })
-
-const knowledgePagination = computed(() => ({
-  current: knowledgeFileBrowser.page,
-  pageSize: knowledgeFileBrowser.pageSize,
-  total: knowledgeFileBrowser.total,
-  showSizeChanger: true,
-  pageSizeOptions: ['100', '300', '500']
-}))
 
 const selectedEntries = computed(() => {
   const selectedPathSet = new Set(selectedPaths.value)
@@ -312,11 +263,6 @@ const revokePreviewObjectUrl = () => {
 
 const normalizePreviewFile = async (entry, response) => {
   return normalizePreviewResponse(response, entry)
-}
-
-const KNOWLEDGE_PREVIEW_LOAD_MESSAGES = {
-  log: '加载知识库文件预览失败:',
-  resolveUserMessage: () => '加载知识库文件预览失败'
 }
 
 const buildPreviewLoadingFile = (entry, baseFile = entry) => ({
@@ -351,9 +297,6 @@ const startPreviewRequest = (entry, baseFile = entry) => {
 
 const isCurrentPreviewEntry = (requestId, entry) => {
   if (previewRequestId.value !== requestId) return false
-  if (entry.source === 'knowledge') {
-    return selectedEntry.value?.file_id === entry.file_id
-  }
   return selectedEntry.value?.path === entry.path
 }
 
@@ -399,24 +342,6 @@ const loadWorkspacePreview = async (entry) => {
   }
 }
 
-const loadKnowledgePreview = async (
-  entry,
-  baseFile = entry,
-  messages = KNOWLEDGE_PREVIEW_LOAD_MESSAGES
-) => {
-  const requestId = startPreviewRequest(entry, baseFile)
-  try {
-    const response = await getWorkspaceKnowledgeFileContent(entry.kb_id, entry.file_id)
-    if (!isCurrentPreviewEntry(requestId, entry)) return
-    const file = await normalizePreviewFile(entry, response)
-    applyPreviewFile(requestId, entry, file)
-  } catch (error) {
-    showPreviewError(requestId, entry, error, messages.log, messages.resolveUserMessage(error))
-  } finally {
-    finishPreviewRequest(requestId)
-  }
-}
-
 const syncSelectedPaths = () => {
   const entryPathSet = new Set(entries.value.map((entry) => entry.path))
   selectedPaths.value = selectedPaths.value.filter((path) => entryPathSet.has(path))
@@ -439,7 +364,6 @@ const loadWorkspaceEntries = async (path = '/') => {
     const response = await getWorkspaceTree(path)
     entries.value = response.entries || []
     currentPath.value = path
-    knowledgeBreadcrumbItems.value = []
     syncSelectedPaths()
     if (!selectedPaths.value.length) {
       selectionMode.value = false
@@ -452,158 +376,24 @@ const loadWorkspaceEntries = async (path = '/') => {
   }
 }
 
-const loadKnowledgeEntries = async (
-  database,
-  {
-    parentId = null,
-    pathPrefix = '',
-    page = 1,
-    pageSize = knowledgeFileBrowser.pageSize,
-    breadcrumbs = null
-  } = {}
-) => {
-  if (!database?.kb_id) return
-
-  loadingTree.value = true
-  try {
-    const response = await getWorkspaceKnowledgeTree(database.kb_id, {
-      parentId,
-      pathPrefix,
-      page,
-      pageSize
-    })
-    entries.value = response.entries || []
-    knowledgeBreadcrumbItems.value = breadcrumbs || [
-      {
-        name: database.name || '知识库',
-        path: '/',
-        parentId: null,
-        pathPrefix: '',
-        isVirtualFolder: false
-      }
-    ]
-    currentPath.value = knowledgeBreadcrumbItems.value.at(-1)?.path || '/'
-    Object.assign(knowledgeFileBrowser, {
-      parentId: response.parent_id || parentId || null,
-      pathPrefix: response.path_prefix || pathPrefix || '',
-      page: response.page || page,
-      pageSize: response.page_size || pageSize,
-      total: response.total || 0,
-      hasMore: Boolean(response.has_more)
-    })
-    syncSelectedPaths()
-    if (!selectedPaths.value.length) {
-      selectionMode.value = false
-    }
-  } catch (error) {
-    console.warn('加载知识库目录失败:', error)
-    entries.value = []
-    message.error(error?.message || '加载知识库目录失败')
-  } finally {
-    loadingTree.value = false
-  }
-}
-
-const loadDatabases = async () => {
-  loadingDatabases.value = true
-  try {
-    const response = await databaseApi.getAccessibleDatabases()
-    databases.value = (response?.databases || []).filter((database) => {
-      return database?.supports_documents !== false
-    })
-  } catch (error) {
-    console.warn('加载可访问知识库失败:', error)
-    databases.value = []
-  } finally {
-    loadingDatabases.value = false
-  }
-}
-
 const selectPersonalWorkspace = async () => {
-  const wasKnowledgeSource = isKnowledgeSource.value
   activeSourceKey.value = 'personal'
-  selectedDatabase.value = null
-  knowledgeBreadcrumbItems.value = []
   closePreview()
   clearWorkspaceSelection()
-  if (wasKnowledgeSource || currentPath.value !== '/' || !entries.value.length) {
+  if (currentPath.value !== '/' || !entries.value.length) {
     await loadWorkspaceEntries('/')
   }
 }
 
 const selectWorkspacePath = async (path) => {
   activeSourceKey.value = 'personal'
-  selectedDatabase.value = null
-  knowledgeBreadcrumbItems.value = []
   closePreview()
   clearWorkspaceSelection()
   await loadWorkspaceEntries(path)
 }
 
-const selectKnowledgeBreadcrumb = async (item, index) => {
-  if (!selectedDatabase.value || !item) return
-  closePreview()
-  clearWorkspaceSelection()
-  const breadcrumbs = knowledgeBreadcrumbItems.value.slice(0, index + 1)
-  await loadKnowledgeEntries(selectedDatabase.value, {
-    parentId: item.parentId || null,
-    pathPrefix: item.pathPrefix || '',
-    page: 1,
-    breadcrumbs
-  })
-}
-
-const handleListBreadcrumbClick = async ({ item, index }) => {
-  if (isKnowledgeSource.value) {
-    await selectKnowledgeBreadcrumb(item, index)
-    return
-  }
+const handleListBreadcrumbClick = async ({ item }) => {
   await selectWorkspacePath(item?.path || '/')
-}
-
-const selectDatabase = async (database) => {
-  if (database?.supports_documents === false) return
-  closePreview()
-  clearWorkspaceSelection()
-  selectedDatabase.value = database
-  activeSourceKey.value = `database:${database.kb_id}`
-  await loadKnowledgeEntries(database)
-}
-
-const openKnowledgeDirectory = async (entry) => {
-  closePreview()
-  clearWorkspaceSelection()
-  const parentPath = knowledgeBreadcrumbItems.value.at(-1)?.path || '/'
-  const nextPath = parentPath === '/' ? `/${entry.name}` : `${parentPath}/${entry.name}`
-  const currentBreadcrumb = knowledgeBreadcrumbItems.value.at(-1)
-  const isVirtualFolder = Boolean(entry.is_virtual_folder)
-  const nextBreadcrumb = {
-    name: entry.name,
-    path: nextPath,
-    parentId: isVirtualFolder ? currentBreadcrumb?.parentId || null : entry.file_id,
-    pathPrefix: isVirtualFolder ? entry.path_prefix || '' : '',
-    isVirtualFolder
-  }
-  await loadKnowledgeEntries(selectedDatabase.value, {
-    parentId: nextBreadcrumb.parentId,
-    pathPrefix: nextBreadcrumb.pathPrefix,
-    page: 1,
-    breadcrumbs: [...knowledgeBreadcrumbItems.value, nextBreadcrumb]
-  })
-}
-
-const handleKnowledgePageChange = async ({ page, pageSize }) => {
-  if (!selectedDatabase.value || !isKnowledgeSource.value) return
-  closePreview()
-  clearWorkspaceSelection()
-  const currentBreadcrumb = knowledgeBreadcrumbItems.value.at(-1)
-  await loadKnowledgeEntries(selectedDatabase.value, {
-    parentId: currentBreadcrumb?.parentId || null,
-    pathPrefix: currentBreadcrumb?.pathPrefix || '',
-    page,
-    pageSize,
-    breadcrumbs: [...knowledgeBreadcrumbItems.value]
-  })
 }
 
 const openWorkspaceDirectory = async (entry) => {
@@ -614,19 +404,9 @@ const openWorkspaceDirectory = async (entry) => {
 
 const handleSelectEntry = async (entry) => {
   if (entry.is_dir) {
-    if (isKnowledgeSource.value) {
-      await openKnowledgeDirectory(entry)
-      return
-    }
     await openWorkspaceDirectory(entry)
     return
   }
-
-  if (isKnowledgeSource.value) {
-    await loadKnowledgePreview(entry)
-    return
-  }
-
   await loadWorkspacePreview(entry)
 }
 
@@ -640,10 +420,6 @@ const closePreview = () => {
 }
 
 const handleSavePreviewFile = async (content) => {
-  if (selectedEntry.value?.source === 'knowledge') {
-    message.warning('知识库文件为只读，无法保存')
-    return
-  }
   if (!selectedEntry.value?.path || savingPreviewFile.value) return
 
   savingPreviewFile.value = true
@@ -804,10 +580,7 @@ const downloadEntry = async (entry) => {
   if (!entry || entry.is_dir) return
 
   try {
-    const response =
-      entry.source === 'knowledge'
-        ? await downloadWorkspaceKnowledgeFile(entry.kb_id, entry.file_id)
-        : await downloadWorkspaceFile(entry.path)
+    const response = await downloadWorkspaceFile(entry.path)
     const blob = await response.blob()
     const contentDisposition =
       response.headers.get('Content-Disposition') || response.headers.get('content-disposition')
@@ -859,7 +632,7 @@ const startPreviewResize = (event) => {
 let workspaceResizeObserver = null
 
 onMounted(async () => {
-  await Promise.all([loadWorkspaceEntries('/'), loadDatabases()])
+  await loadWorkspaceEntries('/')
 
   if (workspaceMainRef.value && typeof ResizeObserver !== 'undefined') {
     workspaceMainWidth.value = workspaceMainRef.value.clientWidth || 0

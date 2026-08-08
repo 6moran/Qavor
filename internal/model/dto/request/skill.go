@@ -1,29 +1,21 @@
 package request
 
-import "Qavor/internal/model/entity"
-
 // CreateSkillRequest 创建技能请求
 type CreateSkillRequest struct {
-	Slug              string           `json:"slug" binding:"required,max=128"`
-	Name              string           `json:"name" binding:"required,max=128"`
-	Description       string           `json:"description" binding:"required"`
-	SourceType        string           `json:"source_type" binding:"required,oneof=builtin upload remote"`
-	ToolDependencies  entity.JSONArray `json:"tool_dependencies" binding:"omitempty"`
-	MCPDependencies   entity.JSONArray `json:"mcp_dependencies" binding:"omitempty"`
-	SkillDependencies entity.JSONArray `json:"skill_dependencies" binding:"omitempty"`
-	DirPath           string           `json:"dir_path" binding:"required,max=512"`
-	Version           string           `json:"version" binding:"omitempty,max=64"`
+	Slug        string `json:"slug" binding:"required,max=128"`
+	Name        string `json:"name" binding:"required,max=128"`
+	Description string `json:"description" binding:"required"`
+	SourceType  string `json:"source_type" binding:"required,oneof=builtin upload remote"`
+	DirPath     string `json:"dir_path" binding:"required,max=512"`
+	Version     string `json:"version" binding:"omitempty,max=64"`
 }
 
 // UpdateSkillRequest 更新技能请求
 type UpdateSkillRequest struct {
-	Name              string           `json:"name" binding:"omitempty,max=128"`
-	Description       string           `json:"description" binding:"omitempty"`
-	ToolDependencies  entity.JSONArray `json:"tool_dependencies" binding:"omitempty"`
-	MCPDependencies   entity.JSONArray `json:"mcp_dependencies" binding:"omitempty"`
-	SkillDependencies entity.JSONArray `json:"skill_dependencies" binding:"omitempty"`
-	Version           string           `json:"version" binding:"omitempty,max=64"`
-	Enabled           *bool            `json:"enabled" binding:"omitempty"`
+	Name        string `json:"name" binding:"omitempty,max=128"`
+	Description string `json:"description" binding:"omitempty"`
+	Version     string `json:"version" binding:"omitempty,max=64"`
+	Enabled     *bool  `json:"enabled" binding:"omitempty"`
 }
 
 // SkillListRequest 技能列表请求

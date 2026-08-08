@@ -19,7 +19,6 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 		skillGroup.POST("/import", ctrl.ImportSkill)
 		skillGroup.POST("/import/prepare", ctrl.PrepareSkillUpload)
 
-		skillGroup.GET("/dependency-options", ctrl.GetSkillDependencyOptions)
 		skillGroup.GET("/builtin", ctrl.ListBuiltinSkills)
 		skillGroup.POST("/builtin/sync", ctrl.SyncBuiltinSkills)
 		skillGroup.GET("/:slug", ctrl.GetSkill)
@@ -30,7 +29,6 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 		skillGroup.GET("/:slug/file", ctrl.GetSkillFile)
 		skillGroup.PUT("/:slug/file", ctrl.UpdateSkillFile)
 		skillGroup.DELETE("/:slug/file", ctrl.DeleteSkillFile)
-		skillGroup.PUT("/:slug/dependencies", ctrl.UpdateSkillDependencies)
 		skillGroup.PUT("/:slug/enabled", ctrl.UpdateSkillEnabled)
 	}
 

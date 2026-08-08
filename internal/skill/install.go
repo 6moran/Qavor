@@ -360,27 +360,18 @@ func (s *InstallService) installSkill(slug string, entries map[string][]byte, so
 		}
 	}
 
-	// 从 SKILL.md 提取元数据和依赖
+	// 从 SKILL.md 提取元数据
 	md, _ := entries["SKILL.md"]
 	name, desc := frontmatterNameDesc(string(md))
-	var toolDeps, mcpDeps, skillDeps []string
-	if meta, err := parseFrontmatter(string(md)); err == nil && meta != nil {
-		toolDeps = meta.ToolDependencies
-		mcpDeps = meta.MCPDependencies
-		skillDeps = meta.SkillDependencies
-	}
 
 	// 写入数据库
 	skillEntity := &entity.Skill{
-		Slug:              slug,
-		Name:              name,
-		Description:       desc,
-		SourceType:        sourceType,
-		ToolDependencies:  toJSONArray(toolDeps),
-		MCPDependencies:   toJSONArray(mcpDeps),
-		SkillDependencies: toJSONArray(skillDeps),
-		DirPath:           slug,
-		Enabled:           true,
+		Slug:        slug,
+		Name:        name,
+		Description: desc,
+		SourceType:  sourceType,
+		DirPath:     slug,
+		Enabled:     true,
 	}
 	if err := s.repo.Create(skillEntity); err != nil {
 		return &InstallResult{
@@ -394,16 +385,4 @@ func (s *InstallService) installSkill(slug string, entries map[string][]byte, so
 		Slug:    slug,
 		Success: true,
 	}
-}
-
-// toJSONArray 将 []string 转换为 entity.JSONArray
-func toJSONArray(items []string) entity.JSONArray {
-	if items == nil {
-		items = []string{}
-	}
-	result := make(entity.JSONArray, len(items))
-	for i, item := range items {
-		result[i] = item
-	}
-	return result
 }

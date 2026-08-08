@@ -235,18 +235,6 @@
                   :placeholder="getPlaceholder(key, value)"
                   class="config-input"
                 />
-                <div
-                  v-if="shouldShowKnowledgeSkillWarning(key)"
-                  class="knowledge-skill-warning"
-                  role="status"
-                  aria-live="polite"
-                >
-                  <AlertTriangle :size="14" />
-                  <span>
-                    已启用知识库，但未选择 knowledge-base Skill。Agent
-                    可能无法调用知识库检索、打开文档等工具。
-                  </span>
-                </div>
               </a-form-item>
             </template>
           </a-form>
@@ -387,7 +375,7 @@
 import { ref, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import { useRouter } from 'vue-router'
-import { AlertTriangle, Check, Plus, Search, RotateCw, RotateCcw, Settings } from 'lucide-vue-next'
+import { Check, Plus, Search, RotateCw, RotateCcw, Settings } from 'lucide-vue-next'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { useAgentStore } from '@/stores/agent'
 import {
@@ -436,8 +424,6 @@ const segmentOptions = [
 ]
 const activeSegment = computed(() => (props.showSegmented ? currentSegment.value : props.segment))
 const isToolResourceKind = (kind) => isDefaultAllAgentResourceKind(kind)
-const KNOWLEDGE_BASE_SKILL_SLUG = 'knowledge-base'
-
 const isEmptyConfig = computed(() => {
   return !selectedAgentId.value || Object.keys(configurableItems.value).length === 0
 })
@@ -535,24 +521,6 @@ const isListConfig = (key, value) => {
   const isDefaultAllKind = isDefaultAllAgentResourceKind(value?.kind)
   const isList = value?.type === 'list'
   return isDefaultAllKind || isList || key === 'skills' || key === 'subagents'
-}
-
-const isDefaultEnabledResourceValue = (value) => value === null || value === undefined
-
-const isResourceEnabled = (value) => {
-  if (Array.isArray(value)) return value.length > 0
-  return isDefaultEnabledResourceValue(value)
-}
-
-const isKnowledgeBaseSkillEnabled = computed(() => {
-  const skills = agentConfig.value?.skills
-  if (Array.isArray(skills)) return skills.includes(KNOWLEDGE_BASE_SKILL_SLUG)
-  return isDefaultEnabledResourceValue(skills)
-})
-
-const shouldShowKnowledgeSkillWarning = (key) => {
-  if (key !== 'knowledges') return false
-  return isResourceEnabled(agentConfig.value?.knowledges) && !isKnowledgeBaseSkillEnabled.value
 }
 
 const currentConfigKind = computed(() => {
@@ -955,31 +923,6 @@ defineExpose({ validateAndFilterConfig })
 
           .config-slider {
             width: 100%;
-          }
-
-          .knowledge-skill-warning {
-            display: flex;
-            align-items: flex-start;
-            gap: 6px;
-            margin-top: 8px;
-            padding: 8px 10px;
-            border: 1px solid var(--color-warning-100);
-            border-radius: 6px;
-            background: var(--color-warning-50);
-            color: var(--color-warning-900);
-            font-size: 14px;
-            line-height: 1.5;
-
-            svg {
-              flex: 0 0 auto;
-              margin-top: 2px;
-              color: var(--color-warning-500);
-            }
-
-            span {
-              min-width: 0;
-              overflow-wrap: anywhere;
-            }
           }
         }
       }

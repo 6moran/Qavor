@@ -27,15 +27,29 @@ type OptionsProvider interface {
 	SubagentOptions() []map[string]interface{}
 }
 
+// AgentCacheInvalidator 清除 Agent 运行时缓存。
+// 由 app.go 装配 AgentManager 实现，避免 controller 直接依赖 agent 包造成耦合。
+type AgentCacheInvalidator interface {
+	// ClearAgentCache 清除指定 Agent 的运行时缓存，强制下次请求按最新配置重建
+	ClearAgentCache(slug string)
+	// InvalidateBySubagent 子智能体配置变更/增删时，失效所有引用它的主智能体
+	InvalidateBySubagent(slug string)
+}
+
 // Controller 智能体控制器
 type Controller struct {
-	agentSvc service.AgentService
-	opts     OptionsProvider
+	agentSvc         service.AgentService
+	opts             OptionsProvider
+	cacheInvalidator AgentCacheInvalidator
 }
 
 // NewController 创建智能体控制器
-func NewController(agentSvc service.AgentService, opts OptionsProvider) *Controller {
-	return &Controller{agentSvc: agentSvc, opts: opts}
+func NewController(agentSvc service.AgentService, opts OptionsProvider, cacheInvalidator AgentCacheInvalidator) *Controller {
+	return &Controller{
+		agentSvc:         agentSvc,
+		opts:             opts,
+		cacheInvalidator: cacheInvalidator,
+	}
 }
 
 // enrichOptions 为 AgentResponse 的 configurable_items 填充动态 options
@@ -130,6 +144,15 @@ func (ctrl *Controller) Update(c *gin.Context) {
 	}
 
 	ctrl.enrichOptions(resp)
+
+	// 配置更新后清除运行时缓存：GetOrCreate 命中旧缓存时，
+	// skill 列表、tools 等配置变更不会反映到已创建的 Agent 上。
+	// 同时反向失效引用它的主智能体（本 agent 若作为子智能体被挂载）。
+	if ctrl.cacheInvalidator != nil {
+		ctrl.cacheInvalidator.ClearAgentCache(slug)
+		ctrl.cacheInvalidator.InvalidateBySubagent(slug)
+	}
+
 	response.Success(c, resp)
 }
 
@@ -145,6 +168,12 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 			response.InternalServerError(c)
 		}
 		return
+	}
+
+	// 删除后反向失效引用它的主智能体（若该 agent 作为子智能体被挂载），
+	// 使下次主智能体重建时读取最新配置（该子已被移除）。
+	if ctrl.cacheInvalidator != nil {
+		ctrl.cacheInvalidator.InvalidateBySubagent(slug)
 	}
 
 	response.Success(c, nil)

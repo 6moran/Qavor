@@ -21,6 +21,102 @@ type Config struct {
 	SSE           SSEConfig           `mapstructure:"sse"`   // SSE 流式服务配置
 	Run           RunConfig           `mapstructure:"run"`   // Run 执行器 / 队列配置
 	Trace         TraceConfig         `mapstructure:"trace"` // 链路追踪配置
+	Agent         AgentConfig         `mapstructure:"agent"`
+}
+
+// AgentConfig agent 运行时配置（本地文件系统与安全管控）。
+type AgentConfig struct {
+	// WorkspaceRoot agent 默认工作区根目录，每个 agent 在其下建 <slug> 子目录。
+	WorkspaceRoot string `mapstructure:"workspace_root"`
+	// Security 文件与 Shell 安全管控配置。
+	Security SecurityConfig `mapstructure:"security"`
+}
+
+// SecurityConfig 文件与 Shell 安全管控配置，全部机制默认开启。
+// 所有 *bool 字段：nil 视为开启，显式 false 关闭。
+type SecurityConfig struct {
+	Enabled     *bool             `mapstructure:"enabled"`
+	Credentials CredentialsConfig `mapstructure:"credentials"`
+	Command     CommandConfig     `mapstructure:"command"`
+	Redaction   RedactionConfig   `mapstructure:"redaction"`
+	Syntax      SyntaxConfig      `mapstructure:"syntax"`
+	Staleness   StalenessConfig   `mapstructure:"staleness"`
+	LinePrefix  LinePrefixConfig  `mapstructure:"line_prefix"`
+	ExitCode    ExitCodeConfig    `mapstructure:"exit_code"`
+	Output      OutputConfig      `mapstructure:"output"`
+	// ShellTimeoutSeconds 单条 shell 命令超时秒数（0=无显式超时，依赖后台任务管理器的前台超时兜底）。
+	ShellTimeoutSeconds int `mapstructure:"shell_timeout_seconds"`
+}
+
+// CredentialsConfig 凭据路径守卫配置。
+type CredentialsConfig struct {
+	Enabled       *bool    `mapstructure:"enabled"`
+	ExtraPatterns []string `mapstructure:"extra_patterns"`
+}
+
+// CommandConfig 高危命令黑名单配置。
+type CommandConfig struct {
+	Enabled   *bool    `mapstructure:"enabled"`
+	ExtraBans []string `mapstructure:"extra_bans"`
+}
+
+// RedactionConfig 输出脱敏配置。
+type RedactionConfig struct {
+	Enabled      *bool    `mapstructure:"enabled"`
+	ExtraEnvKeys []string `mapstructure:"extra_env_keys"`
+}
+
+// SyntaxConfig 写前语法预检配置。
+type SyntaxConfig struct {
+	Enabled *bool `mapstructure:"enabled"`
+}
+
+// StalenessConfig 陈旧警告配置。
+type StalenessConfig struct {
+	Enabled *bool `mapstructure:"enabled"`
+}
+
+// LinePrefixConfig read 行号前缀检测配置。
+type LinePrefixConfig struct {
+	Enabled *bool `mapstructure:"enabled"`
+}
+
+// ExitCodeConfig 退出码语义解释配置。
+type ExitCodeConfig struct {
+	Enabled *bool `mapstructure:"enabled"`
+}
+
+// OutputConfig 输出截断配置。
+type OutputConfig struct {
+	MaxBytes          int `mapstructure:"max_bytes"`           // shell 输出截断阈值，默认 50KB
+	OffloadTokenLimit int `mapstructure:"offload_token_limit"` // 大工具结果落盘 token 阈值，默认 20000
+}
+
+// ApplyDefaults 为 agent 安全配置设置默认值（默认开启安全基线）。
+func (c *AgentConfig) ApplyDefaults() {
+	if c.WorkspaceRoot == "" {
+		c.WorkspaceRoot = "data/workspaces"
+	}
+	enabled := true
+	setDefaultBool := func(p **bool) {
+		if *p == nil {
+			*p = &enabled
+		}
+	}
+	setDefaultBool(&c.Security.Enabled)
+	setDefaultBool(&c.Security.Credentials.Enabled)
+	setDefaultBool(&c.Security.Command.Enabled)
+	setDefaultBool(&c.Security.Redaction.Enabled)
+	setDefaultBool(&c.Security.Syntax.Enabled)
+	setDefaultBool(&c.Security.Staleness.Enabled)
+	setDefaultBool(&c.Security.LinePrefix.Enabled)
+	setDefaultBool(&c.Security.ExitCode.Enabled)
+	if c.Security.Output.MaxBytes <= 0 {
+		c.Security.Output.MaxBytes = 51200
+	}
+	if c.Security.Output.OffloadTokenLimit <= 0 {
+		c.Security.Output.OffloadTokenLimit = 20000
+	}
 }
 
 // RunConfig Run 执行器与请求队列配置
