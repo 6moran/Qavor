@@ -2,6 +2,8 @@ package trace
 
 import (
 	"context"
+	"errors"
+	"io"
 	"strings"
 
 	"Qavor/internal/model/entity"
@@ -100,6 +102,37 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 				return ctx
 			}
 			col.end(ctx, col.buildModelSpanEnd(output))
+			return ctx
+		},
+		// OnEndWithStreamOutput 处理流式模型调用：框架为各 handler 提供独立的 stream 副本，
+		// 此处消费副本、遍历所有 chunk 捕获最终 token 用量与累计输出，结束后关闭副本避免协程泄漏。
+		// 缺失该钩子会导致流式路径下 Needed(TimingOnEndWithStreamOutput) 为假，
+		// handler 被过滤，token 永远记为 0 且 LLM span 不被正常结束。
+		OnEndWithStreamOutput: func(ctx context.Context, info *callbacks.RunInfo, output *schema.StreamReader[*model.CallbackOutput]) context.Context {
+			if output == nil {
+				return ctx
+			}
+			var last *model.CallbackOutput
+			var summaryBuilder strings.Builder
+			for {
+				chunk, err := output.Recv()
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				if err != nil {
+					break
+				}
+				last = chunk
+				if chunk != nil && chunk.Message != nil {
+					summaryBuilder.WriteString(MessageTextWithoutReasoning(chunk.Message))
+				}
+			}
+			output.Close()
+
+			end := col.buildModelSpanEnd(last)
+			// 流式每个 chunk 的 Message 为增量，需累计才能得到完整输出摘要。
+			end.OutputSummary = col.sanitizer.Text(summaryBuilder.String())
+			col.end(ctx, end)
 			return ctx
 		},
 		OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
