@@ -48,6 +48,11 @@ func (b *ContextBuilder) buildSystemPrompt(window *ContextWindow) string {
 		content += fmt.Sprintf("\n\n[对话历史摘要]\n%s", window.ShortTermSummary)
 	}
 
+	// 注入短期记忆状态（主题/意图/实体）
+	if window.ShortTermState != "" {
+		content += fmt.Sprintf("\n\n[会话状态]\n%s", window.ShortTermState)
+	}
+
 	if window.MemoryContext != "" {
 		content += fmt.Sprintf("\n\n[用户记忆]\n%s", window.MemoryContext)
 	}
