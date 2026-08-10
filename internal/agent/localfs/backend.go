@@ -269,6 +269,9 @@ func (b *LocalBackend) LsInfo(ctx context.Context, req *filesystem.LsInfoRequest
 
 // Read 读取文件内容，支持行号偏移和行数限制。
 // 超过 maxReadBytes 的文件返回元数据提示，不读内容。
+// 对可恢复的文件系统错误（文件不存在、权限不足等）返回友好提示而非 Go error，
+// 避免 eino ToolNode 将错误包装为 NodeRunError 上抛导致 agent 整体崩溃。
+// 安全策略错误（路径越界、敏感文件守卫）仍作为 Go error 上抛，由 WrapToolError 中间件处理。
 func (b *LocalBackend) Read(ctx context.Context, req *filesystem.ReadRequest) (*filesystem.FileContent, error) {
 	path, err := b.resolve(req.FilePath)
 	if err != nil {
@@ -279,10 +282,19 @@ func (b *LocalBackend) Read(ctx context.Context, req *filesystem.ReadRequest) (*
 	}
 	st, err := os.Stat(path)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			return &filesystem.FileContent{
+				Content: fmt.Sprintf("文件 '%s' 不存在", req.FilePath),
+			}, nil
+		}
+		return &filesystem.FileContent{
+			Content: fmt.Sprintf("无法访问文件 '%s'", req.FilePath),
+		}, nil
 	}
 	if st.IsDir() {
-		return nil, fmt.Errorf("%s 是目录，不是文件", req.FilePath)
+		return &filesystem.FileContent{
+			Content: fmt.Sprintf("'%s' 是目录，不是文件", req.FilePath),
+		}, nil
 	}
 	if st.Size() > maxReadBytes {
 		return &filesystem.FileContent{
@@ -293,7 +305,9 @@ func (b *LocalBackend) Read(ctx context.Context, req *filesystem.ReadRequest) (*
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return &filesystem.FileContent{
+			Content: fmt.Sprintf("读取文件 '%s' 失败", req.FilePath),
+		}, nil
 	}
 	content := string(data)
 	if req.Offset > 1 || req.Limit > 0 {
