@@ -95,32 +95,11 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 			return col.start(ctx, info, "llm", "llm.generate", name, summary, nil)
 		},
 		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *model.CallbackOutput) context.Context {
-			end := SpanEnd{Status: SpanStatusOK}
-			if output != nil {
-				end.OutputSummary = col.sanitizer.Text(MessageTextWithoutReasoning(output.Message))
-				if tu := callbackTokenUsage(output); tu != nil {
-					end.TokensIn = tu.PromptTokens
-					end.TokensOut = tu.CompletionTokens
-					end.ReasoningTokens = tu.CompletionTokensDetails.ReasoningTokens
-				}
-				if output.Message != nil && len(output.Message.ToolCalls) > 0 {
-					ids := make([]string, 0, len(output.Message.ToolCalls))
-					for _, tc := range output.Message.ToolCalls {
-						ids = append(ids, tc.ID)
-					}
-					if end.Attributes == nil {
-						end.Attributes = entity.JSON{}
-					}
-					end.Attributes["tool_call_ids"] = ids
-				}
-			}
-			// 流式回调可能在最终 usage 块之前发出内容块。
-			// 在第一个零 usage 块时结束会导致 repository 的首次写入生效，
-			// 永久记录零 token 计数。
+			// 非流式：仅在最终且携带用量信息时结束，避免首个零 usage 块提前落库。
 			if !isFinalModelCallback(output) && !hasTokenUsage(callbackTokenUsage(output)) {
 				return ctx
 			}
-			col.end(ctx, end)
+			col.end(ctx, col.buildModelSpanEnd(output))
 			return ctx
 		},
 		OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
@@ -234,6 +213,32 @@ func callbackTokenUsage(output *model.CallbackOutput) *model.TokenUsage {
 
 func hasTokenUsage(usage *model.TokenUsage) bool {
 	return usage != nil && (usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.TotalTokens > 0 || usage.CompletionTokensDetails.ReasoningTokens > 0)
+}
+
+// buildModelSpanEnd 从模型回调输出构造 Span 结束数据（token 用量、输出摘要、工具调用 id）。
+// 非流式 OnEnd 与流式 OnEndWithStreamOutput 共用，避免重复逻辑。
+func (c *callbackCollector) buildModelSpanEnd(output *model.CallbackOutput) SpanEnd {
+	end := SpanEnd{Status: SpanStatusOK}
+	if output == nil {
+		return end
+	}
+	end.OutputSummary = c.sanitizer.Text(MessageTextWithoutReasoning(output.Message))
+	if tu := callbackTokenUsage(output); tu != nil {
+		end.TokensIn = tu.PromptTokens
+		end.TokensOut = tu.CompletionTokens
+		end.ReasoningTokens = tu.CompletionTokensDetails.ReasoningTokens
+	}
+	if output.Message != nil && len(output.Message.ToolCalls) > 0 {
+		ids := make([]string, 0, len(output.Message.ToolCalls))
+		for _, tc := range output.Message.ToolCalls {
+			ids = append(ids, tc.ID)
+		}
+		if end.Attributes == nil {
+			end.Attributes = entity.JSON{}
+		}
+		end.Attributes["tool_call_ids"] = ids
+	}
+	return end
 }
 
 func isFinalModelCallback(output *model.CallbackOutput) bool {
