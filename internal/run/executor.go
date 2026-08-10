@@ -2,17 +2,21 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"Qavor/internal/agent"
 	"Qavor/internal/eventbus"
+	"Qavor/pkg/logger"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // ModelResolver 根据模型 ID 解析出 Eino ChatModel（由 service.ModelService 实现）
@@ -53,6 +57,20 @@ type agentExecutor struct {
 // NewAgentExecutor 创建 Agent 执行适配器
 func NewAgentExecutor(agentMgr *agent.AgentManager, resolver ModelResolver) AgentExecutor {
 	return &agentExecutor{agentMgr: agentMgr, resolver: resolver}
+}
+
+// GetModelID 从 Agent 配置中解析模型 ID
+func (e *agentExecutor) GetModelID(ctx context.Context, slug string) uint {
+	cfg, err := e.agentMgr.GetConfig(ctx, slug)
+	if err != nil {
+		return 0
+	}
+	if modelIDStr, ok := cfg["model_id"].(string); ok && modelIDStr != "" {
+		if modelID, err := strconv.ParseUint(modelIDStr, 10, 32); err == nil {
+			return uint(modelID)
+		}
+	}
+	return 0
 }
 
 // ExecuteOption 执行选项（函数式选项，向后兼容）。
@@ -246,6 +264,16 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 					Index: idx,
 				},
 			})
+			// 拦截 write_todos 工具调用，提取 TODO 列表
+			if tc.Function.Name == "write_todos" {
+				if todos := parseWriteTodosArgs(tc.Function.Arguments); todos != nil {
+					emit(StreamEvent{
+						Type:  "todo_update",
+						Role:  "assistant",
+						Todos: todos,
+					})
+				}
+			}
 		}
 		emit(StreamEvent{Type: "message_end", MessageID: msgID, Role: "assistant"})
 		return mv.Message
@@ -272,6 +300,19 @@ func toolResultContent(mv *adk.MessageVariant) string {
 func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamReader[*schema.Message], msgID string, emit func(StreamEvent)) (string, []schema.ToolCall) {
 	defer stream.Close()
 	var sb strings.Builder
+	startTime := time.Now()
+	chunkCount := 0
+	firstChunkAt := time.Time{}
+	defer func() {
+		if chunkCount > 0 {
+			logger.GetLogger().Debug("流式输出统计",
+				zap.Int("chunk_count", chunkCount),
+				zap.Int("total_chars", sb.Len()),
+				zap.Duration("first_token_latency", firstChunkAt.Sub(startTime)),
+				zap.Duration("total_duration", time.Since(startTime)),
+			)
+		}
+	}()
 	// index → toolCalls 切片位置，避免 map 与切片双份拷贝不同步
 	toolCallIdx := make(map[int]int)
 	var toolCalls []schema.ToolCall
@@ -307,6 +348,10 @@ func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamRea
 			continue
 		}
 		if chunk.Content != "" {
+			if chunkCount == 0 {
+				firstChunkAt = time.Now()
+			}
+			chunkCount++
 			sb.WriteString(chunk.Content)
 			emit(StreamEvent{
 				Type:      "text_delta",
@@ -340,4 +385,40 @@ func extractReasoning(m *schema.Message) string {
 		}
 	}
 	return ""
+}
+
+// writeTodosArgs write_todos 工具的参数结构（对应 eino deep.writeTodosArguments）
+type writeTodosArgs struct {
+	Todos []struct {
+		Content    string `json:"content"`
+		ActiveForm string `json:"activeForm"`
+		Status     string `json:"status"`
+	} `json:"todos"`
+}
+
+// parseWriteTodosArgs 解析 write_todos 工具调用参数，返回前端可用的 TodoItem 列表
+func parseWriteTodosArgs(argsJSON string) []eventbus.TodoItem {
+	if argsJSON == "" {
+		return nil
+	}
+	var args writeTodosArgs
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return nil
+	}
+	if len(args.Todos) == 0 {
+		return nil
+	}
+	items := make([]eventbus.TodoItem, 0, len(args.Todos))
+	for i, t := range args.Todos {
+		content := t.Content
+		if content == "" {
+			content = t.ActiveForm
+		}
+		items = append(items, eventbus.TodoItem{
+			ID:      fmt.Sprintf("todo-%d", i),
+			Content: content,
+			Status:  t.Status,
+		})
+	}
+	return items
 }

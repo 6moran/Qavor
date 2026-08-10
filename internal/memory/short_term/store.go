@@ -78,19 +78,3 @@ func (s *RedisStore) Delete(ctx context.Context, conversationID uint) error {
 	key := s.key(conversationID)
 	return s.client.Del(ctx, key).Err()
 }
-
-// RefreshTTL 刷新 TTL
-func (s *RedisStore) RefreshTTL(ctx context.Context, conversationID uint) error {
-	key := s.key(conversationID)
-	return s.client.Expire(ctx, key, s.ttl).Err()
-}
-
-// Exists 检查是否存在
-func (s *RedisStore) Exists(ctx context.Context, conversationID uint) (bool, error) {
-	key := s.key(conversationID)
-	count, err := s.client.Exists(ctx, key).Result()
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}

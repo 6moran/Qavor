@@ -2388,8 +2388,8 @@ const fetchAgentState = async (agentId, threadId) => {
     const targetState = getThreadState(threadId)
     if (!targetState) return
     targetState.agentState = res.agent_state || null
-  } catch {
-    // agent state is optional UI state
+  } catch (e) {
+    console.warn('[fetchAgentState] Failed to fetch agent state:', threadId, e)
   }
 }
 
@@ -2505,6 +2505,8 @@ const { startRunStream, startNewRun, resumeActiveRunForThread, stopRunStreamSubs
       hideApprovalState()
     }
     void resumeQueuedRequestsForThread(threadId)
+    // 后台会话任务结束时标记未读（当前会话不标记）
+    chatThreadsStore.markThreadUnread(threadId)
   }
 })
 const {
@@ -2619,6 +2621,10 @@ const selectChat = async (chatId) => {
 
   if (String(previousThreadId) !== String(chatId)) {
     resetAgentPanelState()
+    // 清除目标线程的旧 onGoingConv（乐观消息/流式分片），防止切回后
+    // 与服务器历史消息重复渲染。若 Run 仍在运行，resumeActiveRunForThread
+    // 会重建 SSE 流并重新填充 onGoingConv。
+    resetOnGoingConv(chatId, { preserveRunStream: true })
   }
 
   try {
@@ -2645,6 +2651,8 @@ const selectChat = async (chatId) => {
   chatUIStore.isLoadingMessages = true
   try {
     await fetchThreadMessages({ agentId: targetAgentId, threadId: chatId })
+    // 切换到该会话后清除未读标记
+    chatThreadsStore.clearThreadUnread(chatId)
   } catch (error) {
     handleChatError(error, 'load')
   } finally {

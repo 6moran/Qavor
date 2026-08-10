@@ -54,6 +54,9 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 	// conversationID == 0 表示不需要持久化（如标题生成场景）
 	persist := conversationID > 0
 
+	// 0. 解析模型 ID（用于短期记忆的摘要/状态抽取）
+	modelID := s.resolveModelID(ctx, agentSlug)
+
 	// 1. 保存用户消息
 	if persist {
 		userMsg := &entity.Message{
@@ -71,7 +74,7 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 				Role:    schema.User,
 				Content: message,
 			}
-			if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg); err != nil {
+			if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg, modelID); err != nil {
 				s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
 			}
 		}
@@ -145,7 +148,7 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 				Role:    schema.Assistant,
 				Content: respContent,
 			}
-			if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, assistantSchemaMsg); err != nil {
+			if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, assistantSchemaMsg, modelID); err != nil {
 				s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
 			}
 		}
@@ -161,6 +164,9 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 
 // ChatStream 流式发送消息，通过 SSE 推送事件
 func (s *ChatServiceImpl) ChatStream(ctx context.Context, conversationID uint, agentSlug string, message string) error {
+	// 0. 解析模型 ID（用于短期记忆的摘要/状态抽取）
+	modelID := s.resolveModelID(ctx, agentSlug)
+
 	// 1. 保存用户消息
 	userMsg := &entity.Message{
 		ConversationID: conversationID,
@@ -177,7 +183,7 @@ func (s *ChatServiceImpl) ChatStream(ctx context.Context, conversationID uint, a
 			Role:    schema.User,
 			Content: message,
 		}
-		if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg); err != nil {
+		if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg, modelID); err != nil {
 			s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
 		}
 	}
@@ -269,7 +275,7 @@ func (s *ChatServiceImpl) ChatStream(ctx context.Context, conversationID uint, a
 			Role:    schema.Assistant,
 			Content: fullContent,
 		}
-		if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, assistantSchemaMsg); err != nil {
+		if err := s.contextMgr.UpdateShortMemory(ctx, conversationID, assistantSchemaMsg, modelID); err != nil {
 			s.logger.Warn("更新 Short Memory 失败", zap.Error(err))
 		}
 	}
@@ -282,6 +288,20 @@ func (s *ChatServiceImpl) ChatStream(ctx context.Context, conversationID uint, a
 	}))
 
 	return nil
+}
+
+// resolveModelID 从 Agent 配置中解析模型 ID（用于短期记忆的摘要/状态抽取）
+func (s *ChatServiceImpl) resolveModelID(ctx context.Context, agentSlug string) uint {
+	agentCfg, err := s.agentMgr.GetConfig(ctx, agentSlug)
+	if err != nil {
+		return 0
+	}
+	if modelIDStr, ok := agentCfg["model_id"].(string); ok && modelIDStr != "" {
+		if modelID, err := strconv.ParseUint(modelIDStr, 10, 32); err == nil {
+			return uint(modelID)
+		}
+	}
+	return 0
 }
 
 // sendSSEEvent 发送 SSE 事件到用户

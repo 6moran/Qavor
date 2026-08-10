@@ -45,13 +45,22 @@ type MetadataPayload struct {
 //   - tool_call:   AI 发起工具调用
 //   - tool_result: 工具返回结果
 //   - message_end: 一段消息输出结束（流式边界信号）
+//   - todo_update: Deep Agent 的 TODO 列表更新
 type ChunkPayload struct {
 	MessageID string        `json:"message_id"`          // 聚合同一条消息的 token
-	Type      string        `json:"type"`                // text_delta / tool_call / tool_result / message_end
+	Type      string        `json:"type"`                // text_delta / tool_call / tool_result / message_end / todo_update
 	Role      string        `json:"role,omitempty"`      // assistant / tool
 	Content   string        `json:"content,omitempty"`   // 文本内容
 	Reasoning string        `json:"reasoning,omitempty"` // 推理内容增量（reasoning part 文本）
 	ToolCall  *ToolCallInfo `json:"tool_call,omitempty"` // 工具调用结构化字段
+	Todos     []TodoItem    `json:"todos,omitempty"`     // TODO 列表（todo_update 事件携带）
+}
+
+// TodoItem Deep Agent 的待办项（对应 eino deep.TODO）
+type TodoItem struct {
+	ID      string `json:"id"`      // 待办项唯一标识
+	Content string `json:"content"` // 待办内容
+	Status  string `json:"status"`  // pending / in_progress / completed
 }
 
 // ToolCallInfo 工具调用信息（tool_call / tool_result 事件携带）
