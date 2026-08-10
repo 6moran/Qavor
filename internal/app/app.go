@@ -347,7 +347,7 @@ func (a *App) initDependencies() error {
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
 	storage := service.NewMinIOObjectStorage()
-	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage)
+	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage, agentRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo, a.cfg.Agent.WorkspaceRoot)
