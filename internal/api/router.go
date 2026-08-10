@@ -11,7 +11,6 @@ import (
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
 	ocrctrl "Qavor/internal/api/v1/ocr"
-	processingjob "
 	processingjob "Qavor/internal/api/v1/processing_job"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
@@ -151,13 +150,11 @@ func (r *Router) Setup(engine *gin.Engine) {
 		}
 		// 工具路由
 		r.toolCtrl.RegisterRoutes(v1)
-	r.toolCtrl.RegisterRoutes(v1)
 		// OCR 引擎路由
 		if r.ocrCtrl == nil {
 			r.ocrCtrl = ocrctrl.NewController()
 		}
 		r.ocrCtrl.RegisterRoutes(v1)
-	r.ocrCtrl.RegisterRoutes(v1)
 
 		// Skill 路由
 		r.skillCtrl.RegisterRoutes(v1)
