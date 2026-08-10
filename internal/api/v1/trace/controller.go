@@ -56,7 +56,10 @@ func (ctrl *Controller) ListTraces(c *gin.Context) {
 		AgentSlug:      req.AgentSlug,
 		ConversationID: req.ConversationID,
 		Status:         req.Status,
-		Source:         req.Source,
+		Model:          req.Model,
+		Tool:           req.Tool,
+		ErrorOnly:      req.ErrorOnly,
+		MismatchOnly:   req.MismatchOnly,
 		From:           parseTime(req.From),
 		To:             parseTime(req.To),
 		Page:           page,
@@ -70,7 +73,7 @@ func (ctrl *Controller) ListTraces(c *gin.Context) {
 	response.Success(c, gin.H{"items": items, "total": total})
 }
 
-// GetTrace 获取 Trace 详情（头部 + spans 平铺）
+// GetTrace 获取 Trace 详情（头部 + spans 平铺 + diagnostics）
 func (ctrl *Controller) GetTrace(c *gin.Context) {
 	traceID := c.Param("trace_id")
 	if traceID == "" {
@@ -88,4 +91,25 @@ func (ctrl *Controller) GetTrace(c *gin.Context) {
 		return
 	}
 	response.Success(c, detail)
+}
+
+// GetTraceByRunID 通过 run_id 反查 trace_id
+// GET /api/v1/runs/:run_id/trace
+func (ctrl *Controller) GetTraceByRunID(c *gin.Context) {
+	runID := c.Param("run_id")
+	if runID == "" {
+		response.BadRequest(c, "run_id 不能为空")
+		return
+	}
+	traceID, err := ctrl.traceService.GetTraceByRunID(c.Request.Context(), runID)
+	if err != nil {
+		if errors.IsBizError(err) {
+			response.BizError(c, err)
+		} else {
+			logger.Error("通过 run_id 反查 trace 失败", zap.String("run_id", runID), zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, gin.H{"trace_id": traceID})
 }
