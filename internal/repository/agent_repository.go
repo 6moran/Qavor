@@ -138,3 +138,50 @@ func (r *agentRepository) deleteCache(slug string) {
 		logger.Warn("Redis 删除缓存失败", zap.String("slug", slug), zap.Error(err))
 	}
 }
+
+// UnbindKnowledge 移除所有智能体配置中对指定知识库的绑定。
+// 直接操作 ConfigJSON 中 knowledges 数组，避免经过 AgentConfig 反序列化导致其它字段丢失；
+// 命中即就地更新并刷新缓存，返回受影响数量。
+func (r *agentRepository) UnbindKnowledge(ctx context.Context, kbID string) (int64, error) {
+	if kbID == "" {
+		return 0, nil
+	}
+	var agents []*entity.Agent
+	if err := r.db.Find(&agents).Error; err != nil {
+		return 0, err
+	}
+	var affected int64
+	for _, agent := range agents {
+		cfg := agent.ConfigJSON
+		if cfg == nil {
+			continue
+		}
+		raw, ok := cfg["knowledges"]
+		if !ok {
+			continue
+		}
+		arr, ok := raw.([]interface{})
+		if !ok {
+			continue
+		}
+		filtered := make([]interface{}, 0, len(arr))
+		dropped := false
+		for _, item := range arr {
+			if s, _ := item.(string); s == kbID {
+				dropped = true
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		if !dropped {
+			continue
+		}
+		cfg["knowledges"] = filtered
+		if err := r.db.Save(agent).Error; err != nil {
+			return affected, err
+		}
+		r.deleteCache(agent.Slug)
+		affected++
+	}
+	return affected, nil
+}

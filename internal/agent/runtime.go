@@ -2,6 +2,7 @@ package agent
 
 import (
 	"Qavor/internal/agent/localfs/security"
+	"Qavor/internal/trace"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/adk/backgroundtask"
@@ -22,4 +23,7 @@ type AgentRuntime struct {
 	Background *backgroundtask.Manager
 	// CheckPointStore 审批中断恢复的 checkpoint 存储（Redis）。
 	CheckPointStore adk.CheckPointStore
+	// Tracer 统一 Tracer 实例，用于创建并管理 agent.run Span。
+	// 为 nil 时所有 Run/StartRun 为 no-op，仅执行业务函数。
+	Tracer *trace.Tracer
 }

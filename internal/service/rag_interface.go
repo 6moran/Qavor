@@ -16,12 +16,14 @@ type RAGRetrieveResult struct {
 
 // RAGChunk 单条结构化检索结果。
 type RAGChunk struct {
-	KBID     string  `json:"kb_id"`
-	ChunkID  string  `json:"chunk_id"`
-	FileID   string  `json:"file_id"`
-	Filename string  `json:"filename"`
-	Content  string  `json:"content"`
-	Score    float64 `json:"score"`
+	KBID         string  `json:"kb_id"`
+	ChunkID      string  `json:"chunk_id"`
+	FileID       string  `json:"file_id"`
+	Filename     string  `json:"filename"`
+	DocumentName string  `json:"document_name,omitempty"`
+	ResourceURI  string  `json:"resource_uri,omitempty"`
+	Content      string  `json:"content"`
+	Score        float64 `json:"score"`
 }
 
 // RAGAnswerResult RAG 问答服务返回结果。
