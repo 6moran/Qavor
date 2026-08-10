@@ -3,6 +3,7 @@ package run
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -36,16 +37,22 @@ type AgentExecutor interface {
 	Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error)
 }
 
+// EventPublisher 是 Worker 对事件总线的最小依赖，便于隔离发布故障并保证业务终态不受影响。
+type EventPublisher interface {
+	PublishPayload(ctx context.Context, eventType, runID, threadID, requestID string, payload any) (string, error)
+}
+
 // Worker Run 执行器：从队列消费请求，执行 Agent，发布事件到 Redis Stream，持久化消息
 type Worker struct {
 	queue            *RequestQueue
-	pub              *eventbus.Publisher
+	pub              EventPublisher
 	runRepo          repository.AgentRunRepository
 	messageRepo      repository.MessageRepository
 	conversationRepo repository.ConversationRepository
 	executor         AgentExecutor
 	contextMgr       ContextProvider
 	logger           *zap.Logger
+	tracer           *trace.Tracer
 
 	// 运行中 Run 的取消函数注册表：run_id -> cancelFunc
 	cancels sync.Map
@@ -60,10 +67,29 @@ type ContextProvider interface {
 	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message) error
 }
 
-// NewWorker 创建 Run 执行器
-func NewWorker(queue *RequestQueue, pub *eventbus.Publisher, runRepo repository.AgentRunRepository,
+func queueRunMeta(run *entity.AgentRun, item *QueueItem, conversationID uint, requestID string) trace.RunMeta {
+	attempt := item.Attempt
+	if attempt < 1 {
+		attempt = 1
+	}
+	return trace.RunMeta{
+		RunID:            run.ID,
+		AgentSlug:        item.AgentSlug,
+		ConversationID:   conversationID,
+		RequestID:        requestID,
+		Query:            item.Query,
+		Mode:             "async",
+		Attempt:          attempt,
+		ResumeFromRunID:  item.ResumeFromRunID,
+		ResumeFromSpanID: item.ResumeFromSpanID,
+	}
+}
+
+// NewWorker 创建 Run 执行器。
+func NewWorker(queue *RequestQueue, pub EventPublisher, runRepo repository.AgentRunRepository,
 	messageRepo repository.MessageRepository, conversationRepo repository.ConversationRepository,
-	executor AgentExecutor, contextMgr ContextProvider, logger *zap.Logger, workerCount int) *Worker {
+	executor AgentExecutor, contextMgr ContextProvider, logger *zap.Logger, workerCount int,
+	tracer *trace.Tracer) *Worker {
 	if workerCount <= 0 {
 		workerCount = 3
 	}
@@ -78,6 +104,7 @@ func NewWorker(queue *RequestQueue, pub *eventbus.Publisher, runRepo repository.
 		logger:           logger,
 		workerCount:      workerCount,
 		block:            5 * time.Second,
+		tracer:           tracer,
 	}
 }
 
@@ -199,18 +226,69 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			zap.String("run_id", run.ID), zap.String("thread_id", threadID))
 	}
 
-	// 0.2 恢复 trace 上下文（异步透传：TraceID 来自入队时的 HTTP 请求）
-	if item.TraceID != "" && trace.Enabled() {
-		ctx = trace.WithTraceContext(ctx, &trace.TraceContext{
-			TraceID:        item.TraceID,
-			Source:         entity.TraceSourceRun,
-			AgentSlug:      item.AgentSlug,
-			ConversationID: conversationID,
-			RunID:          run.ID,
-			RequestID:      requestID,
-			Query:          item.Query,
+	// 0.2 恢复 trace 上下文：从 TraceCarrier 恢复父 SpanContext，创建 queue.consume Span，
+	// 注入 RunMeta 供 AgentRuntime 读取。consumeSpan 从开始处理覆盖到终态发布。
+	var consumeSpan *trace.Span
+	var execErr error // 记录最终执行结果，供 defer 结束 consumeSpan
+	var assistantMsgs []*schema.Message
+	if w.tracer != nil && item.Trace.TraceID != "" {
+		ctx = trace.ContextFromCarrier(ctx, item.Trace)
+		ctx, consumeSpan = w.tracer.StartSpan(ctx, trace.SpanSpec{
+			Kind:      "queue",
+			Operation: "queue.consume",
+			RunID:     run.ID,
+			RequestID: requestID,
+			Attributes: entity.JSON{
+				"queue":         "qavor:run:queue",
+				"queue_wait_ms": time.Since(item.CreatedAt).Milliseconds(),
+			},
 		})
 	}
+	// RunMeta 属于业务执行上下文，不依赖 Trace 是否开启或旧队列数据是否带完整 carrier。
+	ctx = trace.WithRunMeta(ctx, queueRunMeta(run, item, conversationID, requestID))
+	defer func() {
+		if consumeSpan == nil {
+			return
+		}
+		if recovered := recover(); recovered != nil {
+			consumeSpan.End(trace.SpanEnd{
+				Status:       trace.SpanStatusError,
+				ErrorType:    "panic",
+				ErrorMessage: fmt.Sprint(recovered),
+			})
+			panic(recovered) // 不吞掉 panic
+		}
+		// 统一根据 execErr 和 ctx 状态结束 consumeSpan，禁止在 switch 分支复制 End 调用
+		if ctx.Err() != nil {
+			consumeSpan.End(trace.SpanEnd{
+				Status:       trace.SpanStatusCancelled,
+				ErrorMessage: ctx.Err().Error(),
+			})
+			return
+		}
+		if execErr == nil {
+			consumeSpan.End(trace.SpanEnd{Status: trace.SpanStatusOK})
+			return
+		}
+		if errors.Is(execErr, ErrInterrupted) {
+			consumeSpan.End(trace.SpanEnd{
+				Status:       trace.SpanStatusInterrupted,
+				ErrorMessage: execErr.Error(),
+			})
+			return
+		}
+		if errors.Is(execErr, context.Canceled) || errors.Is(execErr, context.DeadlineExceeded) {
+			consumeSpan.End(trace.SpanEnd{
+				Status:       trace.SpanStatusCancelled,
+				ErrorMessage: execErr.Error(),
+			})
+			return
+		}
+		consumeSpan.End(trace.SpanEnd{
+			Status:       trace.SpanStatusError,
+			ErrorMessage: execErr.Error(),
+		})
+	}()
 
 	// 0.1 保存用户消息
 	if conversationID > 0 && item.Query != "" {
@@ -276,10 +354,24 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		execOpts = append(execOpts, WithResume(item.CheckpointID, item.Targets))
 	}
 
-	assistantMsgs, execErr := w.executor.Execute(ctx, item.AgentSlug, item.Query, history, emit, execOpts...)
+	assistantMsgs, execErr = w.executor.Execute(ctx, item.AgentSlug, item.Query, history, emit, execOpts...)
 
 	// 3.1 持久化 Assistant 消息（刷新后可从 DB 加载）—— 无论成功或失败都保存已生成的消息
+	// 使用单个 message.persist Span 覆盖批量持久化，与 agent.run 平级（parent 为 queue.consume）
 	if conversationID > 0 && len(assistantMsgs) > 0 {
+		var persistSpan *trace.Span
+		if w.tracer != nil && consumeSpan != nil {
+			_, persistSpan = w.tracer.StartSpan(ctx, trace.SpanSpec{
+				Kind:      "persistence",
+				Operation: "message.persist",
+				RunID:     run.ID,
+				RequestID: requestID,
+				Attributes: entity.JSON{
+					"message_count": len(assistantMsgs),
+				},
+			})
+		}
+		persistFailed := false
 		for _, msg := range assistantMsgs {
 			if msg == nil || msg.Content == "" {
 				continue
@@ -293,6 +385,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			}
 			if err := w.messageRepo.Create(aiMsg); err != nil {
 				w.logger.Error("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))
+				persistFailed = true
 			}
 			// 更新短期记忆（助手消息）
 			if w.contextMgr != nil {
@@ -304,15 +397,23 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				}
 			}
 		}
+		if persistSpan != nil {
+			if persistFailed {
+				persistSpan.End(trace.SpanEnd{
+					Status:    trace.SpanStatusError,
+					ErrorType: "message_persist",
+				})
+			} else {
+				persistSpan.End(trace.SpanEnd{Status: trace.SpanStatusOK})
+			}
+		}
 	}
 
-	// 4. 根据结果发布终态事件并收尾 trace
+	// 4. 根据结果发布终态事件（trace 由 defer 统一收尾，不在此处手动结束）
 	switch {
 	case ctx.Err() == context.Canceled:
-		trace.FinishTrace(ctx, entity.TraceStatusCancelled, "context cancelled")
 		w.finish(ctx, run, eventbus.StatusCancelled, "cancelled")
 	case errors.Is(execErr, ErrInterrupted):
-		trace.FinishTrace(ctx, entity.TraceStatusCancelled, "interrupted")
 		// 提取审批信息并发布中断+审批事件
 		if ie, ok := execErr.(*InterruptedError); ok {
 			w.publishApproval(ctx, run, ie)
@@ -329,26 +430,61 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			zap.String("error", execErr.Error()),
 			zap.Int("assistant_msgs_count", len(assistantMsgs)),
 		)
-		trace.FinishTrace(ctx, entity.TraceStatusFailed, execErr.Error())
 		w.publishError(ctx, run, execErr)
 		w.finish(ctx, run, eventbus.StatusFailed, "failed")
 	default:
-		trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
 		w.finish(ctx, run, eventbus.StatusCompleted, "completed")
 	}
 }
 
-// finish 发布 end 事件并更新终态
+// finish 发布 end 事件并更新终态。
+// 创建 event.publish Span 记录终态事件发布，与 agent.run 平级（parent 为 queue.consume）。
 func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoStatus string) {
+	var pubSpan *trace.Span
+	if w.tracer != nil {
+		_, pubSpan = w.tracer.StartSpan(ctx, trace.SpanSpec{
+			Kind:      "event",
+			Operation: "event.publish",
+			RunID:     run.ID,
+			RequestID: run.RequestID,
+			Attributes: entity.JSON{
+				"event_type": eventbus.EventEnd,
+				"run_id":     run.ID,
+				"status":     status,
+			},
+		})
+	}
 	// 先发布 end 事件
 	var endID string
+	var publishErr error
 	if id, err := w.pub.PublishPayload(ctx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
 		eventbus.EndPayload{Status: status}); err == nil {
 		endID = id
+	} else {
+		publishErr = err
+		w.logger.Warn("worker 发布终态事件失败", zap.String("run_id", run.ID), zap.Error(err))
+		if pubSpan != nil {
+			pubSpan.End(trace.SpanEnd{
+				Status:       trace.SpanStatusError,
+				ErrorType:    "event_publish",
+				ErrorMessage: err.Error(),
+			})
+		}
 	}
 	// 再更新 DB 状态（last_event_id 为 end 事件 ID）
 	if err := w.runRepo.UpdateStatus(run.ID, repoStatus, endID); err != nil {
 		w.logger.Warn("worker 更新终态失败", zap.String("run_id", run.ID), zap.Error(err))
+		if pubSpan != nil && publishErr == nil {
+			pubSpan.End(trace.SpanEnd{
+				Status:       trace.SpanStatusError,
+				ErrorType:    "run_status_update",
+				ErrorMessage: err.Error(),
+			})
+			return
+		}
+	}
+	if pubSpan != nil && publishErr == nil {
+		pubSpan.End(trace.SpanEnd{Status: trace.SpanStatusOK})
 	}
 }
 
