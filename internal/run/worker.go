@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"Qavor/internal/eventbus"
+	longterm "Qavor/internal/memory/long_term"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/internal/trace"
@@ -19,12 +21,13 @@ import (
 
 // StreamEvent Agent 执行过程中产生的流式事件（由 AgentExecutor 适配层发出）
 type StreamEvent struct {
-	Type      string                 // "text_delta" / "tool_call" / "tool_result" / "message_end"
+	Type      string                 // "text_delta" / "tool_call" / "tool_result" / "message_end" / "todo_update"
 	MessageID string                 // 聚合同一段输出的 token（同一段输出共享）
 	Role      string                 // "assistant" / "tool"
 	Content   string                 // 文本内容
 	Reasoning string                 // 推理内容增量（reasoning part 文本）
 	ToolCall  *eventbus.ToolCallInfo // 工具调用结构化字段
+	Todos     []eventbus.TodoItem    // TODO 列表（todo_update 事件携带）
 }
 
 // ErrInterrupted 表示 Agent 因工具审批中断
@@ -35,6 +38,7 @@ var ErrInterrupted = errors.New("run: agent interrupted for tool approval")
 // opts 支持 WithApprovalMode（审批模式）与 WithResume（审批恢复）。
 type AgentExecutor interface {
 	Execute(ctx context.Context, slug, query string, history []*schema.Message, emit func(StreamEvent), opts ...ExecuteOption) ([]*schema.Message, error)
+	GetModelID(ctx context.Context, slug string) uint
 }
 
 // EventPublisher 是 Worker 对事件总线的最小依赖，便于隔离发布故障并保证业务终态不受影响。
@@ -51,6 +55,8 @@ type Worker struct {
 	conversationRepo repository.ConversationRepository
 	executor         AgentExecutor
 	contextMgr       ContextProvider
+	longTermMgr      *longterm.Manager
+	todoStore        *TodoStore
 	logger           *zap.Logger
 	tracer           *trace.Tracer
 
@@ -64,7 +70,7 @@ type Worker struct {
 // ContextProvider 上下文管理接口（用于加载对话历史和短期记忆）
 type ContextProvider interface {
 	LoadHistory(ctx context.Context, conversationID uint) ([]*schema.Message, error)
-	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message) error
+	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message, modelID uint) error
 }
 
 func queueRunMeta(run *entity.AgentRun, item *QueueItem, conversationID uint, requestID string) trace.RunMeta {
@@ -88,7 +94,8 @@ func queueRunMeta(run *entity.AgentRun, item *QueueItem, conversationID uint, re
 // NewWorker 创建 Run 执行器。
 func NewWorker(queue *RequestQueue, pub EventPublisher, runRepo repository.AgentRunRepository,
 	messageRepo repository.MessageRepository, conversationRepo repository.ConversationRepository,
-	executor AgentExecutor, contextMgr ContextProvider, logger *zap.Logger, workerCount int,
+	executor AgentExecutor, contextMgr ContextProvider, longTermMgr *longterm.Manager, todoStore *TodoStore,
+	logger *zap.Logger, workerCount int,
 	tracer *trace.Tracer) *Worker {
 	if workerCount <= 0 {
 		workerCount = 3
@@ -101,6 +108,8 @@ func NewWorker(queue *RequestQueue, pub EventPublisher, runRepo repository.Agent
 		conversationRepo: conversationRepo,
 		executor:         executor,
 		contextMgr:       contextMgr,
+		longTermMgr:      longTermMgr,
+		todoStore:        todoStore,
 		logger:           logger,
 		workerCount:      workerCount,
 		block:            5 * time.Second,
@@ -290,6 +299,9 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		})
 	}()
 
+	// 0.05 解析模型 ID（从 Agent 配置中解析，按参数传入短期记忆，避免全局共享）
+	modelID := w.executor.GetModelID(ctx, item.AgentSlug)
+
 	// 0.1 保存用户消息
 	if conversationID > 0 && item.Query != "" {
 		userMsg := &entity.Message{
@@ -306,7 +318,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		// 更新短期记忆（用户消息）
 		if w.contextMgr != nil {
 			userSchemaMsg := &schema.Message{Role: schema.User, Content: item.Query}
-			if err := w.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg); err != nil {
+			if err := w.contextMgr.UpdateShortMemory(ctx, conversationID, userSchemaMsg, modelID); err != nil {
 				w.logger.Warn("更新 Short Memory（用户消息）失败", zap.String("run_id", run.ID), zap.Error(err))
 			}
 		}
@@ -334,6 +346,12 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		if ctx.Err() != nil {
 			return
 		}
+		// todo_update: 持久化到 Redis 并发布 SSE
+		if ev.Type == "todo_update" && conversationID > 0 && w.todoStore != nil {
+			if err := w.todoStore.SaveTodos(ctx, conversationID, ev.Todos); err != nil {
+				w.logger.Warn("保存 TODO 列表失败", zap.String("run_id", run.ID), zap.Error(err))
+			}
+		}
 		_, _ = w.pub.PublishPayload(ctx, eventbus.EventMessage, run.ID, threadID, requestID,
 			eventbus.ChunkPayload{
 				MessageID: ev.MessageID,
@@ -342,6 +360,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				Content:   ev.Content,
 				Reasoning: ev.Reasoning,
 				ToolCall:  ev.ToolCall,
+				Todos:     ev.Todos,
 			})
 	}
 
@@ -392,7 +411,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				if err := w.contextMgr.UpdateShortMemory(ctx, conversationID, &schema.Message{
 					Role:    schema.Assistant,
 					Content: msg.Content,
-				}); err != nil {
+				}, modelID); err != nil {
 					w.logger.Warn("更新 Short Memory（助手消息）失败", zap.String("run_id", run.ID), zap.Error(err))
 				}
 			}
@@ -406,6 +425,24 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			} else {
 				persistSpan.End(trace.SpanEnd{Status: trace.SpanStatusOK})
 			}
+		}
+	}
+
+	// 3.2 异步抽取长期记忆（跨会话画像/偏好/决策）——失败不影响主流程
+	if conversationID > 0 && w.longTermMgr != nil &&
+		item.Query != "" && len(assistantMsgs) > 0 && assistantMsgs[len(assistantMsgs)-1] != nil {
+		var lastAssistantContent string
+		for i := len(assistantMsgs) - 1; i >= 0; i-- {
+			if assistantMsgs[i] != nil && assistantMsgs[i].Content != "" {
+				lastAssistantContent = assistantMsgs[i].Content
+				break
+			}
+		}
+		if lastAssistantContent != "" {
+			w.longTermMgr.ExtractAfterTurn(ctx, 0, conversationID, run.ID, []longterm.TurnMessage{
+				{Role: "user", Content: item.Query},
+				{Role: "assistant", Content: lastAssistantContent},
+			}, modelID)
 		}
 	}
 
@@ -490,12 +527,37 @@ func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoS
 
 // publishError 发布 error 事件
 func (w *Worker) publishError(ctx context.Context, run *entity.AgentRun, execErr error) {
+	code := "AGENT_ERROR"
+	msg := execErr.Error()
+
+	// 识别 LLM 额度用尽等常见错误，返回友好提示
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "free quota exhausted"),
+		strings.Contains(lower, "quota exhausted"),
+		strings.Contains(lower, "额度"):
+		code = "QUOTA_EXHAUSTED"
+		msg = "模型额度已用完，请充值或更换模型"
+	case strings.Contains(lower, "rate limit"),
+		strings.Contains(lower, "429"),
+		strings.Contains(lower, "too many requests"):
+		code = "RATE_LIMITED"
+		msg = "请求过于频繁，请稍后重试"
+	case strings.Contains(lower, "invalid api key"),
+		strings.Contains(lower, "unauthorized"),
+		strings.Contains(lower, "authentication"):
+		code = "AUTH_ERROR"
+		msg = "模型认证失败，请检查 API Key 配置"
+	}
+
 	_, _ = w.pub.PublishPayload(ctx, eventbus.EventError, run.ID, run.ConversationThreadID, run.RequestID,
-		eventbus.ErrorPayload{Code: "AGENT_ERROR", Message: execErr.Error()})
+		eventbus.ErrorPayload{Code: code, Message: msg})
 }
 
 // publishApproval 发布审批请求事件。
-// 前端 useApproval.js 的 processApprovalInStream 检查 chunk.status === 'human_approval_required'。
+// 前端 useApproval.js 的 processApprovalInStream 检查 chunk.status === 'human_approval_required'，
+// 该状态只由 event: message 的 items 触发，因此先发一条 message 事件携带审批数据，
+// 再发 end 事件标记中断终态（前端 SSE 流在此结束）。
 // approval.action_requests 与 approval.review_configs 长度必须相等（前端 useApproval.js:27 强校验）。
 func (w *Worker) publishApproval(ctx context.Context, run *entity.AgentRun, ie *InterruptedError) {
 	approval := &eventbus.ApprovalPayload{}
@@ -511,6 +573,24 @@ func (w *Worker) publishApproval(ctx context.Context, run *entity.AgentRun, ie *
 			Reason:   "此操作需要用户审批",
 		})
 	}
+
+	// 1. 先发 message 事件：items 中包含审批 chunk，触发前端审批弹窗。
+	// 前端 processRunSseResponse 在 event: message + payload.items 时，
+	// 将每个 item 直接作为 chunk 传给 handleStreamChunk，
+	// handleStreamChunk 的 case 'human_approval_required' 分支会提取 approval 并弹窗。
+	msgPayload := map[string]any{
+		"items": []map[string]any{
+			{
+				"status":   "human_approval_required",
+				"approval": approval,
+				"run_id":   run.ID,
+				"thread_id": run.ConversationThreadID,
+			},
+		},
+	}
+	_, _ = w.pub.PublishPayload(ctx, eventbus.EventMessage, run.ID, run.ConversationThreadID, run.RequestID, msgPayload)
+
+	// 2. 再发 end 事件标记中断终态。
 	_, _ = w.pub.PublishPayload(ctx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
 		eventbus.EndPayload{
 			Status:   eventbus.StatusInterrupted,
@@ -520,7 +600,7 @@ func (w *Worker) publishApproval(ctx context.Context, run *entity.AgentRun, ie *
 
 // saveInterruptInfo 保存中断信息到 run 记录（checkpointID + approval info），
 // 供 resume 时读取。
-func (w *Worker) saveInterruptInfo(ctx context.Context, run *entity.AgentRun, ie *InterruptedError) {
+func (w *Worker) saveInterruptInfo(_ context.Context, run *entity.AgentRun, ie *InterruptedError) {
 	run.CheckpointID = ie.CheckpointID
 	// ApprovalInfo 与 EndPayload 的 approval 结构一致（前端解析用）
 	run.ApprovalInfo = entity.JSON{

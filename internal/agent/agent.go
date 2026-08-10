@@ -18,10 +18,12 @@ import (
 	"github.com/cloudwego/eino/adk/backgroundtask"
 	fs2 "github.com/cloudwego/eino/adk/middlewares/filesystem"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
+	"github.com/cloudwego/eino/adk/session"
 	"github.com/cloudwego/eino/components/model"
 	einotool "github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
 
@@ -110,6 +112,19 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		maxIteration = cfg.MaxIteration
 	}
 
+	// 工具错误喂回中间件：将非 interrupt 的 error 转成 tool result 喂回 LLM
+	toolErrorMW := []compose.ToolMiddleware{
+		{
+			Name: "qavor_tool_error",
+			Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+				return WrapToolError(next, security.ErrDenied)
+			},
+			Streamable: func(next compose.StreamableToolEndpoint) compose.StreamableToolEndpoint {
+				return WrapStreamToolError(next, security.ErrDenied)
+			},
+		},
+	}
+
 	// 组装中间件列表：工具过滤 + Skill 激活检测 + 工具审批
 	handlers := []adk.TypedChatModelAgentMiddleware[*schema.Message]{middleware}
 	if skillsMiddleware != nil {
@@ -128,7 +143,7 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 			ToolsConfig: adk.ToolsConfig{
 				ToolsNodeConfig: compose.ToolsNodeConfig{
 					Tools:               nil, // 工具列表为空，由中间件注入
-					ToolCallMiddlewares: []compose.ToolMiddleware{newToolErrorRecoveryMiddleware()},
+					ToolCallMiddlewares: toolErrorMW,
 				},
 			},
 			MaxIterations: maxIteration,
@@ -163,8 +178,7 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		if err := os.MkdirAll(workDir, 0o755); err != nil {
 			return nil, fmt.Errorf("创建 agent 工作目录失败: %w", err)
 		}
-		// 将关联 Skill 暴露到工作区 skills/<slug>，使 read_file 能读到 SKILL.md
-		exposeSkills(workDir, skillsMiddleware, cfg.Skills)
+		// Skills 路径已由文件系统后端 resolveSkillPath 直接放行
 		if runtime.Background != nil {
 			backgroundCfg = &deep.BackgroundConfig{
 				Manager:   runtime.Background,
@@ -195,7 +209,7 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		Description:            cfg.Description,
 		ChatModel:              llm,
 		Instruction:            cfg.Instruction,
-		ToolsConfig:            adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil, ToolCallMiddlewares: []compose.ToolMiddleware{newToolErrorRecoveryMiddleware()}}},
+		ToolsConfig:            adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil, ToolCallMiddlewares: toolErrorMW}},
 		MaxIteration:           maxIteration,
 		WithoutGeneralSubAgent: !enableGeneralSubAgent,
 		Background:             backgroundCfg,
@@ -225,10 +239,23 @@ func newAgent(a adk.ResumableAgent, mcpManager *mcp.MCPManager, cfg *AgentConfig
 	if runtime != nil {
 		store = runtime.CheckPointStore
 	}
+
+	// Runner 在非 session 模式下不会保存 checkpoint（checkPointID 始终为 nil），
+	// 因此必须启用 session 模式（SessionEventStore + SessionID）让 Runner 自动
+	// 生成并管理 checkPointID，才能触发 checkpoint 持久化。
+	//
+	// 使用 in-memory session store：session 事件仅用于驱动 checkpoint 生命周期，
+	// 不持久化到外部存储。sessionID 使用固定前缀 + 随机 UUID，每次 newAgent
+	// 创建新 session，避免不同 Agent 实例之间的 session 状态污染。
+	sessionID := "qavor-agent-" + uuid.New().String()
+	sessionStore := session.NewInMemoryStore[*schema.Message](nil)
+
 	ag.runner = adk.NewRunner(context.Background(), adk.RunnerConfig{
 		Agent:           a,
 		EnableStreaming: true,
 		CheckPointStore: store,
+		SessionID:       sessionID,
+		SessionStore:    sessionStore,
 	})
 	return ag
 }
@@ -308,11 +335,6 @@ func (a *Agent) execute(ctx context.Context, query string, history ...*schema.Me
 		Content: query,
 	})
 
-	input := &adk.AgentInput{
-		Messages:        messages,
-		EnableStreaming: true,
-	}
-
 	// 构建模型调用选项（temperature、max_tokens）
 	var modelOpts []model.Option
 	if a.config.Temperature != nil {
@@ -327,7 +349,8 @@ func (a *Agent) execute(ctx context.Context, query string, history ...*schema.Me
 	if len(modelOpts) > 0 {
 		runOpts = append(runOpts, adk.WithChatModelOptions(modelOpts))
 	}
-	iter := a.agent.Run(ctx, input, runOpts...)
+	// 使用 runner 执行以支持 CheckPointStore（中断时自动保存 checkpoint）
+	iter := a.runner.Run(ctx, messages, runOpts...)
 	var result string
 	for {
 		event, ok := iter.Next()
@@ -372,11 +395,6 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schem
 		Content: query,
 	})
 
-	input := &adk.AgentInput{
-		Messages:        messages,
-		EnableStreaming: true,
-	}
-
 	// 构建模型调用选项（temperature、max_tokens）
 	var modelOpts []model.Option
 	if a.config.Temperature != nil {
@@ -392,7 +410,8 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schem
 		runOpts = append(runOpts, adk.WithChatModelOptions(modelOpts))
 	}
 
-	iter := a.agent.Run(runCtx, input, runOpts...)
+	// 使用 runner 执行以支持 CheckPointStore（中断时自动保存 checkpoint）
+	iter := a.runner.Run(runCtx, messages, runOpts...)
 	return &AgentEventIterator{iter: newTracedIterator(runCtx, span, iter)}
 }
 
@@ -420,72 +439,6 @@ func (a *Agent) GetMCPManager() *mcp.MCPManager {
 // GetConfig 获取配置
 func (a *Agent) GetConfig() *AgentConfig {
 	return a.config
-}
-
-// exposeSkills 将关联的 Skill 目录暴露到 agent 工作区 skills/<slug> 下，
-// 使 read_file(path="skills/<slug>/SKILL.md") 可直接读取（渐进式披露 L2）。
-// 优先符号链接（源目录变更即时同步），失败时回退为复制目录。
-func exposeSkills(workDir string, skillsMiddleware *skill.SkillsMiddleware, slugs []string) {
-	if skillsMiddleware == nil {
-		return
-	}
-	loader := skillsMiddleware.GetLoader()
-	for _, slug := range slugs {
-		if slug == "" {
-			continue
-		}
-		src := loader.GetSkillDir(slug)
-		if _, err := os.Stat(src); err != nil {
-			warnLog("Skill 目录不存在，跳过暴露", zap.String("slug", slug), zap.Error(err))
-			continue
-		}
-		dst := filepath.Join(workDir, "skills", slug)
-		if _, err := os.Lstat(dst); err == nil {
-			continue // 已暴露
-		}
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			warnLog("创建 Skill 暴露目录失败", zap.String("slug", slug), zap.Error(err))
-			continue
-		}
-		absSrc, absErr := filepath.Abs(src)
-		if absErr == nil {
-			src = absSrc
-		}
-		if err := os.Symlink(src, dst); err != nil {
-			if err := copyDir(src, dst); err != nil {
-				warnLog("暴露 Skill 到工作区失败", zap.String("slug", slug), zap.Error(err))
-			}
-		}
-	}
-}
-
-// copyDir 递归复制目录（符号链接不可用时的回退方案）
-func copyDir(src, dst string) error {
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, 0o755); err != nil {
-		return err
-	}
-	for _, e := range entries {
-		s := filepath.Join(src, e.Name())
-		d := filepath.Join(dst, e.Name())
-		if e.IsDir() {
-			if err := copyDir(s, d); err != nil {
-				return err
-			}
-			continue
-		}
-		data, err := os.ReadFile(s)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(d, data, 0o644); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // warnLog 在 logger 已初始化时记录警告，避免未初始化导致 panic

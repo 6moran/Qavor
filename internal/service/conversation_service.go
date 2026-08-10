@@ -1,11 +1,13 @@
 package service
 
 import (
+	shortterm "Qavor/internal/memory/short_term"
 	"Qavor/internal/model/dto/request"
 	dto "Qavor/internal/model/dto/response"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/pkg/errors"
+	"context"
 
 	"github.com/google/uuid"
 )
@@ -25,12 +27,14 @@ type ConversationService interface {
 // conversationService 会话服务实现
 type conversationService struct {
 	conversationRepo repository.ConversationRepository
+	shortTermMgr     shortterm.Manager
 }
 
 // NewConversationService 创建会话服务
-func NewConversationService(conversationRepo repository.ConversationRepository) ConversationService {
+func NewConversationService(conversationRepo repository.ConversationRepository, shortTermMgr shortterm.Manager) ConversationService {
 	return &conversationService{
 		conversationRepo: conversationRepo,
+		shortTermMgr:     shortTermMgr,
 	}
 }
 
@@ -95,6 +99,15 @@ func (s *conversationService) DeleteConversation(id uint) error {
 	}
 	if conversation == nil {
 		return errors.New(errors.CodeConversationNotFound, "会话不存在")
+	}
+
+	// 清除 Redis 中的短期记忆，避免孤儿数据
+	if s.shortTermMgr != nil {
+		ctx := context.Background()
+		if err := s.shortTermMgr.ClearMemory(ctx, id); err != nil {
+			// 记忆清除失败不阻断删除流程，仅记录
+			_ = err
+		}
 	}
 
 	return s.conversationRepo.Delete(id)

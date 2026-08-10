@@ -70,5 +70,5 @@ func (c *Credentials) IsSensitive(path string) bool {
 
 // DenyMessage 返回统一拒绝消息。
 func (c *Credentials) DenyMessage(path string) error {
-	return fmt.Errorf("access to credential file %q is denied", path)
+	return fmt.Errorf("%w: 该文件为受限文件，无权访问", ErrDenied)
 }

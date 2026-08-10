@@ -87,3 +87,4 @@ internal/testhelper/
 # Python
 __pycache__/
 *.pyc
+qavor/

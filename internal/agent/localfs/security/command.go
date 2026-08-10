@@ -33,7 +33,7 @@ func (c *Command) Check(command string) error {
 		return nil
 	}
 	if c.blocks(splitCommandTokens(command)) {
-		return fmt.Errorf("command was rejected by the security policy")
+		return fmt.Errorf("%w: 该命令不在允许的执行范围内", ErrDenied)
 	}
 	return nil
 }

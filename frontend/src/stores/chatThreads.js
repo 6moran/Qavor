@@ -10,6 +10,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
   const currentThreadId = ref(null)
   const hasMoreThreads = ref(true)
   const isLoadingMoreThreads = ref(false)
+  const unreadThreadIds = ref(new Set())
 
   const currentThread = computed(() => {
     if (!currentThreadId.value) return null
@@ -18,6 +19,22 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
 
   const setCurrentThreadId = (threadId) => {
     currentThreadId.value = threadId || null
+  }
+
+  const markThreadUnread = (threadId) => {
+    if (!threadId) return
+    const id = String(threadId)
+    if (id === String(currentThreadId.value)) return
+    unreadThreadIds.value = new Set([...unreadThreadIds.value, id])
+  }
+
+  const clearThreadUnread = (threadId) => {
+    if (!threadId) return
+    const id = String(threadId)
+    if (!unreadThreadIds.value.has(id)) return
+    const next = new Set(unreadThreadIds.value)
+    next.delete(id)
+    unreadThreadIds.value = next
   }
 
   const upsertThread = (thread) => {
@@ -133,7 +150,10 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     currentThread,
     hasMoreThreads,
     isLoadingMoreThreads,
+    unreadThreadIds,
     setCurrentThreadId,
+    markThreadUnread,
+    clearThreadUnread,
     upsertThread,
     loadThreads,
     loadMoreThreads,

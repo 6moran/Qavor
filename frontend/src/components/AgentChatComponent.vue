@@ -2388,8 +2388,8 @@ const fetchAgentState = async (agentId, threadId) => {
     const targetState = getThreadState(threadId)
     if (!targetState) return
     targetState.agentState = res.agent_state || null
-  } catch {
-    // agent state is optional UI state
+  } catch (e) {
+    console.warn('[fetchAgentState] Failed to fetch agent state:', threadId, e)
   }
 }
 
@@ -2505,6 +2505,8 @@ const { startRunStream, startNewRun, resumeActiveRunForThread, stopRunStreamSubs
       hideApprovalState()
     }
     void resumeQueuedRequestsForThread(threadId)
+    // 后台会话任务结束时标记未读（当前会话不标记）
+    chatThreadsStore.markThreadUnread(threadId)
   }
 })
 const {
@@ -2619,6 +2621,10 @@ const selectChat = async (chatId) => {
 
   if (String(previousThreadId) !== String(chatId)) {
     resetAgentPanelState()
+    // 清除目标线程的旧 onGoingConv（乐观消息/流式分片），防止切回后
+    // 与服务器历史消息重复渲染。若 Run 仍在运行，resumeActiveRunForThread
+    // 会重建 SSE 流并重新填充 onGoingConv。
+    resetOnGoingConv(chatId, { preserveRunStream: true })
   }
 
   try {
@@ -2645,6 +2651,8 @@ const selectChat = async (chatId) => {
   chatUIStore.isLoadingMessages = true
   try {
     await fetchThreadMessages({ agentId: targetAgentId, threadId: chatId })
+    // 切换到该会话后清除未读标记
+    chatThreadsStore.clearThreadUnread(chatId)
   } catch (error) {
     handleChatError(error, 'load')
   } finally {
@@ -2927,29 +2935,23 @@ const handleApprovalWithStream = async (answer) => {
 
   const pendingInterrupt = threadState.pendingInterrupt
 
-  // TODO(backend): 工具审批 resume 需后端在 POST /api/v1/agent/runs 支持
-  // 「创建子 Run 恢复中断 Run 执行」语义（created_by_run_id + 审批决策，query 可空）。
-  // 当前后端 resume 分支仅支持重连已有 Run 的 SSE 流，且 createAndEnqueue 要求 query 非空，
-  // 因此工具审批链路暂不可用。下方 createAgentRun 在新后端下会因返回 text/event-stream 而失败。
   try {
     hideApprovalState()
     threadState.pendingInterrupt = null
     threadState.isStreaming = true
     resetOnGoingConv(threadId, { preserveRequestStreams: true })
     const requestId = createClientRequestId()
-    const runResp = await agentApi.createAgentRun({
+    // 用 SSE 流创建 resume run：created_by_run_id 触发后端审批恢复，
+    // 同时前端的 approval_decision 决定 approve/reject。
+    // SSE 流的首个 metadata 事件会包含新 run_id，由 startNewRun 自动提取。
+    startNewRun(threadId, {
       query: null,
       agent_slug: currentAgentId.value,
       thread_id: threadId,
       meta: { request_id: requestId },
-      resume: answer,
-      created_by_run_id: interruptedRunId
+      created_by_run_id: interruptedRunId,
+      approval_decision: answer
     })
-    const runId = runResp?.run_id
-    if (!runId) {
-      throw new Error('创建 resume run 失败：缺少 run_id')
-    }
-    await startRunStream(threadId, runId, '0-0')
   } catch (error) {
     if (pendingInterrupt) {
       threadState.pendingInterrupt = pendingInterrupt

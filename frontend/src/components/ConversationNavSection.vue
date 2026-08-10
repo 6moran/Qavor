@@ -23,6 +23,7 @@
             @click.middle="$emit('delete-chat', chat.id)"
           >
             <span class="conversation-title">{{ chat.title || '新的对话' }}</span>
+            <span v-if="unreadThreadIds.has(String(chat.id))" class="unread-dot"></span>
             <span class="actions-mask"></span>
             <span class="conversation-actions" @click.stop @dblclick.stop>
               <a-dropdown :trigger="['click']">
@@ -98,6 +99,10 @@ const props = defineProps({
   showHistory: {
     type: Boolean,
     default: true
+  },
+  unreadThreadIds: {
+    type: Set,
+    default: () => new Set()
   }
 })
 
@@ -244,6 +249,44 @@ const renameChat = async (chatId) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.unread-dot {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  transition: opacity 0.15s ease;
+
+  &::after {
+    content: '';
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    animation: unread-pulse 2s ease-in-out infinite;
+  }
+}
+
+.conversation-item:hover .unread-dot {
+  opacity: 0;
+}
+
+@keyframes unread-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 .history-panel {

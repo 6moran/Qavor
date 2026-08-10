@@ -138,9 +138,55 @@ export function useAgentRunStream({
     if (!ts) return
     streamSmoother?.flushThread(threadId)
     if (ts.runStreamAbortController) {
+      const activeRunId = ts.activeRunId
       ts.runStreamAbortController.abort()
       ts.runStreamAbortController = null
+      // SSE 被 abort 后，兜底逻辑(line 487)会因 signal.abored 被跳过
+      // 如果 Run 仍在运行，启动后台轮询，终态时触发 finalizeRunStream → 红点提醒
+      if (activeRunId) {
+        pollRunTerminalStatus(threadId, activeRunId)
+      }
     }
+  }
+
+  // pollRunTerminalStatus 后台轮询 Run 状态，终态时触发 finalizeRunStream
+  // 用于切换会话后 SSE 被 abort，但原会话 Run 仍在运行的场景
+  const pollRunTerminalStatus = (threadId, runId) => {
+    const maxAttempts = 60 // 最多轮询 60 次 × 3s = 3 分钟
+    let attempts = 0
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) return
+      attempts++
+
+      const ts = getThreadState(threadId)
+      // Run 已被其他逻辑处理（如用户切回后 SSE 接管，或已 finalize）
+      if (!ts || ts.activeRunId !== runId) return
+      // 用户切回该会话，SSE 已重新建立，轮询退出让 SSE 接管
+      if (ts.runStreamAbortController) return
+
+      try {
+        const runRes = await agentApi.getAgentRun(runId)
+        const run = runRes?.data
+        if (run?.status === RUN_INTERRUPTED_STATUS) {
+          if (hasPendingInterruptInThreads(new Set([threadId]), run.id)) {
+            await preserveInterruptedRun(threadId, run)
+          } else {
+            finalizeRunStream(threadId, runId, new Set([threadId]), { status: run.status })
+          }
+        } else if (run && RUN_TERMINAL_STATUSES.has(run.status)) {
+          finalizeRunStream(threadId, runId, new Set([threadId]), { status: run.status })
+        } else {
+          // 还在运行，继续轮询
+          setTimeout(poll, 3000)
+        }
+      } catch (e) {
+        // 查询失败，继续重试
+        setTimeout(poll, 3000)
+      }
+    }
+
+    setTimeout(poll, 2000) // 2s 后开始轮询，给后端一点时间
   }
 
   const notifyInterruptDetected = (threadId, runId, run = null) => {
@@ -439,6 +485,16 @@ export function useAgentRunStream({
             }
           }
           // message_end 是流式边界信号，无需渲染，跳过
+
+          // todo_update: 实时更新状态面板的 TODO 列表
+          if (payload.type === 'todo_update' && Array.isArray(payload.todos)) {
+            const ts = getThreadState(routeThreadId)
+            if (ts) {
+              if (!ts.agentState) ts.agentState = {}
+              ts.agentState.todos = payload.todos
+            }
+          }
+
           if (adapted) {
             handleStreamChunk(
               {
@@ -468,7 +524,7 @@ export function useAgentRunStream({
           sawTerminalEvent = true
           const errorMessage = payload?.message || data?.message || 'Agent 执行失败'
           console.error('[SSE] Run error:', { runId, errorMessage, payload })
-          handleChatError(new Error(errorMessage), 'stream')
+          handleChatError(new Error(errorMessage), 'stream', payload)
           finalizeRunStream(threadId, runId, touchedThreadIds, { delay: 300, scroll: true, status: 'failed' })
         }
       })
@@ -476,7 +532,7 @@ export function useAgentRunStream({
       if (!sawTerminalEvent && !runController.signal.aborted && ts.activeRunId === runId) {
         try {
           const runRes = await agentApi.getAgentRun(runId)
-          const run = runRes?.run
+          const run = runRes?.data
           if (run?.status === RUN_INTERRUPTED_STATUS) {
             if (hasPendingInterruptInThreads(touchedThreadIds, run.id)) {
               await preserveInterruptedRun(threadId, run)
@@ -524,7 +580,7 @@ export function useAgentRunStream({
       if (!ts.activeRunId) return
       try {
         const runRes = await agentApi.getAgentRun(ts.activeRunId)
-        const run = runRes?.run
+        const run = runRes?.data
         if (run?.status === RUN_INTERRUPTED_STATUS) {
           stopRunStreamSubscription(threadId)
           const snapshot = loadActiveRunSnapshot(threadId)
@@ -558,7 +614,7 @@ export function useAgentRunStream({
       } else {
         try {
           const runRes = await agentApi.getAgentRun(snapshot.run_id)
-          const run = runRes?.run
+          const run = runRes?.data
           if (run?.status === RUN_INTERRUPTED_STATUS) {
             // 仅当本地仍持有该中断时才据快照恢复；否则不能仅凭快照重放旧中断
             // （可能已被回复），交由下方 active_run 做权威判定。

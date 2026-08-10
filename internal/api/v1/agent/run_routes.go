@@ -29,5 +29,6 @@ func RegisterRunRoutes(r *gin.RouterGroup, postStream *PostStreamHandler, runCtr
 
 		runGroup.GET("/thread/:threadId/requests", runCtrl.ListThreadRequests)
 		runGroup.POST("/thread/:threadId/requests/continue", runCtrl.ContinueThreadQueue)
+		runGroup.GET("/thread/:threadId/agent-state", runCtrl.GetAgentState)
 	}
 }

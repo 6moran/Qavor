@@ -18,6 +18,7 @@ type AgentRunRepository interface {
 	UpdateStatus(runID, status string, lastEventID string) error
 	ListByThread(threadID string, offset, limit int) ([]entity.AgentRun, int64, error)
 	ListByStatus(status string, offset, limit int) ([]entity.AgentRun, int64, error)
+	ListSubagentThreadsByParent(parentConversationID uint) ([]entity.SubagentThread, error)
 }
 
 type agentRunRepository struct {
@@ -101,4 +102,14 @@ func (r *agentRunRepository) ListByStatus(status string, offset, limit int) ([]e
 		return nil, 0, err
 	}
 	return runs, total, nil
+}
+
+// ListSubagentThreadsByParent 查询某父会话下的所有子智能体线程关系
+func (r *agentRunRepository) ListSubagentThreadsByParent(parentConversationID uint) ([]entity.SubagentThread, error) {
+	var threads []entity.SubagentThread
+	if err := r.db.Where("parent_conversation_id = ?", parentConversationID).
+		Order("created_at DESC").Find(&threads).Error; err != nil {
+		return nil, err
+	}
+	return threads, nil
 }

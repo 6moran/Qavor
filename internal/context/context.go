@@ -30,8 +30,12 @@ type ContextManager interface {
 	CountTokens(messages []*schema.Message) int
 
 	// UpdateShortMemory 更新短期记忆（AI回复完成后调用）
-	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message) error
+	// modelID 指定摘要/状态抽取使用的模型，0 时降级为规则式
+	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message, modelID uint) error
 
 	// GetShortMemoryContext 获取短期记忆上下文
 	GetShortMemoryContext(ctx context.Context, conversationID uint, maxTokens int) ([]*schema.Message, error)
+
+	// GetAgentState 获取 Agent 状态面板数据（token 用量、待办、文件、子 Agent 运行）
+	GetAgentState(ctx context.Context, conversationID uint) (*AgentState, error)
 }
