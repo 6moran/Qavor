@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,11 +30,19 @@ type PostStreamHandler struct {
 	queue           *run.RequestQueue
 	heartbeatPeriod time.Duration
 	logger          *zap.Logger
+	tracer          *trace.Tracer
+	traceLookup     RunTraceLookup
 }
 
-// NewPostStreamHandler 创建 POST 流式处理器
+// RunTraceLookup 查询业务 Run 对应的 agent.run Span，用于恢复/重试延续原 Trace。
+type RunTraceLookup interface {
+	GetAgentRunSpan(ctx context.Context, runID string) (*trace.RunSpanRef, error)
+}
+
+// NewPostStreamHandler 创建 POST 流式处理器。
 func NewPostStreamHandler(sub *eventbus.Subscriber, runRepo repository.AgentRunRepository,
-	queue *run.RequestQueue, heartbeatPeriod time.Duration, logger *zap.Logger) *PostStreamHandler {
+	queue *run.RequestQueue, heartbeatPeriod time.Duration, logger *zap.Logger,
+	tracer *trace.Tracer, traceLookup RunTraceLookup) *PostStreamHandler {
 	if heartbeatPeriod <= 0 {
 		heartbeatPeriod = 15 * time.Second
 	}
@@ -43,7 +52,27 @@ func NewPostStreamHandler(sub *eventbus.Subscriber, runRepo repository.AgentRunR
 		queue:           queue,
 		heartbeatPeriod: heartbeatPeriod,
 		logger:          logger,
+		tracer:          tracer,
+		traceLookup:     traceLookup,
 	}
+}
+
+// resumeTraceContext 将恢复任务接回原 agent.run 所在 Trace。
+// 找不到原 Span 时保留当前 Context，并从 attempt=1 开始。
+func resumeTraceContext(ctx context.Context, requestID string, ref *trace.RunSpanRef) (context.Context, int, string) {
+	if ref == nil || ref.TraceID == "" || ref.SpanID == "" {
+		return ctx, 1, ""
+	}
+	attempt := ref.Attempt + 1
+	if attempt < 2 {
+		attempt = 2
+	}
+	return trace.WithSpanContext(ctx, trace.SpanContext{
+		TraceID:   ref.TraceID,
+		SpanID:    ref.SpanID,
+		RequestID: requestID,
+		Sampled:   true,
+	}), attempt, ref.SpanID
 }
 
 // CreateRunRequest 创建 Run / 断线重连 / 审批恢复 请求体
@@ -84,6 +113,19 @@ func (h *PostStreamHandler) CreateRunAndStream(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, err.Error())
 		return
+	}
+	if h.tracer != nil {
+		conversationID := uint(0)
+		if parsed, parseErr := strconv.ParseUint(req.ThreadID, 10, 32); parseErr == nil {
+			conversationID = uint(parsed)
+		}
+		entryType := "async"
+		if req.CreatedByRunID != "" {
+			entryType = "resume"
+		} else if req.Resume != nil {
+			entryType = "reconnect"
+		}
+		h.tracer.UpdateRequestMetadata(c.Request.Context(), conversationID, req.Query, entryType)
 	}
 
 	var (
@@ -169,19 +211,47 @@ func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRun
 		return nil, fmt.Errorf("创建 Run 失败: %w", err)
 	}
 
-	// 入队
+	// 入队：创建 queue.produce Span，QueueItem.Trace 提取该 Span 的 Context
 	item := run.QueueItem{
 		RunID:     runID,
 		ThreadID:  req.ThreadID,
 		AgentSlug: req.AgentSlug,
 		RequestID: requestID,
 		Query:     req.Query,
-		TraceID:   trace.TraceIDFromContext(ctx),
 		CreatedAt: now,
 	}
-	if err := h.queue.Enqueue(ctx, item); err != nil {
-		_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
-		return nil, fmt.Errorf("入队失败: %w", err)
+	// 旧字段 TraceID 仍保留兼容（从 ctx 读取）
+	item.TraceID = trace.TraceIDFromContext(ctx)
+
+	if h.tracer != nil {
+		queueCtx, queueSpan := h.tracer.StartSpan(ctx, trace.SpanSpec{
+			Kind:      "queue",
+			Operation: "queue.produce",
+			RunID:     runID,
+			RequestID: requestID,
+			Attributes: entity.JSON{
+				"queue": "qavor:run:queue",
+			},
+		})
+		if carrier, ok := trace.CarrierFromContext(queueCtx); ok {
+			item.Trace = carrier
+		}
+		if err := h.queue.Enqueue(queueCtx, item); err != nil {
+			queueSpan.End(trace.SpanEnd{
+				Status:       trace.SpanStatusError,
+				ErrorType:    "queue_enqueue",
+				ErrorMessage: err.Error(),
+			})
+			_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+			return nil, fmt.Errorf("入队失败: %w", err)
+		}
+		queueSpan.End(trace.SpanEnd{Status: trace.SpanStatusOK})
+	} else {
+		// tracer 未装配（迁移期）：直接入队
+		if err := h.queue.Enqueue(ctx, item); err != nil {
+			_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+			return nil, fmt.Errorf("入队失败: %w", err)
+		}
 	}
 	return r, nil
 }
@@ -221,6 +291,16 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 	runID := uuid.New().String()
 	requestID := uuid.New().String()
 	now := time.Now()
+	resumeCtx := ctx
+	attempt := 1
+	resumeFromSpanID := ""
+	if h.traceLookup != nil {
+		ref, lookupErr := h.traceLookup.GetAgentRunSpan(ctx, parent.ID)
+		if lookupErr != nil {
+			return nil, fmt.Errorf("查询父 Run 链路失败: %w", lookupErr)
+		}
+		resumeCtx, attempt, resumeFromSpanID = resumeTraceContext(ctx, requestID, ref)
+	}
 	r := &entity.AgentRun{
 		ID:                   runID,
 		ConversationThreadID: req.ThreadID,
@@ -239,20 +319,53 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 
 	// 5. 入队（携带 resume 参数）
 	item := run.QueueItem{
-		RunID:        runID,
-		ThreadID:     req.ThreadID,
-		AgentSlug:    parent.AgentSlug,
-		RequestID:    requestID,
-		Query:        "", // 恢复时 query 可空（由中断 Run 的输入决定）
-		CreatedAt:    now,
-		ApprovalMode: req.ToolApprovalMode,
-		ResumeRunID:  req.CreatedByRunID,
-		CheckpointID: checkpointID,
-		Targets:      targets,
+		RunID:            runID,
+		ThreadID:         req.ThreadID,
+		AgentSlug:        parent.AgentSlug,
+		RequestID:        requestID,
+		Query:            "", // 恢复时 query 可空（由中断 Run 的输入决定）
+		CreatedAt:        now,
+		ApprovalMode:     req.ToolApprovalMode,
+		ResumeRunID:      req.CreatedByRunID,
+		CheckpointID:     checkpointID,
+		Targets:          targets,
+		Attempt:          attempt,
+		ResumeFromRunID:  parent.ID,
+		ResumeFromSpanID: resumeFromSpanID,
 	}
-	if err := h.queue.Enqueue(ctx, item); err != nil {
-		_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
-		return nil, fmt.Errorf("resume 入队失败: %w", err)
+	item.TraceID = trace.TraceIDFromContext(resumeCtx)
+	if h.tracer != nil {
+		queueCtx, queueSpan := h.tracer.StartSpan(resumeCtx, trace.SpanSpec{
+			Kind:      "queue",
+			Operation: "queue.produce",
+			RunID:     runID,
+			RequestID: requestID,
+			Attributes: entity.JSON{
+				"queue":               "qavor:run:queue",
+				"resume":              true,
+				"resume_from_run_id":  parent.ID,
+				"resume_from_span_id": resumeFromSpanID,
+				"attempt":             attempt,
+			},
+		})
+		if carrier, ok := trace.CarrierFromContext(queueCtx); ok {
+			item.Trace = carrier
+		}
+		if err := h.queue.Enqueue(queueCtx, item); err != nil {
+			queueSpan.End(trace.SpanEnd{
+				Status:       trace.SpanStatusError,
+				ErrorType:    "queue_enqueue",
+				ErrorMessage: err.Error(),
+			})
+			_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+			return nil, fmt.Errorf("resume 入队失败: %w", err)
+		}
+		queueSpan.End(trace.SpanEnd{Status: trace.SpanStatusOK})
+	} else {
+		if err := h.queue.Enqueue(resumeCtx, item); err != nil {
+			_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+			return nil, fmt.Errorf("resume 入队失败: %w", err)
+		}
 	}
 	return r, nil
 }

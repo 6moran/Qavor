@@ -14,8 +14,8 @@ import (
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
 	toolctrl "Qavor/internal/api/v1/tool"
-	workspaceapi "Qavor/internal/api/v1/workspace"
 	tracectrl "Qavor/internal/api/v1/trace"
+	workspaceapi "Qavor/interna
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 	skillapi "Qavor/internal/skill/api"
@@ -45,6 +45,7 @@ type Router struct {
 	runController     *agentctrl.RunController
 	traceCtrl         *tracectrl.Controller
 	workspaceCtrl     *workspaceapi.Controller
+	tracer            *tracepkg.Tracer
 }
 
 // NewRouter 创建路由
@@ -69,6 +70,7 @@ func NewRouter(
 	runController *agentctrl.RunController,
 	traceCtrl *tracectrl.Controller,
 	workspaceCtrl *workspaceapi.Controller,
+	tracer *tracepkg.Tracer,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -89,6 +91,7 @@ func NewRouter(
 		runController:     runController,
 		traceCtrl:         traceCtrl,
 		workspaceCtrl:     workspaceCtrl,
+		tracer:            tracer,
 	}
 }
 
@@ -97,7 +100,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 	// 全局中间件
 	engine.Use(middleware.Recovery())
 	engine.Use(middleware.Logger())
-	engine.Use(tracepkg.Trace())
+	engine.Use(tracepkg.Middleware(r.tracer))
 	engine.Use(middleware.CORS())
 
 	// 健康检查
