@@ -123,6 +123,9 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 				return WrapStreamToolError(next, security.ErrDenied)
 			},
 		},
+		// 内层：文件不存在（多为知识库文档被误当 workspace 文件读取）时，
+		// 返回可恢复结果并引导模型改用 query_kb。放在最后=最内层，优先于上面的通用错误喂回。
+		newToolErrorRecoveryMiddleware(),
 	}
 
 	// 组装中间件列表：工具过滤 + Skill 激活检测 + 工具审批
