@@ -2,12 +2,9 @@ package trace
 
 import (
 	"context"
-	"fmt"
 	"strings"
-	"time"
 
 	"Qavor/internal/model/entity"
-	"Qavor/pkg/logger"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
@@ -16,84 +13,75 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	callbackstpl "github.com/cloudwego/eino/utils/callbacks"
-	"github.com/google/uuid"
-	"go.uber.org/zap"
 )
 
-// collector 公共 span 生命周期管理（各组件 handler 复用）
-type collector struct {
-	maxLen int
+// callbackSpanKey 用于在 context 中存储当前组件 Span 句柄（OnStart 注入，OnEnd/OnError 读取）
+type callbackSpanKey struct{}
+
+func withCallbackSpan(ctx context.Context, span *Span) context.Context {
+	return context.WithValue(ctx, callbackSpanKey{}, span)
 }
 
-func newCollector() *collector { return &collector{maxLen: globalMaxLen} }
+func callbackSpanFromContext(ctx context.Context) *Span {
+	span, _ := ctx.Value(callbackSpanKey{}).(*Span)
+	return span
+}
 
-// start 创建 span 并注入 ctx，返回携带 span 状态的 ctx
-func (c *collector) start(ctx context.Context, info *callbacks.RunInfo, kind, name string, summary string) context.Context {
-	if !globalEnabled || globalRepo == nil || info == nil {
+// callbackCollector 基于 Tracer 的组件 Span 采集器。
+// 只创建组件 Span（llm/tool/retriever/agent），不创建根 TraceRecord，不结束父 Span。
+type callbackCollector struct {
+	tracer    *Tracer
+	sanitizer Sanitizer
+}
+
+func newCallbackCollector(tracer *Tracer) *callbackCollector {
+	mode := "summary"
+	maxLen := 500
+	if tracer != nil {
+		mode = tracer.ContentMode()
+		maxLen = tracer.MaxContentLength()
+	}
+	return &callbackCollector{
+		tracer:    tracer,
+		sanitizer: Sanitizer{Mode: mode, MaxRunes: maxLen},
+	}
+}
+
+// start 创建组件 Span 并注入 ctx。没有 SpanContext 时跳过（不创建根 Trace）。
+func (c *callbackCollector) start(ctx context.Context, info *callbacks.RunInfo, kind, operation, displayName, inputSummary string, attrs entity.JSON) context.Context {
+	if c.tracer == nil {
 		return ctx
 	}
-	tc := FromContext(ctx)
-	if tc == nil {
+	if _, ok := SpanContextFromContext(ctx); !ok {
 		return ctx
 	}
-	tc.ensureRoot(ctx, globalRepo, globalMaxLen)
-
-	now := time.Now()
-	span := &entity.AgentTraceSpan{
-		TraceID:      tc.TraceID,
-		SpanID:       uuid.New().String(),
+	if info != nil && displayName == "" {
+		displayName = info.Name
+	}
+	spec := SpanSpec{
 		Kind:         kind,
-		Name:         name,
-		Status:       entity.SpanStatusRunning,
-		StartedAt:    now,
-		InputSummary: truncate(summary, globalMaxLen),
-		CreatedAt:    now,
+		Operation:    operation,
+		DisplayName:  displayName,
+		InputSummary: inputSummary,
+		Attributes:   attrs,
 	}
-	if ps := SpanFromContext(ctx); ps != nil {
-		span.ParentSpanID = ps.ID
-	}
-	if span.Name == "" {
-		span.Name = info.Name
-	}
-	if err := globalRepo.CreateSpan(ctx, span); err != nil {
-		logger.Warn("trace: 创建 span 失败", zap.String("trace_id", tc.TraceID), zap.String("kind", kind), zap.Error(err))
-		return ctx
-	}
-	return WithSpan(ctx, &spanState{ID: span.SpanID, StartedAt: now})
+	newCtx, span := c.tracer.StartSpan(ctx, spec)
+	return withCallbackSpan(newCtx, span)
 }
 
-// complete 补全 span（status/结果摘要/token/耗时），返回更新后的实体
-func (c *collector) complete(ctx context.Context, status, summary, errMsg string, tokensIn, tokensOut, reasoningTokens int) {
-	if !globalEnabled || globalRepo == nil {
+// end 结束组件 Span（幂等，仅第一次生效）。
+func (c *callbackCollector) end(ctx context.Context, end SpanEnd) {
+	span := callbackSpanFromContext(ctx)
+	if span == nil {
 		return
 	}
-	st := SpanFromContext(ctx)
-	tc := FromContext(ctx)
-	if st == nil || tc == nil {
-		return
-	}
-	now := time.Now()
-	upd := &entity.AgentTraceSpan{
-		TraceID:         tc.TraceID,
-		SpanID:          st.ID,
-		Status:          status,
-		EndedAt:         &now,
-		DurationMs:      now.Sub(st.StartedAt).Milliseconds(),
-		OutputSummary:   truncate(summary, globalMaxLen),
-		ErrorMessage:    truncate(errMsg, globalMaxLen),
-		TokensIn:        tokensIn,
-		TokensOut:       tokensOut,
-		ReasoningTokens: reasoningTokens,
-	}
-	if err := globalRepo.UpdateSpan(ctx, upd); err != nil {
-		logger.Warn("trace: 更新 span 失败", zap.String("trace_id", tc.TraceID), zap.String("span_id", st.ID), zap.Error(err))
-	}
+	span.End(end)
 }
 
 // NewHandler 创建全局采集器（进程启动时经 callbacks.AppendGlobalHandlers 注册一次）。
-// 采用 eino 官方 utils/callbacks.HandlerHelper 按组件类型分发。
-func NewHandler() callbacks.Handler {
-	col := newCollector()
+// tracer 为 nil 时所有回调为 no-op。
+func NewHandler(tracer *Tracer) callbacks.Handler {
+	col := newCallbackCollector(tracer)
 
 	modelH := &callbackstpl.ModelCallbackHandler{
 		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *model.CallbackInput) context.Context {
@@ -102,26 +90,41 @@ func NewHandler() callbacks.Handler {
 				if input.Config != nil {
 					name = input.Config.Model
 				}
-				summary = promptSummary(input.Messages)
+				summary = col.sanitizer.Text(promptSummary(input.Messages))
 			}
-			return col.start(ctx, info, entity.SpanKindLLM, name, summary)
+			return col.start(ctx, info, "llm", "llm.generate", name, summary, nil)
 		},
 		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *model.CallbackOutput) context.Context {
-			summary := ""
-			var tin, tout, treason int
+			end := SpanEnd{Status: SpanStatusOK}
 			if output != nil {
-				summary = messageText(output.Message)
-				if tu := output.TokenUsage; tu != nil {
-					tin = tu.PromptTokens
-					tout = tu.CompletionTokens
-					treason = tu.CompletionTokensDetails.ReasoningTokens
+				end.OutputSummary = col.sanitizer.Text(MessageTextWithoutReasoning(output.Message))
+				if tu := callbackTokenUsage(output); tu != nil {
+					end.TokensIn = tu.PromptTokens
+					end.TokensOut = tu.CompletionTokens
+					end.ReasoningTokens = tu.CompletionTokensDetails.ReasoningTokens
+				}
+				if output.Message != nil && len(output.Message.ToolCalls) > 0 {
+					ids := make([]string, 0, len(output.Message.ToolCalls))
+					for _, tc := range output.Message.ToolCalls {
+						ids = append(ids, tc.ID)
+					}
+					if end.Attributes == nil {
+						end.Attributes = entity.JSON{}
+					}
+					end.Attributes["tool_call_ids"] = ids
 				}
 			}
-			col.complete(ctx, entity.SpanStatusSuccess, summary, "", tin, tout, treason)
+			// 流式回调可能在最终 usage 块之前发出内容块。
+			// 在第一个零 usage 块时结束会导致 repository 的首次写入生效，
+			// 永久记录零 token 计数。
+			if !isFinalModelCallback(output) && !hasTokenUsage(callbackTokenUsage(output)) {
+				return ctx
+			}
+			col.end(ctx, end)
 			return ctx
 		},
 		OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
-			col.complete(ctx, entity.SpanStatusError, "", err.Error(), 0, 0, 0)
+			col.end(ctx, SpanEnd{Status: SpanStatusError, ErrorMessage: err.Error()})
 			return ctx
 		},
 	}
@@ -129,21 +132,27 @@ func NewHandler() callbacks.Handler {
 	toolH := &callbackstpl.ToolCallbackHandler{
 		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *tool.CallbackInput) context.Context {
 			summary := ""
+			attrs := entity.JSON{}
 			if input != nil {
-				summary = input.ArgumentsInJSON
+				summary = col.sanitizer.JSON(input.ArgumentsInJSON)
+				if input.Extra != nil {
+					if id, ok := input.Extra["tool_call_id"].(string); ok && id != "" {
+						attrs["tool_call_id"] = id
+					}
+				}
 			}
-			return col.start(ctx, info, entity.SpanKindTool, "", summary)
+			return col.start(ctx, info, "tool", "tool.execute", "", summary, attrs)
 		},
 		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *tool.CallbackOutput) context.Context {
-			summary := ""
+			end := SpanEnd{Status: SpanStatusOK}
 			if output != nil {
-				summary = output.Response
+				end.OutputSummary = col.sanitizer.JSON(output.Response)
 			}
-			col.complete(ctx, entity.SpanStatusSuccess, summary, "", 0, 0, 0)
+			col.end(ctx, end)
 			return ctx
 		},
 		OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
-			col.complete(ctx, entity.SpanStatusError, "", err.Error(), 0, 0, 0)
+			col.end(ctx, SpanEnd{Status: SpanStatusError, ErrorMessage: err.Error()})
 			return ctx
 		},
 	}
@@ -152,20 +161,23 @@ func NewHandler() callbacks.Handler {
 		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *retriever.CallbackInput) context.Context {
 			summary := ""
 			if input != nil {
-				summary = input.Query
+				summary = col.sanitizer.Text(input.Query)
 			}
-			return col.start(ctx, info, entity.SpanKindRetriever, "", summary)
+			return col.start(ctx, info, "retriever", "retriever.search", "", summary, nil)
 		},
 		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *retriever.CallbackOutput) context.Context {
-			summary := ""
-			if output != nil {
-				summary = docsSummary(output.Docs)
+			end := SpanEnd{Status: SpanStatusOK}
+			if output != nil && len(output.Docs) > 0 {
+				if end.Attributes == nil {
+					end.Attributes = entity.JSON{}
+				}
+				end.Attributes["retriever.hit_count"] = len(output.Docs)
 			}
-			col.complete(ctx, entity.SpanStatusSuccess, summary, "", 0, 0, 0)
+			col.end(ctx, end)
 			return ctx
 		},
 		OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
-			col.complete(ctx, entity.SpanStatusError, "", err.Error(), 0, 0, 0)
+			col.end(ctx, SpanEnd{Status: SpanStatusError, ErrorMessage: err.Error()})
 			return ctx
 		},
 	}
@@ -175,12 +187,12 @@ func NewHandler() callbacks.Handler {
 		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *adk.AgentCallbackInput) context.Context {
 			summary := ""
 			if input != nil {
-				summary = agentInputSummary(input)
+				summary = col.sanitizer.Text(agentInputSummary(input))
 			}
-			return col.start(ctx, info, entity.SpanKindAgent, info.Name, summary)
+			return col.start(ctx, info, "agent", "agent.invoke", info.Name, summary, nil)
 		},
 		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *adk.AgentCallbackOutput) context.Context {
-			col.complete(ctx, entity.SpanStatusSuccess, "", "", 0, 0, 0)
+			col.end(ctx, SpanEnd{Status: SpanStatusOK})
 			return ctx
 		},
 	}
@@ -197,22 +209,59 @@ func NewHandler() callbacks.Handler {
 		Handler()
 }
 
-// graphHandler Graph 组件的通用 handler（kind=agent）
+// callbackTokenUsage reads usage from the callback payload first and falls back
+// to Message.ResponseMeta for adapters that only populate the message metadata.
+func callbackTokenUsage(output *model.CallbackOutput) *model.TokenUsage {
+	if output == nil {
+		return nil
+	}
+	if output.TokenUsage != nil {
+		return output.TokenUsage
+	}
+	if output.Message == nil || output.Message.ResponseMeta == nil || output.Message.ResponseMeta.Usage == nil {
+		return nil
+	}
+	usage := output.Message.ResponseMeta.Usage
+	return &model.TokenUsage{
+		PromptTokens:     usage.PromptTokens,
+		CompletionTokens: usage.CompletionTokens,
+		TotalTokens:      usage.TotalTokens,
+		CompletionTokensDetails: model.CompletionTokensDetails{
+			ReasoningTokens: usage.CompletionTokensDetails.ReasoningTokens,
+		},
+	}
+}
+
+func hasTokenUsage(usage *model.TokenUsage) bool {
+	return usage != nil && (usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.TotalTokens > 0 || usage.CompletionTokensDetails.ReasoningTokens > 0)
+}
+
+func isFinalModelCallback(output *model.CallbackOutput) bool {
+	if output == nil || output.Message == nil {
+		return true
+	}
+	if output.Message.ResponseMeta == nil {
+		return true
+	}
+	return output.Message.ResponseMeta.FinishReason != ""
+}
+
+// graphHandler Graph 组件的通用 handler（kind=agent, operation=agent.graph）
 type graphHandler struct {
-	col *collector
+	col *callbackCollector
 }
 
 func (g *graphHandler) OnStart(ctx context.Context, info *callbacks.RunInfo, input callbacks.CallbackInput) context.Context {
-	return g.col.start(ctx, info, entity.SpanKindAgent, "", "")
+	return g.col.start(ctx, info, "agent", "agent.graph", "", "", nil)
 }
 
 func (g *graphHandler) OnEnd(ctx context.Context, info *callbacks.RunInfo, output callbacks.CallbackOutput) context.Context {
-	g.col.complete(ctx, entity.SpanStatusSuccess, "", "", 0, 0, 0)
+	g.col.end(ctx, SpanEnd{Status: SpanStatusOK})
 	return ctx
 }
 
 func (g *graphHandler) OnError(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
-	g.col.complete(ctx, entity.SpanStatusError, "", err.Error(), 0, 0, 0)
+	g.col.end(ctx, SpanEnd{Status: SpanStatusError, ErrorMessage: err.Error()})
 	return ctx
 }
 
@@ -238,59 +287,12 @@ func promptSummary(msgs []*schema.Message) string {
 		if m == nil {
 			continue
 		}
-		if text := messageText(m); text != "" {
+		if text := MessageTextWithoutReasoning(m); text != "" {
 			sb.WriteString(text)
 			sb.WriteString("\n")
 		}
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// messageText 提取消息文本（Content / MultiContent / AssistantGenMultiContent 中的 text/reasoning part）
-func messageText(m *schema.Message) string {
-	if m == nil {
-		return ""
-	}
-	if m.Content != "" {
-		return m.Content
-	}
-	var sb strings.Builder
-	for _, part := range m.MultiContent {
-		if part.Type == schema.ChatMessagePartTypeText {
-			sb.WriteString(part.Text)
-		}
-	}
-	for _, part := range m.AssistantGenMultiContent {
-		switch part.Type {
-		case schema.ChatMessagePartTypeText:
-			sb.WriteString(part.Text)
-		case schema.ChatMessagePartTypeReasoning:
-			if part.Reasoning != nil {
-				sb.WriteString(part.Reasoning.Text)
-			}
-		}
-	}
-	return sb.String()
-}
-
-// docsSummary 文档摘要：拼接前 3 条内容
-func docsSummary(docs []*schema.Document) string {
-	if len(docs) == 0 {
-		return ""
-	}
-	limit := 3
-	if len(docs) < limit {
-		limit = len(docs)
-	}
-	parts := make([]string, 0, limit)
-	for i := 0; i < limit; i++ {
-		parts = append(parts, docs[i].Content)
-	}
-	s := strings.Join(parts, "\n---\n")
-	if len(docs) > limit {
-		s += fmt.Sprintf("\n...（共 %d 条）", len(docs))
-	}
-	return s
 }
 
 // agentInputSummary 提取 Agent 输入中的用户消息摘要（AgentInput 为 TypedAgentInput[*schema.Message] 的类型别名）
