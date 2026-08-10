@@ -85,6 +85,7 @@
 
         <div v-if="treePaneVisible" class="tree-pane">
           <div v-if="!threadId" class="empty">创建对话后可查看工作区</div>
+          <div v-else-if="!agentSlug" class="empty">正在获取 Agent 信息...</div>
           <div v-else-if="loadingFiles" class="empty">正在加载文件系统...</div>
           <div v-else-if="filesystemError" class="empty error-state">
             <div>{{ filesystemError }}</div>
@@ -149,6 +150,7 @@ import {
   getViewerFileSystemTree
 } from '@/apis/viewer_filesystem'
 import { normalizePreviewResponse } from '@/utils/file_preview'
+import { useChatThreadsStore } from '@/stores/chatThreads'
 
 const props = defineProps({
   agentState: {
@@ -189,7 +191,7 @@ const emit = defineEmits([
   'close-preview-path',
   'view-mode-change'
 ])
-const DISPLAY_ROOT_DIRECTORY_NAME = 'user-data'
+const chatThreadsStore = useChatThreadsStore()
 
 const currentFile = ref(null)
 const currentFilePath = ref('')
@@ -218,6 +220,22 @@ const activePreviewTab = computed(
 )
 const fileTreeData = computed(() => dynamicTreeData.value)
 
+const agentSlug = computed(() => {
+  if (!props.threadId) return ''
+  // currentThread 匹配则直接取
+  if (
+    chatThreadsStore.currentThread?.agent_id &&
+    String(chatThreadsStore.currentThreadId) === String(props.threadId)
+  ) {
+    return chatThreadsStore.currentThread.agent_id
+  }
+  // 否则在 threads 列表中查找
+  const thread = chatThreadsStore.threads.find(
+    (t) => String(t.id) === String(props.threadId)
+  )
+  return thread?.agent_id || ''
+})
+
 const buildDisplayName = (fullPath) => {
   const normalized = String(fullPath || '').replace(/\/+$/, '')
   if (!normalized || normalized === '/') return '/'
@@ -241,6 +259,13 @@ const sortEntries = (entries) => {
 
 const createTreeNode = (entry) => {
   const fullPath = String(entry?.path || '')
+
+  // API 返回的 path 相对于 data/workspaces/，含 slug 前缀，如 "agent-xxx/file.txt"
+  // 树节点的 key 保存 slug 之后的相对路径，展开子目录时不会产生双前缀
+  const slug = agentSlug.value
+  const relativePath =
+    slug && fullPath.startsWith(slug + '/') ? fullPath.slice(slug.length + 1) : fullPath
+
   const title = buildDisplayName(fullPath)
   const isLeaf = !entry?.is_dir
 
@@ -253,8 +278,7 @@ const createTreeNode = (entry) => {
   }
 
   return {
-    key: fullPath,
-    title,
+    key: relativePath,
     nameStart,
     nameEnd,
     isLeaf,
@@ -342,12 +366,12 @@ const getFileName = (fileItem) => {
 }
 
 const loadDirectoryChildren = async (directoryPath) => {
-  const res = await getViewerFileSystemTree(props.threadId, directoryPath)
+  const res = await getViewerFileSystemTree(agentSlug.value, directoryPath)
   return sortEntries(res?.entries || []).map((entry) => createTreeNode(entry))
 }
 
 const refreshFileSystem = async () => {
-  if (!props.threadId) {
+  if (!props.threadId || !agentSlug.value) {
     dynamicTreeData.value = []
     filesystemError.value = ''
     return
@@ -357,15 +381,9 @@ const refreshFileSystem = async () => {
   filesystemError.value = ''
 
   try {
-    const res = await getViewerFileSystemTree(props.threadId, '/')
+    const res = await getViewerFileSystemTree(agentSlug.value, '/')
     if (res?.entries) {
-      const displayRootEntry = res.entries.find(
-        (entry) => entry?.is_dir && entry.name === DISPLAY_ROOT_DIRECTORY_NAME
-      )
-
-      dynamicTreeData.value = displayRootEntry
-        ? await loadDirectoryChildren(displayRootEntry.path)
-        : []
+      dynamicTreeData.value = sortEntries(res.entries).map((entry) => createTreeNode(entry))
       expandedKeys.value = []
       selectedKeys.value = props.activePreviewPath ? [props.activePreviewPath] : []
     } else {
@@ -381,7 +399,7 @@ const refreshFileSystem = async () => {
 }
 
 const loadData = async (treeNode) => {
-  if (treeNode.isLeaf || treeNode.children?.length || !props.threadId) return
+  if (treeNode.isLeaf || treeNode.children?.length || !props.threadId || !agentSlug.value) return
 
   try {
     const children = await loadDirectoryChildren(treeNode.key)
@@ -406,7 +424,7 @@ const loadActivePreview = async () => {
 
   revokeCurrentPreviewUrl()
 
-  if (!filePath || !props.threadId) {
+  if (!filePath || !props.threadId || !agentSlug.value) {
     currentFile.value = null
     currentFilePath.value = ''
     return
@@ -430,7 +448,7 @@ const loadActivePreview = async () => {
   }
 
   try {
-    const res = await getViewerFileContent(props.threadId, filePath)
+    const res = await getViewerFileContent(agentSlug.value, filePath)
     if (requestSeq !== previewRequestSeq) return
 
     const nextFile = await normalizePreviewResponse(res, baseFile)
@@ -494,7 +512,7 @@ const confirmDeleteNode = (node) => {
       deletingPaths.value = nextDeletingPaths
 
       try {
-        await deleteViewerFile(props.threadId, node.key)
+        await deleteViewerFile(agentSlug.value, node.key)
         dynamicTreeData.value = removeTreeNode(dynamicTreeData.value, node.key)
         pruneTreeStateAfterDelete(node.key)
         message.success(isDirectory ? '文件夹删除成功' : '文件删除成功')
@@ -511,10 +529,10 @@ const confirmDeleteNode = (node) => {
 }
 
 const downloadFile = async (fileItem) => {
-  if (!props.threadId || !fileItem?.path) return
+  if (!props.threadId || !fileItem?.path || !agentSlug.value) return
 
   try {
-    const response = await downloadViewerFile(props.threadId, fileItem.path)
+    const response = await downloadViewerFile(agentSlug.value, fileItem.path)
     const blob = await response.blob()
     const contentDisposition =
       response.headers.get('Content-Disposition') || response.headers.get('content-disposition')
@@ -632,7 +650,13 @@ watch(
   }
 )
 
-watch([() => props.threadId, () => props.activePreviewPath], loadActivePreview, { immediate: true })
+watch(agentSlug, (slug) => {
+  if (slug && props.threadId) {
+    refreshFileSystem()
+  }
+})
+
+watch([() => props.threadId, agentSlug, () => props.activePreviewPath], loadActivePreview, { immediate: true })
 
 watch(
   () => props.activePreviewPath,
