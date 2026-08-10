@@ -27,6 +27,7 @@ import (
 	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/skill/remote"
 	"Qavor/internal/sse"
+
 	"github.com/cloudwego/eino/adk"
 
 	tracectrl "Qavor/internal/api/v1/trace"
@@ -544,7 +545,7 @@ func (a *App) initDependencies() error {
 	}
 	// 上下文压缩用的摘要器（复用 ModelService 适配器，modelID=0 时返回空摘要跳过压缩）
 	ctxSummarizer := contextmgr.NewLLMSummarizer(logger.GetLogger(), &llmClientAdapter{client: nil, modelSvc: modelSvc, modelID: 0})
-	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, ctxSummarizer, logger.GetLogger())
+	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, ctxSummarizer, logger.GetLogger(), tracer)
 
 	// 创建 SSE 模块
 	heartbeatConfig := &sse.HeartbeatConfig{
