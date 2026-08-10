@@ -10,6 +10,7 @@ import (
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
+	ocrctrl "Qavor/internal/api/v1/ocr"
 	processingjob "Qavor/internal/api/v1/processing_job"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
@@ -41,6 +42,7 @@ type Router struct {
 	skillCtrl         *skillapi.Controller
 	sseCtrl           *ssectrl.Controller
 	mcpServerCtrl     *mcpserverctrl.Controller
+	ocrCtrl           *ocrctrl.Controller
 	postStreamHandler *agentctrl.PostStreamHandler
 	runController     *agentctrl.RunController
 	traceCtrl         *tracectrl.Controller
@@ -146,9 +148,13 @@ func (r *Router) Setup(engine *gin.Engine) {
 		if r.ragCtrl != nil {
 			r.ragCtrl.RegisterRoutes(v1)
 		}
-
 		// 工具路由
 		r.toolCtrl.RegisterRoutes(v1)
+		// OCR 引擎路由
+		if r.ocrCtrl == nil {
+			r.ocrCtrl = ocrctrl.NewController()
+		}
+		r.ocrCtrl.RegisterRoutes(v1)
 
 		// Skill 路由
 		r.skillCtrl.RegisterRoutes(v1)
