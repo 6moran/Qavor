@@ -15,7 +15,7 @@ import (
 	ssectrl "Qavor/internal/api/v1/sse"
 	toolctrl "Qavor/internal/api/v1/tool"
 	tracectrl "Qavor/internal/api/v1/trace"
-	workspaceapi "Qavor/interna
+	workspaceapi "Qavor/internal/api/v1/workspace"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 	skillapi "Qavor/internal/skill/api"
