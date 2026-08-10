@@ -10,7 +10,6 @@ import (
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/internal/sse"
-	"Qavor/internal/trace"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -110,19 +109,14 @@ func (s *ChatServiceImpl) Chat(ctx context.Context, conversationID uint, agentSl
 		respContent = resp.Content
 	} else {
 		// 标题生成：直接调用 LLM，不走 Agent 工具链，避免工具调用拖慢标题生成
-		// 该路径不经 Agent.Execute，需手动收尾 trace（幂等：仅本路径创建的 trace 生效）
+		// 该路径不经 Agent.Execute，trace 由 Middleware 管理的 http.server Span 覆盖
 		out, err := llmClient.Generate(ctx, []*schema.Message{
 			{Role: schema.User, Content: message},
 		})
 		if err != nil {
-			trace.FinishTrace(ctx, entity.TraceStatusFailed, err.Error())
 			return nil, fmt.Errorf("LLM 调用失败: %w", err)
 		}
 		respContent = out.Content
-		if tc := trace.FromContext(ctx); tc != nil {
-			tc.Query = message // 补全标题生成请求的查询内容，便于 trace 列表展示
-		}
-		trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
 	}
 
 	// 5. 保存 Assistant 消息
