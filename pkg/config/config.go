@@ -393,15 +393,21 @@ type LogConfig struct {
 
 // TraceConfig 链路追踪配置
 type TraceConfig struct {
-	Enabled          bool `mapstructure:"enabled"`            // 总开关
-	MaxContentLength int  `mapstructure:"max_content_length"` // 内容字段截断长度（字符）
-	RetentionDays    int  `mapstructure:"retention_days"`     // 数据保留天数，过期物理删除
-	TimeoutMinutes   int  `mapstructure:"timeout_minutes"`    // running 超过此时长标记为 timeout
-	JanitorInterval  int  `mapstructure:"janitor_interval"`   // 清理任务执行间隔（分钟）
+	Enabled          bool     `mapstructure:"enabled"`            // 总开关
+	ContentMode      string   `mapstructure:"content_mode"`       // 内容模式：none/summary
+	MaxContentLength int      `mapstructure:"max_content_length"` // 内容字段截断长度（字符）
+	RetentionDays    int      `mapstructure:"retention_days"`     // 数据保留天数，过期物理删除
+	TimeoutMinutes   int      `mapstructure:"timeout_minutes"`    // running 超过此时长标记为 timeout
+	JanitorInterval  int      `mapstructure:"janitor_interval"`   // 清理任务执行间隔（分钟）
+	WriterBufferSize int      `mapstructure:"writer_buffer_size"` // Writer 异步队列缓冲区大小
+	TracedRoutes     []string `mapstructure:"traced_routes"`      // 需追踪的 HTTP 路由（method + path 精确匹配）
 }
 
 // ApplyDefaults 为 Trace 配置设置安全默认值
 func (c *TraceConfig) ApplyDefaults() {
+	if c.ContentMode == "" {
+		c.ContentMode = "summary"
+	}
 	if c.MaxContentLength <= 0 {
 		c.MaxContentLength = 500
 	}
@@ -413,6 +419,17 @@ func (c *TraceConfig) ApplyDefaults() {
 	}
 	if c.JanitorInterval <= 0 {
 		c.JanitorInterval = 5
+	}
+	if c.WriterBufferSize <= 0 {
+		c.WriterBufferSize = 2048
+	}
+	if len(c.TracedRoutes) == 0 {
+		c.TracedRoutes = []string{
+			"POST /api/v1/chat",
+			"POST /api/v1/chat/call",
+			"POST /api/v1/chat/stream",
+			"POST /api/v1/agent/runs",
+		}
 	}
 }
 

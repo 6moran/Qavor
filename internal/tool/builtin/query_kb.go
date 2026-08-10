@@ -24,7 +24,7 @@ func (t *QueryKBTool) Meta() tool.ToolMeta {
 	return tool.ToolMeta{
 		Name:        tool.QueryKBToolName,
 		Label:       "查询知识库",
-		Description: "检索当前智能体已配置知识库中的相关原文。需要事实依据或内部资料时使用。",
+		Description: "检索当前智能体已配置知识库中的相关原文。返回内容来自知识库而不是 Agent workspace；document_name 不是本地文件路径，不要传给 read_file。需要事实依据或内部资料时使用。",
 		Category:    tool.CategoryKnowledge,
 		Args: []tool.ArgDef{
 			{Name: "query_text", Type: "string", Description: "用于检索知识库的问题或关键词", Required: true},
@@ -67,6 +67,12 @@ func (t *QueryKBTool) Execute(ctx context.Context, args map[string]any) (any, er
 	chunks := result.Chunks
 	if chunks == nil {
 		chunks = make([]service.RAGChunk, 0)
+	}
+	for i := range chunks {
+		chunks[i].DocumentName = chunks[i].Filename
+		if chunks[i].KBID != "" && chunks[i].FileID != "" {
+			chunks[i].ResourceURI = "knowledge://" + chunks[i].KBID + "/" + chunks[i].FileID
+		}
 	}
 	return map[string]any{
 		"query_text": result.QueryText,

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"Qavor/internal/service"
+	"Qavor/internal/trace"
 	"Qavor/pkg/errors"
 	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
@@ -17,14 +18,17 @@ import (
 // Controller 聊天控制器
 type Controller struct {
 	chatSvc service.ChatService
+	tracer  *trace.Tracer
 }
 
 // NewController 创建聊天控制器
 func NewController(
 	chatSvc service.ChatService,
+	tracer *trace.Tracer,
 ) *Controller {
 	return &Controller{
 		chatSvc: chatSvc,
+		tracer:  tracer,
 	}
 }
 
@@ -79,6 +83,9 @@ func (ctrl *Controller) Chat(c *gin.Context) {
 		response.BadRequest(c, err.Error())
 		return
 	}
+	if ctrl.tracer != nil {
+		ctrl.tracer.UpdateRequestMetadata(c.Request.Context(), conversationID, req.Message, "sync")
+	}
 
 	// 调用 ChatService
 	result, err := ctrl.chatSvc.Chat(c.Request.Context(), conversationID, req.AgentSlug, req.Message)
@@ -116,6 +123,9 @@ func (ctrl *Controller) ChatStream(c *gin.Context) {
 	if err != nil {
 		response.BadRequest(c, err.Error())
 		return
+	}
+	if ctrl.tracer != nil {
+		ctrl.tracer.UpdateRequestMetadata(c.Request.Context(), conversationID, req.Message, "stream")
 	}
 
 	// 3. 验证参数

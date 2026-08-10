@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
+
+	"Qavor/internal/trace"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -23,13 +26,17 @@ const (
 
 // QueueItem 排队请求元数据
 type QueueItem struct {
-	RunID     string    `json:"run_id"`
-	ThreadID  string    `json:"thread_id"`
-	AgentSlug string    `json:"agent_slug"`
-	RequestID string    `json:"request_id"`
-	Query     string    `json:"query"`
-	TraceID   string    `json:"trace_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	RunID            string             `json:"run_id"`
+	ThreadID         string             `json:"thread_id"`
+	AgentSlug        string             `json:"agent_slug"`
+	RequestID        string             `json:"request_id"`
+	Query            string             `json:"query"`
+	TraceID          string             `json:"trace_id,omitempty"` // 旧字段，向后兼容（仅 trace_id）
+	Trace            trace.TraceCarrier `json:"trace,omitempty"`    // 新字段：完整 TraceCarrier（trace_id/parent_span_id/request_id/sampled）
+	Attempt          int                `json:"attempt,omitempty"`
+	ResumeFromRunID  string             `json:"resume_from_run_id,omitempty"`
+	ResumeFromSpanID string             `json:"resume_from_span_id,omitempty"`
+	CreatedAt        time.Time          `json:"created_at"`
 
 	// 审批相关（仅审批/恢复流程填充）
 	ApprovalMode string         `json:"approval_mode,omitempty"` // default/always_trust
@@ -62,7 +69,7 @@ func (q *RequestQueue) Enqueue(ctx context.Context, item QueueItem) error {
 		return errors.New("queue: run_id is required")
 	}
 	hKey := fmt.Sprintf(queuedHash, item.RunID)
-	if err := q.client.HSet(ctx, hKey, map[string]any{
+	fields := map[string]any{
 		"run_id":     item.RunID,
 		"thread_id":  item.ThreadID,
 		"agent_slug": item.AgentSlug,
@@ -70,7 +77,22 @@ func (q *RequestQueue) Enqueue(ctx context.Context, item QueueItem) error {
 		"query":      item.Query,
 		"trace_id":   item.TraceID,
 		"created_at": item.CreatedAt.UTC().Format(time.RFC3339Nano),
-	}).Err(); err != nil {
+	}
+	// 新增 TraceCarrier 字段（非空时写入，兼容旧数据读取）
+	if item.Trace.TraceID != "" {
+		fields["trace_id_v2"] = item.Trace.TraceID
+	}
+	if item.Trace.ParentSpanID != "" {
+		fields["trace_parent_span_id"] = item.Trace.ParentSpanID
+	}
+	if item.Trace.RequestID != "" {
+		fields["trace_request_id"] = item.Trace.RequestID
+	}
+	fields["trace_sampled"] = item.Trace.Sampled
+	fields["attempt"] = item.Attempt
+	fields["resume_from_run_id"] = item.ResumeFromRunID
+	fields["resume_from_span_id"] = item.ResumeFromSpanID
+	if err := q.client.HSet(ctx, hKey, fields).Err(); err != nil {
 		return fmt.Errorf("queue: hset queued: %w", err)
 	}
 	// hash 随排队状态存活，取出或取消时删除
@@ -114,15 +136,37 @@ func (q *RequestQueue) GetQueued(ctx context.Context, runID string) (*QueueItem,
 		return nil, nil
 	}
 	createdAt, _ := time.Parse(time.RFC3339Nano, val["created_at"])
-	return &QueueItem{
-		RunID:     val["run_id"],
-		ThreadID:  val["thread_id"],
-		AgentSlug: val["agent_slug"],
-		RequestID: val["request_id"],
-		Query:     val["query"],
-		TraceID:   val["trace_id"],
-		CreatedAt: createdAt,
-	}, nil
+	attempt, _ := strconv.Atoi(val["attempt"])
+	if attempt < 1 {
+		attempt = 1
+	}
+	item := &QueueItem{
+		RunID:            val["run_id"],
+		ThreadID:         val["thread_id"],
+		AgentSlug:        val["agent_slug"],
+		RequestID:        val["request_id"],
+		Query:            val["query"],
+		TraceID:          val["trace_id"],
+		Attempt:          attempt,
+		ResumeFromRunID:  val["resume_from_run_id"],
+		ResumeFromSpanID: val["resume_from_span_id"],
+		CreatedAt:        createdAt,
+	}
+	// 恢复 TraceCarrier：优先读新字段（trace_id_v2），回退到旧 trace_id
+	carrier := trace.TraceCarrier{
+		TraceID:      val["trace_id_v2"],
+		ParentSpanID: val["trace_parent_span_id"],
+		RequestID:    val["trace_request_id"],
+	}
+	if val["trace_sampled"] == "1" {
+		carrier.Sampled = true
+	}
+	// 兼容旧数据：只有 trace_id 时，恢复 TraceID，其余字段为空
+	if carrier.TraceID == "" && val["trace_id"] != "" {
+		carrier.TraceID = val["trace_id"]
+	}
+	item.Trace = carrier
+	return item, nil
 }
 
 // Steer 引导：将排队中的请求移到队首（下一条执行）
