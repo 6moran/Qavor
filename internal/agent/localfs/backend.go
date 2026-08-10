@@ -58,11 +58,19 @@ func (b *LocalBackend) withinRoot(path string) bool {
 
 // resolve 解析请求路径为磁盘绝对路径，并强制校验在 root 内。
 // 相对路径以 root 为基准；绝对路径原样解析。
-// 越界（含符号链接解析后越界）返回统一错误。技能符号链接白名单见 isWhitelistedSkillPath。
+// 越界（含符号链接解析后越界）返回统一错误。
+// 技能白名单：路径在 skillsRoot 下的绝对路径直接放行；
+// 相对路径 skills/<slug>/... 重写为 skillsRoot/<slug>/... 后放行。
 func (b *LocalBackend) resolve(p string) (string, error) {
 	if p == "" {
 		p = "."
 	}
+
+	// 技能白名单：无论相对/绝对路径，解析后落在 skillsRoot 下则直接放行
+	if resolved, ok := b.resolveSkillPath(p); ok {
+		return resolved, nil
+	}
+
 	var abs string
 	if filepath.IsAbs(p) {
 		abs = filepath.Clean(p)
@@ -71,10 +79,6 @@ func (b *LocalBackend) resolve(p string) (string, error) {
 	}
 	if !b.withinRoot(abs) {
 		return "", fmt.Errorf("%w: 路径不在允许的工作空间范围内", security.ErrDenied)
-	}
-	// 技能白名单：跳过符号链接目标必须落在 root 内的校验
-	if b.isWhitelistedSkillPath(abs) {
-		return abs, nil
 	}
 	// 符号链接解析：真实路径也必须在 root 内
 	if real, err := filepath.EvalSymlinks(abs); err == nil && !b.withinRoot(real) {
@@ -85,13 +89,13 @@ func (b *LocalBackend) resolve(p string) (string, error) {
 
 // resolveForWrite 解析写入路径：先走 resolve() 完整校验（含文件自身符号链接），
 // 再对最深已存在的祖先目录做 EvalSymlinks 检查，防止父级符号链接指向 root 外。
-// 技能符号链接白名单为只读：命中白名单的写请求拒绝。
+// 技能路径重写映射为只读：命中映射的写请求拒绝。
 func (b *LocalBackend) resolveForWrite(p string) (string, error) {
 	abs, err := b.resolve(p)
 	if err != nil {
 		return "", err
 	}
-	if b.isWhitelistedSkillPath(abs) {
+	if _, ok := b.resolveSkillPath(abs); ok {
 		return "", fmt.Errorf("%w: 该路径为只读，不允许写入", security.ErrDenied)
 	}
 	if err := b.ensureParentWithinRoot(p, abs); err != nil {
@@ -103,7 +107,7 @@ func (b *LocalBackend) resolveForWrite(p string) (string, error) {
 // ensureParentWithinRoot 从目标文件的父目录向上找到第一个存在的路径，解析真实路径；
 // 若越界（不在 root 内、也不在技能白名单内）则拒绝。p 为原始请求路径，用于错误回显。
 // 最深已存在祖先命中技能白名单（父级是指向 skillsRoot 的符号链接）时同样拒绝——
-// 技能目录只读，且新文件本身不存在时 isWhitelistedSkillPath(abs) 无法命中，需在此兜底。
+// 技能目录只读的兜底校验。
 func (b *LocalBackend) ensureParentWithinRoot(p, abs string) error {
 	parent := filepath.Dir(abs)
 	// 找到最深已存在路径
@@ -117,7 +121,7 @@ func (b *LocalBackend) ensureParentWithinRoot(p, abs string) error {
 		}
 		parent = next
 	}
-	if b.isWhitelistedSkillPath(parent) {
+	if _, ok := b.resolveSkillPath(parent); ok {
 		return fmt.Errorf("%w: 该路径为只读，不允许写入", security.ErrDenied)
 	}
 	real, err := filepath.EvalSymlinks(parent)
@@ -132,27 +136,41 @@ func (b *LocalBackend) ensureParentWithinRoot(p, abs string) error {
 	return nil
 }
 
-// isWhitelistedSkillPath 判断路径是否属于技能符号链接白名单。
-// 仅当路径位于 root/skills/ 下，且符号链接真实目标在 skillsRoot 内时放行，
-// 防止任意符号链接逃逸出 root。
-// 注意：该白名单仅用于读路径（resolve）；写路径在 resolveForWrite 中命中白名单即拒绝（只读）。
-func (b *LocalBackend) isWhitelistedSkillPath(abs string) bool {
+// resolveSkillPath 技能白名单：解析路径是否在 skillsRoot 下。
+// skillsRoot 为空时禁用。
+// 支持两种形式：
+//   - 绝对路径 D:/.../qavor/skills/<slug>/... → 直接校验在 skillsRoot 内
+//   - 相对路径 skills/<slug>/... → 重写为 skillsRoot/<slug>/...
+// 返回 (解析后路径, true) 表示命中白名单；("", false) 表示不在此范围。
+func (b *LocalBackend) resolveSkillPath(p string) (string, bool) {
 	if b.skillsRoot == "" {
-		return false
+		return "", false
 	}
-	skillsPrefix := filepath.Join(b.root, "skills") + string(filepath.Separator)
-	if !strings.HasPrefix(abs, skillsPrefix) {
-		return false
+	root := filepath.Clean(b.skillsRoot)
+
+	// 绝对路径：直接检查是否在 skillsRoot 下
+	if filepath.IsAbs(p) {
+		abs := filepath.Clean(p)
+		if abs == root || strings.HasPrefix(abs, root+string(filepath.Separator)) {
+			return abs, true
+		}
+		return "", false
 	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return false
+
+	// 相对路径：必须以 skills/ 开头
+	fromSlash := filepath.FromSlash(p)
+	skillsPrefix := "skills" + string(filepath.Separator)
+	if !strings.HasPrefix(fromSlash, skillsPrefix) {
+		return "", false
 	}
-	cleanedRoot := filepath.Clean(b.skillsRoot)
-	if real == cleanedRoot {
-		return true
+	rel := strings.TrimPrefix(fromSlash, skillsPrefix)
+	resolved := filepath.Join(root, rel)
+	cleaned := filepath.Clean(resolved)
+	// 防止路径穿越
+	if cleaned == root || strings.HasPrefix(cleaned, root+string(filepath.Separator)) {
+		return cleaned, true
 	}
-	return strings.HasPrefix(real, cleanedRoot+string(filepath.Separator))
+	return "", false
 }
 
 // checkCredentials 检查路径是否命中敏感文件，命中返回统一拒绝错误。

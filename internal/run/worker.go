@@ -359,7 +359,9 @@ func (w *Worker) publishError(ctx context.Context, run *entity.AgentRun, execErr
 }
 
 // publishApproval 发布审批请求事件。
-// 前端 useApproval.js 的 processApprovalInStream 检查 chunk.status === 'human_approval_required'。
+// 前端 useApproval.js 的 processApprovalInStream 检查 chunk.status === 'human_approval_required'，
+// 该状态只由 event: message 的 items 触发，因此先发一条 message 事件携带审批数据，
+// 再发 end 事件标记中断终态（前端 SSE 流在此结束）。
 // approval.action_requests 与 approval.review_configs 长度必须相等（前端 useApproval.js:27 强校验）。
 func (w *Worker) publishApproval(ctx context.Context, run *entity.AgentRun, ie *InterruptedError) {
 	approval := &eventbus.ApprovalPayload{}
@@ -375,6 +377,24 @@ func (w *Worker) publishApproval(ctx context.Context, run *entity.AgentRun, ie *
 			Reason:   "此操作需要用户审批",
 		})
 	}
+
+	// 1. 先发 message 事件：items 中包含审批 chunk，触发前端审批弹窗。
+	// 前端 processRunSseResponse 在 event: message + payload.items 时，
+	// 将每个 item 直接作为 chunk 传给 handleStreamChunk，
+	// handleStreamChunk 的 case 'human_approval_required' 分支会提取 approval 并弹窗。
+	msgPayload := map[string]any{
+		"items": []map[string]any{
+			{
+				"status":   "human_approval_required",
+				"approval": approval,
+				"run_id":   run.ID,
+				"thread_id": run.ConversationThreadID,
+			},
+		},
+	}
+	_, _ = w.pub.PublishPayload(ctx, eventbus.EventMessage, run.ID, run.ConversationThreadID, run.RequestID, msgPayload)
+
+	// 2. 再发 end 事件标记中断终态。
 	_, _ = w.pub.PublishPayload(ctx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
 		eventbus.EndPayload{
 			Status:   eventbus.StatusInterrupted,

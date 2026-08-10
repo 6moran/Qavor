@@ -2927,29 +2927,23 @@ const handleApprovalWithStream = async (answer) => {
 
   const pendingInterrupt = threadState.pendingInterrupt
 
-  // TODO(backend): 工具审批 resume 需后端在 POST /api/v1/agent/runs 支持
-  // 「创建子 Run 恢复中断 Run 执行」语义（created_by_run_id + 审批决策，query 可空）。
-  // 当前后端 resume 分支仅支持重连已有 Run 的 SSE 流，且 createAndEnqueue 要求 query 非空，
-  // 因此工具审批链路暂不可用。下方 createAgentRun 在新后端下会因返回 text/event-stream 而失败。
   try {
     hideApprovalState()
     threadState.pendingInterrupt = null
     threadState.isStreaming = true
     resetOnGoingConv(threadId, { preserveRequestStreams: true })
     const requestId = createClientRequestId()
-    const runResp = await agentApi.createAgentRun({
+    // 用 SSE 流创建 resume run：created_by_run_id 触发后端审批恢复，
+    // 同时前端的 approval_decision 决定 approve/reject。
+    // SSE 流的首个 metadata 事件会包含新 run_id，由 startNewRun 自动提取。
+    startNewRun(threadId, {
       query: null,
       agent_slug: currentAgentId.value,
       thread_id: threadId,
       meta: { request_id: requestId },
-      resume: answer,
-      created_by_run_id: interruptedRunId
+      created_by_run_id: interruptedRunId,
+      approval_decision: answer
     })
-    const runId = runResp?.run_id
-    if (!runId) {
-      throw new Error('创建 resume run 失败：缺少 run_id')
-    }
-    await startRunStream(threadId, runId, '0-0')
   } catch (error) {
     if (pendingInterrupt) {
       threadState.pendingInterrupt = pendingInterrupt
