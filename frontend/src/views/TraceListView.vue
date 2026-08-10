@@ -29,21 +29,14 @@
             style="width: 130px"
           >
             <a-select-option value="running">运行中</a-select-option>
-            <a-select-option value="success">成功</a-select-option>
-            <a-select-option value="failed">失败</a-select-option>
+            <a-select-option value="ok">成功</a-select-option>
+            <a-select-option value="error">失败</a-select-option>
             <a-select-option value="cancelled">已取消</a-select-option>
+            <a-select-option value="interrupted">已中断</a-select-option>
             <a-select-option value="timeout">超时</a-select-option>
           </a-select>
-          <a-select
-            v-model:value="filters.source"
-            placeholder="全部来源"
-            allow-clear
-            style="width: 130px"
-          >
-            <a-select-option value="sync">同步</a-select-option>
-            <a-select-option value="stream">流式</a-select-option>
-            <a-select-option value="run">异步 Run</a-select-option>
-          </a-select>
+          <a-checkbox v-model:checked="filters.error_only">仅错误</a-checkbox>
+          <a-checkbox v-model:checked="filters.mismatch_only">仅不一致</a-checkbox>
           <a-range-picker v-model:value="filters.range" style="width: 240px" />
           <a-button type="primary" @click="handleSearch">查询</a-button>
           <a-button @click="handleReset">重置</a-button>
@@ -57,25 +50,42 @@
         :pagination="false"
         row-key="trace_id"
         size="middle"
-        @row-click="handleRowClick"
+        :custom-row="resolveTraceRow"
       >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'trace_id'">
-            <a-tooltip :title="record.trace_id">
-              <span class="trace-id-short">{{ shortId(record.trace_id) }}</span>
-            </a-tooltip>
+          <template v-if="column.key === 'started_at'">
+            {{ formatTime(record.started_at) }}
           </template>
-          <template v-else-if="column.key === 'status'">
-            <a-tag :color="statusColor(record.status)">{{ statusLabel(record.status) }}</a-tag>
+          <template v-else-if="column.key === 'agent_status'">
+            <a-tag :color="statusColor(record.agent_status)">{{ statusLabel(record.agent_status) }}</a-tag>
+            <a-tag v-if="record.status_mismatch" color="warning" title="agent.run 状态与 agent_runs.status 不一致">⚠</a-tag>
           </template>
-          <template v-else-if="column.key === 'query'">
-            <span class="query-cell">{{ record.query || '-' }}</span>
+          <template v-else-if="column.key === 'business_run_status'">
+            <a-tag :color="runStatusColor(record.business_run_status)">{{ runStatusLabel(record.business_run_status) }}</a-tag>
           </template>
-          <template v-else-if="column.key === 'duration'">
+          <template v-else-if="column.key === 'query_summary'">
+            <span class="query-cell">{{ record.query_summary || '-' }}</span>
+          </template>
+          <template v-else-if="column.key === 'duration_ms'">
             {{ formatDuration(record.duration_ms) }}
           </template>
-          <template v-else-if="column.key === 'started_at'">
-            {{ formatTime(record.started_at) }}
+          <template v-else-if="column.key === 'queue_wait_ms'">
+            {{ record.queue_wait_ms ? formatDuration(record.queue_wait_ms) : '-' }}
+          </template>
+          <template v-else-if="column.key === 'calls'">
+            <span class="calls-cell">
+              <span class="call-badge llm">{{ record.llm_count ?? 0 }}</span>
+              <span class="call-badge tool">{{ record.tool_count ?? 0 }}</span>
+            </span>
+          </template>
+          <template v-else-if="column.key === 'first_error'">
+            <a-tooltip v-if="record.first_error" :title="record.first_error">
+              <span class="error-text-ellipsis">{{ record.first_error }}</span>
+            </a-tooltip>
+            <span v-else>-</span>
+          </template>
+          <template v-else-if="column.key === 'action'">
+            <a-button type="link" size="small" @click.stop="openTraceDetail(record)">查看详情</a-button>
           </template>
         </template>
       </a-table>
@@ -93,6 +103,7 @@
       </div>
       </a-card>
     </div>
+
   </div>
 </template>
 
@@ -117,33 +128,48 @@ const filters = reactive({
   keyword: '',
   agent_slug: undefined,
   status: undefined,
-  source: undefined,
+  error_only: false,
+  mismatch_only: false,
   range: null
 })
 
 const columns = [
-  { title: 'TraceID', key: 'trace_id', width: 130 },
   { title: '开始时间', key: 'started_at', width: 170 },
-  { title: 'Agent', dataIndex: 'agent_slug', key: 'agent_slug', width: 130 },
-  { title: '问题', key: 'query' },
-  { title: '模型', dataIndex: 'model_name', key: 'model_name', width: 140 },
-  { title: '状态', key: 'status', width: 90 },
-  { title: '耗时', key: 'duration', width: 100 },
-  { title: 'Token', dataIndex: 'total_tokens', key: 'total_tokens', width: 90 }
+  { title: 'Agent', dataIndex: 'agent_slug', key: 'agent_slug', width: 120 },
+  { title: '问题摘要', key: 'query_summary' },
+  { title: 'Agent 状态', key: 'agent_status', width: 110 },
+  { title: 'Run 状态', key: 'business_run_status', width: 100 },
+  { title: '总耗时', key: 'duration_ms', width: 100 },
+  { title: '排队', key: 'queue_wait_ms', width: 90 },
+  { title: 'LLM/工具', key: 'calls', width: 100 },
+  { title: 'Token', dataIndex: 'total_tokens', key: 'total_tokens', width: 80 },
+  { title: '首个错误', key: 'first_error', width: 200 },
+  { title: '操作', key: 'action', width: 110, align: 'center' }
 ]
 
+// agent.run span 状态
 const statusMap = {
   running: { color: 'processing', label: '运行中' },
-  success: { color: 'success', label: '成功' },
-  failed: { color: 'error', label: '失败' },
+  ok: { color: 'success', label: '成功' },
+  error: { color: 'error', label: '失败' },
   cancelled: { color: 'default', label: '已取消' },
+  interrupted: { color: 'warning', label: '已中断' },
   timeout: { color: 'warning', label: '超时' }
 }
-
 const statusColor = s => statusMap[s]?.color || 'default'
-const statusLabel = s => statusMap[s]?.label || s
+const statusLabel = s => statusMap[s]?.label || s || '-'
 
-const shortId = id => (id ? `${id.slice(0, 8)}…` : '-')
+// agent_runs.status 业务状态
+const runStatusMap = {
+  pending: { color: 'default', label: '排队中' },
+  running: { color: 'processing', label: '运行中' },
+  completed: { color: 'success', label: '已完成' },
+  failed: { color: 'error', label: '失败' },
+  cancelled: { color: 'default', label: '已取消' },
+  interrupted: { color: 'warning', label: '已中断' }
+}
+const runStatusColor = s => runStatusMap[s]?.color || 'default'
+const runStatusLabel = s => runStatusMap[s]?.label || s || '-'
 
 const formatTime = ts => (ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : '-')
 
@@ -174,7 +200,8 @@ const loadTraces = async () => {
       keyword: filters.keyword || undefined,
       agent_slug: filters.agent_slug || undefined,
       status: filters.status || undefined,
-      source: filters.source || undefined
+      error_only: filters.error_only || undefined,
+      mismatch_only: filters.mismatch_only || undefined
     }
     if (filters.range && filters.range.length === 2) {
       params.from = filters.range[0].toISOString()
@@ -199,15 +226,32 @@ const handleReset = () => {
   filters.keyword = ''
   filters.agent_slug = undefined
   filters.status = undefined
-  filters.source = undefined
+  filters.error_only = false
+  filters.mismatch_only = false
   filters.range = null
   page.value = 1
   loadTraces()
 }
 
-const handleRowClick = record => {
-  router.push(`/traces/${record.trace_id}`)
-}
+const openTraceDetail = record => router.push({
+  name: 'TraceDetailComp',
+  params: { trace_id: record.trace_id }
+})
+
+const isInteractiveTarget = event => Boolean(event.target?.closest?.('button,a,input,textarea,select,[role="button"]'))
+
+const resolveTraceRow = record => ({
+  tabindex: 0,
+  onClick: event => {
+    if (isInteractiveTarget(event)) return
+    openTraceDetail(record)
+  },
+  onKeydown: event => {
+    if (event.key !== 'Enter' || isInteractiveTarget(event)) return
+    event.preventDefault()
+    openTraceDetail(record)
+  }
+})
 
 onMounted(() => {
   loadAgents()
@@ -239,12 +283,8 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
   margin-bottom: 16px;
-}
-
-.trace-id-short {
-  font-family: 'JetBrains Mono', Consolas, monospace;
-  cursor: pointer;
 }
 
 .query-cell {
@@ -254,6 +294,40 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
+}
+
+.calls-cell {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.call-badge {
+  display: inline-block;
+  min-width: 22px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 18px;
+  padding: 0 4px;
+  border-radius: 3px;
+  color: #fff;
+}
+
+.call-badge.llm {
+  background: #1677ff;
+}
+
+.call-badge.tool {
+  background: #52c41a;
+}
+
+.error-text-ellipsis {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  color: #cf1322;
 }
 
 .pagination-bar {
