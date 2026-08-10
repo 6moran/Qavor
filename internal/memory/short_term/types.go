@@ -28,16 +28,34 @@ type BufferMessage struct {
 	Content        string            `json:"content"`            // 消息内容
 	Timestamp      time.Time         `json:"timestamp"`          // 时间戳
 	Tokens         int               `json:"tokens"`             // 估算 Token 数
+	Importance     float64           `json:"importance"`         // 重要性评分 0-1（新增）
 	ConversationID uint              `json:"conversation_id"`    // 会话ID
 	Metadata       map[string]string `json:"metadata,omitempty"` // 元数据
 }
 
 // SessionState 会话状态
 type SessionState struct {
-	Topic       string            `json:"topic"`        // 当前讨论主题
-	UserIntent  string            `json:"user_intent"`  // 用户意图
-	KeyEntities []string          `json:"key_entities"` // 关键实体
-	Metadata    map[string]string `json:"metadata"`     // 其他元数据
+	Topic             string            `json:"topic"`              // 当前讨论主题
+	UserIntent        string            `json:"user_intent"`        // 用户意图
+	KeyEntities       []string          `json:"key_entities"`       // 关键实体（兼容旧逻辑）
+	ExtractedEntities []Entity          `json:"extracted_entities"` // 提取的实体（新增）
+	IntentHistory     []Intent          `json:"intent_history"`     // 意图历史（新增）
+	Metadata          map[string]string `json:"metadata"`           // 其他元数据
+}
+
+// Entity 提取的实体
+type Entity struct {
+	Name      string    `json:"name"`       // 实体名
+	Type      string    `json:"type"`       // 实体类型：person/location/technology
+	FirstSeen time.Time `json:"first_seen"` // 首次提及时间
+	LastSeen  time.Time `json:"last_seen"`  // 最后提及时间
+}
+
+// Intent 用户意图
+type Intent struct {
+	Primary    string    `json:"primary"`    // 主要意图：question/request/create/modify/delete/query
+	Confidence float64   `json:"confidence"` // 置信度 0-1
+	Timestamp  time.Time `json:"timestamp"`  // 时间戳
 }
 
 // SummaryConfig 摘要配置

@@ -120,11 +120,14 @@ export const agentApi = {
   /**
    * 获取指定会话的 AgentState
    * @param {string} threadId - 会话ID
-   * @returns {Promise} - AgentState（后端未实现，返回空对象）
+   * @param {Object} options - { includeMessages }
+   * @returns {Promise} - AgentState 数据（含 agent_state 字段）
    */
   getAgentState: (threadId, { includeMessages = false } = {}) => {
-    // 后端未实现此接口，返回空对象
-    return Promise.resolve({})
+    const params = new URLSearchParams()
+    if (includeMessages) params.set('include_messages', 'true')
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return apiGet(`/api/agent/thread/${threadId}/agent-state${query}`).then((res) => res?.data || {})
   },
 
   /**

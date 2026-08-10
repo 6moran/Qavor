@@ -15,6 +15,7 @@ import (
 	"Qavor/internal/eventbus"
 	"Qavor/internal/ingestion"
 	"Qavor/internal/mcp"
+	longterm "Qavor/internal/memory/long_term"
 	shortterm "Qavor/internal/memory/short_term"
 	"Qavor/internal/model/entity"
 	documentqueue "Qavor/internal/queue"
@@ -29,6 +30,7 @@ import (
 	"github.com/cloudwego/eino/adk"
 
 	tracectrl "Qavor/internal/api/v1/trace"
+	"Qavor/internal/llm"
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
@@ -54,6 +56,7 @@ import (
 	"github.com/cloudwego/eino/adk/backgroundtask"
 	"github.com/cloudwego/eino/callbacks"
 	"github.com/cloudwego/eino/components/retriever"
+	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -281,6 +284,7 @@ func (a *App) initDatabase() error {
 			&entity.DocumentProcessingJob{},
 			&entity.AgentTrace{},
 			&entity.AgentTraceSpan{},
+			&entity.LongTermMemory{},
 		); err != nil {
 			logger.Warn("数据库迁移警告", zap.Error(err))
 		} else {
@@ -484,24 +488,38 @@ func (a *App) initDependencies() error {
 	workspaceSvc := service.NewWorkspaceService(workspaceBackend)
 	workspaceCtrl := workspaceapi.NewController(workspaceSvc)
 
-	// 创建 Service
-	conversationSvc := service.NewConversationService(conversationRepo)
-	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
-
-	// 创建短期记忆模块
+	// 创建短期记忆模块（需在 ConversationService 之前初始化，供 DeleteConversation 清理 Redis）
 	shortTermStore := shortterm.NewRedisStore(a.redis, logger.GetLogger(), 24*time.Hour)
 	shortTermBuffer := shortterm.NewMessageBufferManager(logger.GetLogger(), 20)
-	shortTermState := shortterm.NewSessionStateManager(logger.GetLogger())
-	shortTermSummary := shortterm.NewSummaryGenerator(logger.GetLogger(), nil)
+	shortTermState := shortterm.NewSessionStateManager(logger.GetLogger(), &modelResolverAdapter{modelSvc: modelSvc})
+	// 摘要生成器：注入 ModelService 适配器，modelID 运行时动态解析为当前 Agent 使用的模型
+	// modelID=0 时降级为规则式摘要（在 Worker 执行时可通过 Run 的 Agent 配置动态指定）
+	shortTermSummary := shortterm.NewSummaryGenerator(logger.GetLogger(), nil, &modelResolverAdapter{modelSvc: modelSvc}, 0)
 	shortTermMgr := shortterm.NewManager(shortTermStore, shortTermBuffer, shortTermState, shortTermSummary, logger.GetLogger())
 
-	// 创建上下文管理器（集成 Short Memory）
+	// 创建 Service
+	conversationSvc := service.NewConversationService(conversationRepo, shortTermMgr)
+	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
+
+	// 创建长期记忆模块（用户画像/偏好/决策/项目事实，跨会话持久化）
+	// P0 阶段：全量注入 → P2 阶段：pgvector 语义检索 top-K
+	ltmRepo := repository.NewLongTermMemoryRepository(a.postgresDB)
+	longTermMgr := longterm.NewManager(logger.GetLogger(), ltmRepo,
+		&modelResolverAdapter{modelSvc: modelSvc}, longterm.Config{
+			MaxItems:      200,  // 召回上限
+			MaxTokens:     1500, // 注入 System Prompt 的最大 Token
+			DefaultUserID: 0,    // JWT 未携带 UserID 时的降级用户（0 = 全局匿名共享池）
+		})
+
+	// 创建上下文管理器（集成 Short Memory + Long Term Memory）
 	contextConfig := &contextmgr.ContextConfig{
 		MaxTokens:     4096,
 		ReserveTokens: 1024,
 		SystemPrompt:  "You are a helpful assistant.",
 	}
-	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, logger.GetLogger())
+	// 上下文压缩用的摘要器（复用 ModelService 适配器，modelID=0 时返回空摘要跳过压缩）
+	ctxSummarizer := contextmgr.NewLLMSummarizer(logger.GetLogger(), &llmClientAdapter{client: nil, modelSvc: modelSvc, modelID: 0})
+	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, ctxSummarizer, logger.GetLogger())
 
 	// 创建 SSE 模块
 	heartbeatConfig := &sse.HeartbeatConfig{
@@ -545,7 +563,8 @@ func (a *App) initDependencies() error {
 			time.Duration(a.cfg.Run.LockTTLSeconds)*time.Second, blockDur)
 
 		executor := run.NewAgentExecutor(agentMgr, modelSvc)
-		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, logger.GetLogger(), a.cfg.Run.WorkerCount)
+		todoStore := run.NewTodoStore(a.redis, 24*time.Hour)
+		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, logger.GetLogger(), a.cfg.Run.WorkerCount)
 
 		// 启动 Run Worker 池
 		runWorkerCtx, cancelRunWorker := context.WithCancel(context.Background())
@@ -555,7 +574,7 @@ func (a *App) initDependencies() error {
 
 		heartbeatPeriod := time.Duration(a.cfg.SSE.HeartbeatInterval) * time.Second
 		postStreamHandler = agentctrl.NewPostStreamHandler(sub, runRepo, reqQueue, heartbeatPeriod, logger.GetLogger())
-		runController = agentctrl.NewRunController(runRepo, reqQueue, runWorker, logger.GetLogger())
+		runController = agentctrl.NewRunController(runRepo, reqQueue, runWorker, logger.GetLogger(), contextMgr, conversationRepo, todoStore)
 	} else {
 		logger.Warn("Redis 不可用，Run 流式服务未启动")
 	}
@@ -715,4 +734,31 @@ func (a *App) gracefulShutdown() {
 
 	logger.Info("服务器已关闭")
 	logger.Info("=========================================")
+}
+
+// modelResolverAdapter 将 service.ModelService 适配为 shortterm.ModelResolver
+type modelResolverAdapter struct {
+	modelSvc service.ModelService
+}
+
+func (a *modelResolverAdapter) CreateLLMClient(ctx context.Context, modelID uint) (shortterm.LLMClient, error) {
+	client, err := a.modelSvc.CreateLLMClient(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	return &llmClientAdapter{client: client}, nil
+}
+
+// llmClientAdapter 将 llm.Client 适配为 context.LLMClient 和 shortterm.LLMClient
+type llmClientAdapter struct {
+	client   llm.Client
+	modelSvc service.ModelService
+	modelID  uint
+}
+
+func (a *llmClientAdapter) Generate(ctx context.Context, input []*schema.Message) (*schema.Message, error) {
+	if a.client == nil {
+		return nil, fmt.Errorf("LLM client not initialized")
+	}
+	return a.client.Generate(ctx, input)
 }

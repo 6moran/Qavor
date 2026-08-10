@@ -84,8 +84,9 @@ export class ErrorHandler {
    * 处理聊天相关错误
    * @param {Error} error - 错误对象
    * @param {string} operation - 操作类型
+   * @param {Object} payload - SSE 错误事件的 payload（可选）
    */
-  static handleChatError(error, operation) {
+  static handleChatError(error, operation, payload = null) {
     const contextMap = {
       send: '发送消息',
       create: '创建对话',
@@ -97,6 +98,33 @@ export class ErrorHandler {
     }
 
     const context = contextMap[operation] || operation
+
+    // 根据 payload.code 识别特定错误类型，提供友好提示
+    const code = payload?.code || ''
+    if (code === 'QUOTA_EXHAUSTED') {
+      return this.handleError(error, context, {
+        customMessage: '模型额度已用完，请充值或更换模型'
+      })
+    }
+    if (code === 'RATE_LIMITED') {
+      return this.handleError(error, context, {
+        customMessage: '请求过于频繁，请稍后重试'
+      })
+    }
+    if (code === 'AUTH_ERROR') {
+      return this.handleError(error, context, {
+        customMessage: '模型认证失败，请检查 API Key 配置'
+      })
+    }
+
+    // 兜底：从错误消息中识别额度相关关键词
+    const msg = error?.message || ''
+    if (/quota\s*exhausted|额度|free tier/i.test(msg)) {
+      return this.handleError(error, context, {
+        customMessage: '模型额度已用完，请充值或更换模型'
+      })
+    }
+
     return this.handleError(error, context)
   }
 

@@ -38,7 +38,7 @@ const databaseStore = useDatabaseStore()
 const infoStore = useInfoStore()
 const taskerStore = useTaskerStore()
 const userStore = useUserStore()
-const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads } = storeToRefs(chatThreadsStore)
+const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads, unreadThreadIds } = storeToRefs(chatThreadsStore)
 
 // Add state for settings modal
 const showSettingsModal = ref(false)
@@ -352,6 +352,7 @@ provide('settingsModal', {
           :chats-list="threads"
           :has-more-chats="hasMoreThreads"
           :is-loading-more="isLoadingMoreThreads"
+          :unread-thread-ids="unreadThreadIds"
           @select-chat="handleSelectChat"
           @delete-chat="handleDeleteChat"
           @rename-chat="handleRenameChat"

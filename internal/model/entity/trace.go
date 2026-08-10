@@ -24,6 +24,7 @@ const (
 	SpanKindTool      = "tool"
 	SpanKindRetriever = "retriever"
 	SpanKindAgent     = "agent"
+	SpanKindContext   = "context" // 上下文管理（FetchContext/CompressContext/BuildPrompt 等）
 )
 
 // SpanStatus span 状态常量
