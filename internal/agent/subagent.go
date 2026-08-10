@@ -85,7 +85,7 @@ func buildSubagentInstance(
 		Instruction: spec.cfg.Instruction,
 		Model:       spec.llm,
 		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil},
+			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil, ToolCallMiddlewares: []compose.ToolMiddleware{newToolErrorRecoveryMiddleware()}},
 		},
 		MaxIterations: maxIteration,
 		Handlers:      handlers,
