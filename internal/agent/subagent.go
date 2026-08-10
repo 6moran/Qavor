@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"Qavor/internal/agent/localfs/security"
 	"Qavor/internal/mcp"
 	"Qavor/internal/skill"
 	"Qavor/internal/tool"
@@ -79,13 +80,28 @@ func buildSubagentInstance(
 		maxIteration = spec.cfg.MaxIteration
 	}
 
+	toolErrorMW := []compose.ToolMiddleware{
+		{
+			Name: "qavor_tool_error",
+			Invokable: func(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+				return WrapToolError(next, security.ErrDenied)
+			},
+			Streamable: func(next compose.StreamableToolEndpoint) compose.StreamableToolEndpoint {
+				return WrapStreamToolError(next, security.ErrDenied)
+			},
+		},
+	}
+
 	return adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{
 		Name:        spec.cfg.Name,
 		Description: spec.cfg.Description,
 		Instruction: spec.cfg.Instruction,
 		Model:       spec.llm,
 		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil},
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools:               nil,
+				ToolCallMiddlewares: toolErrorMW,
+			},
 		},
 		MaxIterations: maxIteration,
 		Handlers:      handlers,

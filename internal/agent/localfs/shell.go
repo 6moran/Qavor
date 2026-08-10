@@ -33,7 +33,7 @@ func NewLocalStreamingShell(cwd string, sec *security.Policies, timeout time.Dur
 // 执行前经高危命令黑名单检查；执行中逐行脱敏并截断超限输出；结束时解释退出码。
 func (s *LocalStreamingShell) ExecuteStreaming(ctx context.Context, req *filesystem.ExecuteRequest) (*schema.StreamReader[*filesystem.ExecuteResponse], error) {
 	if req.Command == "" {
-		return nil, fmt.Errorf("command is empty")
+		return nil, fmt.Errorf("命令不能为空")
 	}
 	// 高危命令黑名单：命中立即拒绝，不启动进程
 	if s.sec != nil && s.sec.Command() != nil {
@@ -63,14 +63,14 @@ func (s *LocalStreamingShell) ExecuteStreaming(ctx context.Context, req *filesys
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stdout pipe: %w", err)
+		return nil, fmt.Errorf("命令启动失败: 无法获取输出管道")
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stderr pipe: %w", err)
+		return nil, fmt.Errorf("命令启动失败: 无法获取错误管道")
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start command: %w", err)
+		return nil, fmt.Errorf("命令启动失败: %w", err)
 	}
 
 	sr, sw := schema.Pipe[*filesystem.ExecuteResponse](16)

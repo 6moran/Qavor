@@ -27,6 +27,7 @@ import (
 	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/skill/remote"
 	"Qavor/internal/sse"
+	"github.com/cloudwego/eino/adk"
 
 	tracectrl "Qavor/internal/api/v1/trace"
 	"Qavor/internal/llm"
@@ -465,12 +466,18 @@ func (a *App) initDependencies() error {
 	a.bgManager = bgManager
 	// 安全策略构建后只读，跨 agent 运行时与 workspace 共享
 	sharedPolicies := security.NewPolicies(&a.cfg.Agent.Security)
+	// 审批中断 checkpoint 存储（Redis 可用时启用，否则可中断不可恢复）
+	var checkPointStore adk.CheckPointStore
+	if a.redis != nil {
+		checkPointStore = agentpkg.NewRedisCheckPointStore(a.redis, 24*time.Hour)
+	}
 	agentRuntime := &agentpkg.AgentRuntime{
 		Policies:            sharedPolicies,
 		WorkspaceRoot:       a.cfg.Agent.WorkspaceRoot,
 		SkillsDir:           skillsDir,
 		ShellTimeoutSeconds: a.cfg.Agent.Security.ShellTimeoutSeconds,
 		Background:          bgManager,
+		CheckPointStore:     checkPointStore,
 	}
 
 	// 创建 AgentManager（modelSvc 实现 SubagentLLMResolver，用于子智能体 LLM 解析）
