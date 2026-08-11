@@ -33,3 +33,75 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_kb_file
 CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_content_trgm
 ON knowledge_chunks
 USING gist (content gist_trgm_ops(siglen=64));
+
+-- ============================================================
+-- RAG 评估模块（evaluation）：评估基准 + 评估运行
+-- 对应 entity: EvaluationDataset / EvaluationDatasetItem / EvaluationRun / EvaluationRunResult
+-- ============================================================
+
+-- 评估基准（评测数据集）
+CREATE TABLE IF NOT EXISTS evaluation_datasets (
+    id                BIGSERIAL PRIMARY KEY,
+    dataset_id        VARCHAR(64)  NOT NULL UNIQUE,
+    kb_id             VARCHAR(80)  NOT NULL,
+    name              VARCHAR(100) NOT NULL,
+    description       TEXT,
+    item_count        INTEGER      NOT NULL DEFAULT 0,
+    has_gold_chunks   BOOLEAN      NOT NULL DEFAULT FALSE,
+    has_gold_answers  BOOLEAN      NOT NULL DEFAULT FALSE,
+    build_metadata    JSONB        NOT NULL DEFAULT '{}',
+    created_at        TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_evaluation_datasets_kb_id ON evaluation_datasets(kb_id);
+
+-- 评估基准问答条目
+CREATE TABLE IF NOT EXISTS evaluation_dataset_items (
+    id              BIGSERIAL PRIMARY KEY,
+    dataset_id      VARCHAR(64) NOT NULL,
+    query           TEXT        NOT NULL,
+    gold_chunk_ids  JSONB       NOT NULL DEFAULT '[]',
+    gold_answer     TEXT,
+    sort_order      INTEGER     NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_evaluation_dataset_items_dataset ON evaluation_dataset_items(dataset_id);
+
+-- 评估运行
+CREATE TABLE IF NOT EXISTS evaluation_runs (
+    id               BIGSERIAL PRIMARY KEY,
+    run_id           VARCHAR(64) NOT NULL UNIQUE,
+    kb_id            VARCHAR(80) NOT NULL,
+    dataset_id       VARCHAR(64) NOT NULL,
+    name             VARCHAR(100) NOT NULL,
+    status           VARCHAR(20) NOT NULL DEFAULT 'running',
+    started_at       TIMESTAMPTZ,
+    completed_at     TIMESTAMPTZ,
+    total_items      INTEGER     NOT NULL DEFAULT 0,
+    completed_items  INTEGER     NOT NULL DEFAULT 0,
+    overall_score    DOUBLE PRECISION NOT NULL DEFAULT 0,
+    metrics          JSONB       NOT NULL DEFAULT '{}',
+    retrieval_config JSONB       NOT NULL DEFAULT '{}',
+    progress         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    message          TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_evaluation_runs_kb_id ON evaluation_runs(kb_id);
+
+-- 评估运行单项结果
+CREATE TABLE IF NOT EXISTS evaluation_run_results (
+    id               BIGSERIAL PRIMARY KEY,
+    run_id           VARCHAR(64) NOT NULL,
+    query            TEXT        NOT NULL,
+    generated_answer TEXT,
+    metrics          JSONB       NOT NULL DEFAULT '{}',
+    answer_score     DOUBLE PRECISION,
+    error_message    TEXT,
+    status           VARCHAR(20) NOT NULL DEFAULT 'completed',
+    sort_order       INTEGER     NOT NULL DEFAULT 0,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_evaluation_run_results_run ON evaluation_run_results(run_id);
