@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 
 	"Qavor/internal/model/entity"
@@ -10,14 +11,14 @@ import (
 
 // ConversationRepository 会话仓储接口
 type ConversationRepository interface {
-	Create(conversation *entity.Conversation) error
-	FindByID(id uint) (*entity.Conversation, error)
-	FindByThreadID(threadID string) (*entity.Conversation, error)
-	Update(conversation *entity.Conversation) error
-	Delete(id uint) error
-	List(offset, limit int) ([]entity.Conversation, int64, error)
-	ListWithStatus(status string, offset, limit int) ([]entity.Conversation, int64, error)
-	Search(query string, offset, limit int) ([]entity.Conversation, int64, error)
+	Create(ctx context.Context, conversation *entity.Conversation) error
+	FindByID(ctx context.Context, id uint) (*entity.Conversation, error)
+	FindByThreadID(ctx context.Context, threadID string) (*entity.Conversation, error)
+	Update(ctx context.Context, conversation *entity.Conversation) error
+	Delete(ctx context.Context, id uint) error
+	List(ctx context.Context, offset, limit int) ([]entity.Conversation, int64, error)
+	ListWithStatus(ctx context.Context, status string, offset, limit int) ([]entity.Conversation, int64, error)
+	Search(ctx context.Context, query string, offset, limit int) ([]entity.Conversation, int64, error)
 }
 
 // conversationRepository 会话仓储实现
@@ -31,14 +32,14 @@ func NewConversationRepository(db *gorm.DB) ConversationRepository {
 }
 
 // Create 创建会话
-func (r *conversationRepository) Create(conversation *entity.Conversation) error {
-	return r.db.Create(conversation).Error
+func (r *conversationRepository) Create(ctx context.Context, conversation *entity.Conversation) error {
+	return r.db.WithContext(ctx).Create(conversation).Error
 }
 
 // FindByID 根据 ID 查找会话
-func (r *conversationRepository) FindByID(id uint) (*entity.Conversation, error) {
+func (r *conversationRepository) FindByID(ctx context.Context, id uint) (*entity.Conversation, error) {
 	var conversation entity.Conversation
-	err := r.db.First(&conversation, id).Error
+	err := r.db.WithContext(ctx).First(&conversation, id).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -49,9 +50,9 @@ func (r *conversationRepository) FindByID(id uint) (*entity.Conversation, error)
 }
 
 // FindByThreadID 根据 ThreadID 查找会话
-func (r *conversationRepository) FindByThreadID(threadID string) (*entity.Conversation, error) {
+func (r *conversationRepository) FindByThreadID(ctx context.Context, threadID string) (*entity.Conversation, error) {
 	var conversation entity.Conversation
-	err := r.db.Where("thread_id = ?", threadID).First(&conversation).Error
+	err := r.db.WithContext(ctx).Where("thread_id = ?", threadID).First(&conversation).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -62,27 +63,27 @@ func (r *conversationRepository) FindByThreadID(threadID string) (*entity.Conver
 }
 
 // Update 更新会话（按需更新指定字段，避免零值覆盖）
-func (r *conversationRepository) Update(conversation *entity.Conversation) error {
+func (r *conversationRepository) Update(ctx context.Context, conversation *entity.Conversation) error {
 	updates := map[string]interface{}{
 		"title":          conversation.Title,
 		"status":         conversation.Status,
 		"is_pinned":      conversation.IsPinned,
 		"extra_metadata": conversation.ExtraMetadata,
 	}
-	return r.db.Model(conversation).Updates(updates).Error
+	return r.db.WithContext(ctx).Model(conversation).Updates(updates).Error
 }
 
 // Delete 删除会话（软删除）
-func (r *conversationRepository) Delete(id uint) error {
-	return r.db.Delete(&entity.Conversation{}, id).Error
+func (r *conversationRepository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Delete(&entity.Conversation{}, id).Error
 }
 
 // List 分页获取会话列表
-func (r *conversationRepository) List(offset, limit int) ([]entity.Conversation, int64, error) {
+func (r *conversationRepository) List(ctx context.Context, offset, limit int) ([]entity.Conversation, int64, error) {
 	var conversations []entity.Conversation
 	var total int64
 
-	query := r.db.Model(&entity.Conversation{})
+	query := r.db.WithContext(ctx).Model(&entity.Conversation{})
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -97,11 +98,11 @@ func (r *conversationRepository) List(offset, limit int) ([]entity.Conversation,
 }
 
 // ListWithStatus 根据状态分页获取会话列表
-func (r *conversationRepository) ListWithStatus(status string, offset, limit int) ([]entity.Conversation, int64, error) {
+func (r *conversationRepository) ListWithStatus(ctx context.Context, status string, offset, limit int) ([]entity.Conversation, int64, error) {
 	var conversations []entity.Conversation
 	var total int64
 
-	query := r.db.Model(&entity.Conversation{}).Where("status = ?", status)
+	query := r.db.WithContext(ctx).Model(&entity.Conversation{}).Where("status = ?", status)
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -116,11 +117,11 @@ func (r *conversationRepository) ListWithStatus(status string, offset, limit int
 }
 
 // Search 搜索会话（按标题模糊匹配）
-func (r *conversationRepository) Search(query string, offset, limit int) ([]entity.Conversation, int64, error) {
+func (r *conversationRepository) Search(ctx context.Context, query string, offset, limit int) ([]entity.Conversation, int64, error) {
 	var conversations []entity.Conversation
 	var total int64
 
-	dbQuery := r.db.Model(&entity.Conversation{}).Where("title LIKE ?", "%"+query+"%")
+	dbQuery := r.db.WithContext(ctx).Model(&entity.Conversation{}).Where("title LIKE ?", "%"+query+"%")
 
 	if err := dbQuery.Count(&total).Error; err != nil {
 		return nil, 0, err

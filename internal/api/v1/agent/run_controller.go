@@ -205,10 +205,10 @@ func (ctrl *RunController) GetAgentState(c *gin.Context) {
 	var conv *entity.Conversation
 	var err error
 	if numericID, parseErr := strconv.ParseUint(threadID, 10, 64); parseErr == nil {
-		conv, err = ctrl.conversationRepo.FindByID(uint(numericID))
+		conv, err = ctrl.conversationRepo.FindByID(c.Request.Context(), uint(numericID))
 	} else {
 		// 非数字，按 UUID thread_id 查询
-		conv, err = ctrl.conversationRepo.FindByThreadID(threadID)
+		conv, err = ctrl.conversationRepo.FindByThreadID(c.Request.Context(), threadID)
 	}
 	if err != nil {
 		logger.Error("GetAgentState: 查找会话失败", zap.String("thread_id", threadID), zap.Error(err))
