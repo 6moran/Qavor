@@ -88,6 +88,18 @@
           </div>
 
           <div class="form-section compact-section">
+            <h3 class="section-title">Rerank 模型</h3>
+            <a-input
+              :value="globalRerankModelDisplay"
+              :loading="ragSettingsLoading"
+              disabled
+            />
+            <a-button type="link" class="settings-link" @click="openRagSettings">
+              前往设置
+            </a-button>
+          </div>
+
+          <div class="form-section compact-section">
             <div class="chunk-preset-title-row">
               <h3 class="section-title">分块策略</h3>
               <a-tooltip :title="selectedPresetDescription">
@@ -200,10 +212,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive, watch, computed } from 'vue'
+import { ref, onMounted, reactive, watch, computed, inject } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useDatabaseStore } from '@/stores/database'
+import { useConfigStore } from '@/stores/config'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { Copy, Database, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import { message, Modal } from 'ant-design-vue'
@@ -223,6 +236,8 @@ import { buildModelSelectOptions } from '@/utils/model_options'
 const route = useRoute()
 const router = useRouter()
 const databaseStore = useDatabaseStore()
+const configStore = useConfigStore()
+const { openSettingsModal } = inject('settingsModal', {})
 const {
   chunkPresetSelectOptions: chunkPresetOptions,
   chunkPresetLoading,
@@ -264,6 +279,10 @@ const state = reactive({
 const embeddingModels = ref([])
 const chatModels = ref([])
 const modelsLoading = ref(false)
+const ragSettingsLoading = ref(false)
+const globalRerankModelDisplay = computed(
+  () => configStore.ragSettings.rerankModelName || '未配置，将使用 RRF 融合结果'
+)
 const embeddingModelOptions = computed(() =>
   buildModelSelectOptions(embeddingModels.value)
 )
@@ -296,6 +315,21 @@ const loadModels = async () => {
   } finally {
     modelsLoading.value = false
   }
+}
+
+const loadRagSettings = async () => {
+  ragSettingsLoading.value = true
+  try {
+    await configStore.refreshRagSettings()
+  } catch (error) {
+    console.error('加载全局 Rerank 设置失败:', error)
+  } finally {
+    ragSettingsLoading.value = false
+  }
+}
+
+const openRagSettings = () => {
+  openSettingsModal?.('base')
 }
 
 const resetNewDatabase = () => {
@@ -456,6 +490,7 @@ watch(
 onMounted(() => {
   loadChunkPresetOptions()
   loadModels()
+  loadRagSettings()
   databaseStore.loadDatabases()
 })
 
@@ -486,6 +521,12 @@ defineExpose({
 
   .form-section.compact-section {
     gap: 6px;
+  }
+
+  .settings-link {
+    align-self: flex-start;
+    height: auto;
+    padding: 0;
   }
 
   .form-grid {

@@ -118,6 +118,30 @@ const loadQueryParams = async () => {
     return
   }
 
+  // 优先使用 store 中已加载的 queryParams
+  if (store.queryParams && store.queryParams.length > 0) {
+    queryParams.value = store.queryParams.filter(
+      (param) => param.key !== 'include_distances'
+    )
+
+    const supportedKeys = new Set(queryParams.value.map((param) => param.key))
+    for (const key in meta) {
+      if (key !== 'include_distances' && !supportedKeys.has(key)) {
+        delete meta[key]
+      }
+    }
+    for (const param of queryParams.value) {
+      if (param.default !== undefined) {
+        meta[param.key] = param.type === 'boolean' ? Boolean(param.default) : param.default
+      }
+    }
+    meta.include_distances = true
+
+    loadSavedConfig()
+    return
+  }
+
+  // store 中没有数据时，才发起请求
   loading.value = true
   error.value = ''
   try {

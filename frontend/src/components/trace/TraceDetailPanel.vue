@@ -88,21 +88,22 @@
             </div>
 
             <aside class="trace-span-detail">
-              <template v-if="selectedSpan">
+              <template v-if="activeSpan">
+                <a-spin v-if="spanDetailLoading" size="small" />
                 <div class="span-detail-heading">
                   <div>
-                    <span class="wf-kind-badge" :class="`wf-kind-${selectedSpan.kind}`">{{ kindLabel(selectedSpan.kind) }}</span>
-                    <strong>{{ spanName(selectedSpan) }}</strong>
+                    <span class="wf-kind-badge" :class="`wf-kind-${activeSpan.kind}`">{{ kindLabel(activeSpan.kind) }}</span>
+                    <strong>{{ spanName(activeSpan) }}</strong>
                   </div>
-                  <a-tag :color="spanStatusColor(selectedSpan.status)">{{ spanStatusText(selectedSpan) }}</a-tag>
+                  <a-tag :color="spanStatusColor(activeSpan.status)">{{ spanStatusText(activeSpan) }}</a-tag>
                 </div>
                 <div class="span-metrics">
-                  <div><span>耗时</span><strong>{{ formatDuration(selectedSpan.duration_ms) }}</strong></div>
-                  <div><span>输入 Token</span><strong>{{ selectedSpan.tokens_in ?? 0 }}</strong></div>
-                  <div><span>输出 Token</span><strong>{{ selectedSpan.tokens_out ?? 0 }}</strong></div>
-                  <div><span>推理 Token</span><strong>{{ selectedSpan.reasoning_tokens ?? 0 }}</strong></div>
+                  <div><span>耗时</span><strong>{{ formatDuration(activeSpan.duration_ms) }}</strong></div>
+                  <div><span>输入 Token</span><strong>{{ activeSpan.tokens_in ?? 0 }}</strong></div>
+                  <div><span>输出 Token</span><strong>{{ activeSpan.tokens_out ?? 0 }}</strong></div>
+                  <div><span>推理 Token</span><strong>{{ activeSpan.reasoning_tokens ?? 0 }}</strong></div>
                 </div>
-                <SpanDetail :span="selectedSpan" />
+                <SpanDetail :span="activeSpan" />
               </template>
               <a-empty v-else :image="false" description="选择一个 Span 查看详情" />
             </aside>
@@ -161,6 +162,28 @@ const treeRoots = computed(() => buildTraceTree(spans.value))
 const diagnostics = computed(() => backendDiagnostics.value.length ? backendDiagnostics.value : collectDiagnostics(spans.value, run.value))
 const spanById = computed(() => new Map(spans.value.map(span => [span.span_id, span])))
 const selectedSpan = computed(() => spanById.value.get(selectedSpanId.value) || null)
+
+// 详情列表已剥离 attributes 大字段，选中 span 时按需拉取完整详情
+const spanDetailLoading = ref(false)
+const spanDetailFull = ref(null)
+const activeSpan = computed(() => spanDetailFull.value || selectedSpan.value)
+watch(selectedSpanId, async (id) => {
+  spanDetailFull.value = null
+  if (!id) return
+  const listSpan = spanById.value.get(id)
+  // 列表 span 不含 attributes（undefined），需要调接口补齐
+  if (!listSpan || listSpan.attributes === undefined) {
+    spanDetailLoading.value = true
+    try {
+      const full = await traceApi.getSpan(props.traceId, id)
+      if (full && full.span_id === id) spanDetailFull.value = full
+    } catch (e) {
+      // 拉取失败则回退到列表 span（无 attributes）
+    } finally {
+      spanDetailLoading.value = false
+    }
+  }
+})
 
 const addAncestors = (ids, span) => {
   let current = span
@@ -243,7 +266,7 @@ const loadDetail = async () => {
     run.value = data.run || null
     spans.value = data.spans || []
     backendDiagnostics.value = normalizeDiagnostics(data.diagnostics)
-    buildDefaultExpandedSpanIds(buildTraceTree(spans.value)).forEach(id => expandedBranches.add(id))
+    collectTreeSpanIds(buildTraceTree(spans.value)).forEach(id => expandedBranches.add(id))
     selectedSpanId.value = spans.value.find(span => span.status === 'error')?.span_id || spans.value[0]?.span_id || ''
   } catch (error) {
     loadError.value = error.message || '加载 Trace 详情失败'

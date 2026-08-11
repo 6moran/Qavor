@@ -10,6 +10,7 @@ import {
   buildModelTestPayload,
   createDefaultModelForm,
   formatModelTestSuccess,
+  isModelConnectionTestSupported,
   modelToForm,
   MODEL_PROTOCOL_OPTIONS,
   resetAdvancedFields
@@ -146,8 +147,8 @@ const save = async () => {
 }
 
 const testConnection = async () => {
-  if (form.model_type === 'rerank') {
-    message.warning('暂不支持 rerank 模型连接测试')
+  if (!isModelConnectionTestSupported(form.model_type)) {
+    message.warning('暂不支持该模型类型的连接测试')
     return
   }
   if (!form.name.trim() || !form.protocol.trim() || !form.base_url.trim()) {
@@ -254,7 +255,7 @@ onMounted(loadModels)
             <div class="model-url">{{ model.base_url }}</div>
           </div>
           <a-tag :color="model.model_type === 'chat' ? 'blue' : model.model_type === 'embedding' ? 'green' : 'orange'">
-            {{ model.model_type }}
+            {{ model.model_type === 'rerank' ? 'Rerank' : model.model_type }}
           </a-tag>
           <a-tag :color="model.enabled ? 'success' : 'default'">
             {{ model.enabled ? '已启用' : '已禁用' }}
@@ -297,13 +298,25 @@ onMounted(loadModels)
           备注
           <a-input v-model:value="form.remark" placeholder="便于识别此模型配置" />
         </label>
-        <label>
+        <label v-if="form.model_type !== 'rerank'">
           协议 *
           <a-select v-model:value="form.protocol" :options="MODEL_PROTOCOL_OPTIONS" />
         </label>
+        <label v-else>
+          协议
+          <div class="rerank-protocol">
+            <a-tag color="orange">Rerank 固定协议</a-tag>
+            <span class="rerank-protocol-hint">Cohere / Jina 风格 HTTP 重排,自动请求 {base_url}/v1/rerank,无需选择</span>
+          </div>
+        </label>
         <label class="full-width">
           Base URL *
-          <a-input v-model:value="form.base_url" placeholder="https://api.openai.com/v1" />
+          <a-input
+            v-model:value="form.base_url"
+            :placeholder="form.model_type === 'rerank'
+              ? 'https://api.jina.ai/v1(自动追加 /v1/rerank)或填完整 /rerank 端点'
+              : 'https://api.openai.com/v1'"
+          />
         </label>
         <label>
           API Key
@@ -331,7 +344,7 @@ onMounted(loadModels)
               <ChevronDown :size="15" :class="{ rotated: advancedOpen }" />
               高级选项
             </span>
-            <span class="advanced-hint">请求头与推理参数</span>
+            <span class="advanced-hint">{{ form.model_type === 'rerank' ? '请求头配置' : '请求头与推理参数' }}</span>
           </button>
           <div v-if="advancedOpen" class="advanced-content">
             <div class="advanced-toolbar">
@@ -345,16 +358,14 @@ onMounted(loadModels)
               <span>请求头 JSON</span>
             </div>
             <a-textarea v-model:value="form.headers" :rows="4" />
-            <div class="advanced-heading">
-              <span>默认推理参数 JSON</span>
-            </div>
-            <a-textarea v-model:value="form.params" :rows="8" />
+            <template v-if="form.model_type !== 'rerank'">
+              <div class="advanced-heading">
+                <span>默认推理参数 JSON</span>
+              </div>
+              <a-textarea v-model:value="form.params" :rows="8" />
+            </template>
           </div>
         </div>
-      </div>
-
-      <div v-if="form.model_type === 'rerank'" class="model-test-hint">
-        当前模型类型为 rerank，暂不支持连接测试。
       </div>
 
       <a-alert
@@ -373,7 +384,7 @@ onMounted(loadModels)
         <a-button @click="showModal = false">取消</a-button>
         <a-button
           :loading="testing"
-          :disabled="form.model_type === 'rerank'"
+          :disabled="!isModelConnectionTestSupported(form.model_type)"
           @click="testConnection"
         >
           测试连接
@@ -451,6 +462,21 @@ onMounted(loadModels)
   color: var(--gray-700);
   font-size: 12px;
   font-weight: 500;
+}
+
+.rerank-protocol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 32px;
+  justify-content: center;
+}
+
+.rerank-protocol-hint {
+  color: var(--gray-500);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .advanced-section {

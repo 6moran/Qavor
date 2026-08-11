@@ -72,11 +72,20 @@
                 <div v-for="(chunk, index) in queryResult" :key="index" class="result-item">
                   <div class="result-header">
                     <span class="result-index">#{{ index + 1 }}</span>
-                    <span v-if="chunk.score" class="result-score">
-                      相似度: {{ (chunk.score * 100).toFixed(2) }}%
+                    <span v-if="typeof chunk.score === 'number'" class="result-score">
+                      最终分数: {{ (chunk.score * 100).toFixed(2) }}%
                     </span>
-                    <span v-if="chunk.rerank_score" class="result-rerank-score">
-                      重排序分数: {{ (chunk.rerank_score * 100).toFixed(2) }}%
+                    <span v-if="typeof chunk.vector_score === 'number'" class="result-score">
+                      向量: {{ (chunk.vector_score * 100).toFixed(2) }}%
+                    </span>
+                    <span v-if="typeof chunk.keyword_score === 'number'" class="result-score">
+                      关键词: {{ (chunk.keyword_score * 100).toFixed(2) }}%
+                    </span>
+                    <span v-if="typeof chunk.rrf_score === 'number'" class="result-score">
+                      RRF: {{ chunk.rrf_score.toFixed(4) }}
+                    </span>
+                    <span v-if="typeof chunk.rerank_score === 'number'" class="result-rerank-score">
+                      重排: {{ (chunk.rerank_score * 100).toFixed(2) }}%
                     </span>
                   </div>
 
