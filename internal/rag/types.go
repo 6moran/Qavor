@@ -52,6 +52,7 @@ type AnswerOutput struct {
 // RetrievedChunk 是可供 Service 和 Agent 工具消费的结构化检索结果。
 type RetrievedChunk struct {
 	KBID     string  `json:"kb_id"`
+	KBName   string  `json:"kb_name,omitempty"`
 	ChunkID  string  `json:"chunk_id"`
 	FileID   string  `json:"file_id"`
 	Filename string  `json:"filename"`

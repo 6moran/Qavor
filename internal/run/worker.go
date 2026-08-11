@@ -31,6 +31,55 @@ type StreamEvent struct {
 	Todos     []eventbus.TodoItem    // TODO 列表（todo_update 事件携带）
 }
 
+// toolExecutionResult 保存一次工具调用的实际执行结果。
+// Worker 会先收到工具结果事件，稍后再把它回填到 AI 消息中的对应 ToolCall。
+type toolExecutionResult struct {
+	Output       string
+	Status       string
+	ErrorMessage string
+}
+
+// recordToolExecutionResult 按 ToolCallID 暂存工具结果。
+// 不能按工具名称关联，因为同一轮对话中可能多次调用同一个工具；缺少调用 ID 的事件
+// 无法可靠匹配，因此直接忽略，避免把知识库结果写到错误的工具调用上。
+func recordToolExecutionResult(results map[string]toolExecutionResult, ev StreamEvent) {
+	if ev.Type != "tool_result" || ev.ToolCall == nil || ev.ToolCall.ID == "" {
+		return
+	}
+	results[ev.ToolCall.ID] = toolExecutionResult{
+		Output: ev.Content,
+		Status: "success",
+	}
+}
+
+// buildPersistedToolCalls 将模型发起的工具调用与执行阶段收集到的结果合并为数据库实体。
+// 尚未收到对应结果的调用保持 pending，避免像旧逻辑一样无条件标记 success，
+// 同时保留空输出，便于后续区分“未执行完成”和“执行成功但没有返回内容”。
+func buildPersistedToolCalls(toolCalls []schema.ToolCall, results map[string]toolExecutionResult) []entity.ToolCall {
+	persisted := make([]entity.ToolCall, 0, len(toolCalls))
+	for i := range toolCalls {
+		tc := &toolCalls[i]
+		var toolInput entity.JSON
+		if tc.Function.Arguments != "" {
+			_ = json.Unmarshal([]byte(tc.Function.Arguments), &toolInput)
+		}
+
+		call := entity.ToolCall{
+			LanggraphToolCallID: tc.ID,
+			ToolName:            tc.Function.Name,
+			ToolInput:           toolInput,
+			Status:              "pending",
+		}
+		if result, ok := results[tc.ID]; ok {
+			call.ToolOutput = result.Output
+			call.Status = result.Status
+			call.ErrorMessage = result.ErrorMessage
+		}
+		persisted = append(persisted, call)
+	}
+	return persisted
+}
+
 // ErrInterrupted 表示 Agent 因工具审批中断
 var ErrInterrupted = errors.New("run: agent interrupted for tool approval")
 
@@ -243,6 +292,15 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	var assistantMsgs []*schema.Message
 	if w.tracer != nil && item.Trace.TraceID != "" {
 		ctx = trace.ContextFromCarrier(ctx, item.Trace)
+		queueWaitMs := time.Since(item.CreatedAt).Milliseconds()
+		if queueWaitMs < 0 {
+			w.logger.Warn("queue_wait_ms 为负数，可能存在时钟漂移",
+				zap.String("run_id", run.ID),
+				zap.Time("created_at", item.CreatedAt),
+				zap.Int64("queue_wait_ms", queueWaitMs),
+			)
+			queueWaitMs = 0
+		}
 		ctx, consumeSpan = w.tracer.StartSpan(ctx, trace.SpanSpec{
 			Kind:      "queue",
 			Operation: "queue.consume",
@@ -250,7 +308,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			RequestID: requestID,
 			Attributes: entity.JSON{
 				"queue":         "qavor:run:queue",
-				"queue_wait_ms": time.Since(item.CreatedAt).Milliseconds(),
+				"queue_wait_ms": queueWaitMs,
 			},
 		})
 	}
@@ -343,10 +401,14 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	}
 
 	// 3. 执行 Agent，emit 回调发布 message 事件
+	// 工具调用和工具结果来自不同的流事件，先按调用 ID 收集结果，
+	// 保存最终 AI 消息时再一次性合并到 tool_calls 中。
+	toolResults := make(map[string]toolExecutionResult)
 	emit := func(ev StreamEvent) {
 		if ctx.Err() != nil {
 			return
 		}
+		recordToolExecutionResult(toolResults, ev)
 		// todo_update: 持久化到 Redis 并发布 SSE
 		if ev.Type == "todo_update" && conversationID > 0 && w.todoStore != nil {
 			if err := w.todoStore.SaveTodos(ctx, conversationID, ev.Todos); err != nil {
@@ -408,20 +470,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				RunID:            run.ID,
 				RequestID:        requestID,
 			}
-			// 持久化工具调用
-			for i := range msg.ToolCalls {
-				tc := &msg.ToolCalls[i]
-				var toolInput entity.JSON
-				if tc.Function.Arguments != "" {
-					_ = json.Unmarshal([]byte(tc.Function.Arguments), &toolInput)
-				}
-				aiMsg.ToolCalls = append(aiMsg.ToolCalls, entity.ToolCall{
-					LanggraphToolCallID: tc.ID,
-					ToolName:            tc.Function.Name,
-					ToolInput:           toolInput,
-					Status:              "success",
-				})
-			}
+			aiMsg.ToolCalls = buildPersistedToolCalls(msg.ToolCalls, toolResults)
 			// aiMsg 已通过 aiMsg.ToolCalls 携带 tool_calls，由 Create 显式保存
 			if err := w.messageRepo.Create(aiMsg); err != nil {
 				w.logger.Error("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))

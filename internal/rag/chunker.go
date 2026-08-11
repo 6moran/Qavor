@@ -200,6 +200,8 @@ func splitByLines(content string, maxTokens int) []string {
 }
 
 // sliceByTokens 按 Token 窗口切片，并在切片之间保留 overlapTokens 重叠。
+// 窗口超限时优先回溯到最近的自然边界（段落、句末、逗号、空格），
+// 避免在句子中间硬切；边界过于靠前（不足窗口一半）时放弃回溯保持吞吐。
 func (c *Chunker) sliceByTokens(paragraph string) []string {
 	total := utils.CountTokens(paragraph)
 	if total <= c.maxTokens {
@@ -215,6 +217,10 @@ func (c *Chunker) sliceByTokens(paragraph string) []string {
 		piece := string(runes[start:end])
 		// 裁剪回退：按 Token 精确控制。
 		piece = fitToTokenWindow(piece, c.maxTokens)
+		// 递归切分增强：在 Token 窗口内回溯到最近的自然边界，句子不被拦腰切断。
+		if cut := lastNaturalBoundary(piece); cut >= len([]rune(piece))/2 {
+			piece = string([]rune(piece)[:cut])
+		}
 		if strings.TrimSpace(piece) != "" {
 			result = append(result, piece)
 		}
@@ -229,6 +235,43 @@ func (c *Chunker) sliceByTokens(paragraph string) []string {
 		start += advance
 	}
 	return result
+}
+
+// lastNaturalBoundary 在 s 中查找最近的可用自然切分边界，返回边界后的 rune 索引。
+// 从四类边界（段落分隔、句子终结符、逗号/顿号/冒号、空格）各取最靠后的候选，
+// 再取其中位置最靠后者，避免低优先级边界在前部时误放弃高优先级后部边界；
+// 全部找不到时返回 -1。
+func lastNaturalBoundary(s string) int {
+	runes := []rune(s)
+	cut := -1
+	lastRuneIndex := func(chars string) int {
+		for i := len(runes) - 1; i >= 0; i-- {
+			if strings.ContainsRune(chars, runes[i]) {
+				return i
+			}
+		}
+		return -1
+	}
+	// 段落分隔（\n\n），边界在第二个 \n 之后。
+	for i := len(runes) - 2; i >= 0; i-- {
+		if runes[i] == '\n' && runes[i+1] == '\n' {
+			cut = i + 2
+			break
+		}
+	}
+	// 句子终结符，边界在符号之后。
+	if idx := lastRuneIndex("。！？；.!?;"); idx >= 0 && idx+1 > cut {
+		cut = idx + 1
+	}
+	// 逗号/顿号/冒号，边界在符号之后。
+	if idx := lastRuneIndex("，、：,:"); idx >= 0 && idx+1 > cut {
+		cut = idx + 1
+	}
+	// 空格，边界在空格之后。
+	if idx := lastRuneIndex(" "); idx >= 0 && idx+1 > cut {
+		cut = idx + 1
+	}
+	return cut
 }
 
 // guessCharWindow 基于 Token/字符比估算字符窗口长度。

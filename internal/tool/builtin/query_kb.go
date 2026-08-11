@@ -14,6 +14,9 @@ type QueryKBTool struct {
 	ragSvc service.RAGService
 }
 
+// QueryKBDefaultTopK 未传 top_k 或传值无效时的工具默认检索数量。
+const QueryKBDefaultTopK = 10
+
 // NewQueryKBTool 创建知识库检索工具。
 func NewQueryKBTool(ragSvc service.RAGService) *QueryKBTool {
 	return &QueryKBTool{ragSvc: ragSvc}
@@ -49,9 +52,7 @@ func (t *QueryKBTool) Execute(ctx context.Context, args map[string]any) (any, er
 	}
 
 	// 默认 top_k，当 LLM 传入值超出有效范围时使用
-	const defaultTopK = 10
-
-	topK := defaultTopK
+	topK := QueryKBDefaultTopK
 	if raw, exists := args["top_k"]; exists {
 		parsed := parseTopK(raw)
 		if parsed >= 1 && parsed <= 20 {

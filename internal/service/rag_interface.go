@@ -17,6 +17,7 @@ type RAGRetrieveResult struct {
 // RAGChunk 单条结构化检索结果。
 type RAGChunk struct {
 	KBID         string  `json:"kb_id"`
+	KBName       string  `json:"kb_name,omitempty"`
 	ChunkID      string  `json:"chunk_id"`
 	FileID       string  `json:"file_id"`
 	Filename     string  `json:"filename"`

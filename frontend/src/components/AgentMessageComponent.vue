@@ -111,13 +111,7 @@
         >
       </div>
 
-      <div
-        v-if="
-          (message.role == 'received' || message.role == 'assistant') &&
-          message.status == 'finished' &&
-          showRefs
-        "
-      >
+      <div v-if="showRefs">
         <RefsComponent
           :message="message"
           :show-refs="showRefs"
@@ -209,6 +203,10 @@ const props = defineProps({
   showRefs: {
     type: [Array, Boolean],
     default: () => false
+  },
+  sources: {
+    type: Object,
+    default: null
   },
   // 是否为最新消息
   isLatestMessage: {
@@ -335,6 +333,14 @@ const messageImageMimeType = computed(
 const mentionDisplayLabels = computed(() => buildMentionDisplayLabels(props.mention || {}))
 
 const messageSources = computed(() => {
+  if (props.sources) {
+    return {
+      knowledgeChunks: Array.isArray(props.sources.knowledgeChunks)
+        ? props.sources.knowledgeChunks
+        : [],
+      webSources: Array.isArray(props.sources.webSources) ? props.sources.webSources : []
+    }
+  }
   if (props.message.type === 'ai') {
     return MessageProcessor.extractSourcesFromMessage(props.message, availableKnowledgeBases.value)
   }

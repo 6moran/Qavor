@@ -125,7 +125,9 @@
         {
           'is-editing': canEdit && editMode === 'edit',
           'is-iframe-preview':
-            file?.previewType === 'pdf' || (isHtmlFile && htmlPreviewMode === 'render')
+            file?.previewType === 'pdf' ||
+            isOfficePreviewType ||
+            (isHtmlFile && htmlPreviewMode === 'render')
         }
       ]"
     >
@@ -144,6 +146,9 @@
       </template>
       <template v-else-if="file?.previewType === 'pdf' && file?.previewUrl">
         <iframe :src="file.previewUrl" class="pdf-preview" :title="filePath" />
+      </template>
+      <template v-else-if="isOfficePreviewType && file?.previewUrl">
+        <OfficeFilePreview :file="file" :file-path="filePath" :full-height="true" />
       </template>
       <template v-else-if="isHtmlFile && htmlPreviewMode === 'render'">
         <iframe
@@ -228,6 +233,9 @@
                 :title="filePath"
               />
             </template>
+            <template v-else-if="isOfficePreviewType && file?.previewUrl">
+              <OfficeFilePreview :file="file" :file-path="filePath" :full-height="true" />
+            </template>
             <template v-else-if="isHtmlFile && htmlPreviewMode === 'render'">
               <iframe
                 :key="`fullscreen-${htmlPreviewRenderKey}`"
@@ -279,13 +287,15 @@ import {
 } from 'lucide-vue-next'
 import hljs from 'highlight.js/lib/common'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
+import OfficeFilePreview from '@/components/common/OfficeFilePreview.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { escapeHtml } from '@/utils/html'
 import {
   getCodeLanguageByPath,
   getPreviewFileExtension,
   isHtmlPreview,
-  isMarkdownPreview
+  isMarkdownPreview,
+  isOfficePreview
 } from '@/utils/file_preview'
 
 const EDITABLE_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.txt'])
@@ -375,6 +385,7 @@ const fullscreenPreviewVisible = ref(false)
 const htmlPreviewRenderKey = ref(0)
 
 const isMarkdown = computed(() => isMarkdownPreview(props.filePath, props.file?.previewType))
+const isOfficePreviewType = computed(() => isOfficePreview(props.file?.previewType))
 const canEdit = computed(() => {
   const previewType = props.file?.previewType
   return (

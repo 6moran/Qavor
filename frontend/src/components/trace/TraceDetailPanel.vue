@@ -301,7 +301,7 @@ const TraceTreeNode = defineComponent({
             class: 'tree-branch-toggle', type: 'button', 'aria-label': isExpanded ? '收起子调用' : '展开子调用',
             onClick: event => { event.stopPropagation(); emit('toggle-branch', treeProps.node.span_id) }
           }, [h(isExpanded ? ChevronDown : ChevronRight, { size: 14 })]) : h('span', { class: 'tree-branch-placeholder' }),
-          h('span', { class: ['tree-node-kind', `tree-node-kind-${treeProps.node.kind}`] }, kindLabel(treeProps.node.kind)),
+          h('span', { class: ['wf-kind-badge', `wf-kind-${treeProps.node.kind}`] }, kindLabel(treeProps.node.kind)),
           h('span', { class: 'tree-node-name' }, spanName(treeProps.node)),
           treeProps.node.orphan ? h('span', { class: 'tree-orphan-badge' }, '孤儿') : null,
           treeProps.node.status === 'error' ? h('span', { class: 'wf-error-mark' }, '✕') : null,
@@ -347,7 +347,7 @@ const TraceTreeNode = defineComponent({
 .timeline-name { display:flex; align-items:center; gap:6px; min-width:0; }.timeline-name-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .timeline-track { position:relative; height:12px; overflow:hidden; border-radius:6px; background:#f0f2f5; }.timeline-duration { color:#8b94a8; text-align:right; font-size:12px; }
 .wf-bar { position:absolute; top:0; bottom:0; min-width:3px; border-radius:6px; }.wf-bar-llm { background:#1677ff; }.wf-bar-tool { background:#52c41a; }.wf-bar-retriever { background:#722ed1; }.wf-bar-agent { background:#fa8c16; }.wf-bar-http { background:#7b8496; }.wf-bar-queue { background:#13c2c2; }.wf-bar-event { background:#eb2f96; }.wf-bar-persistence { background:#2f54eb; }.wf-bar-error { background:#cf1322; }
-.wf-kind-badge { flex:none; min-width:36px; padding:1px 6px; border-radius:4px; color:#fff; font-size:10px; text-align:center; }.wf-kind-llm { background:#1677ff; }.wf-kind-tool { background:#52c41a; }.wf-kind-retriever { background:#722ed1; }.wf-kind-agent { background:#fa8c16; }.wf-kind-http { background:#7b8496; }.wf-kind-queue { background:#13c2c2; }.wf-kind-event { background:#eb2f96; }.wf-kind-persistence { background:#2f54eb; }
+.wf-kind-badge { flex:none; min-width:36px; padding:1px 6px; border-radius:4px; color:#fff; font-size:10px; text-align:center; }.wf-kind-llm { background:#1677ff; }.wf-kind-tool { background:#52c41a; }.wf-kind-retriever { background:#722ed1; }.wf-kind-agent { background:#fa8c16; }.wf-kind-http { background:#7b8496; }.wf-kind-queue { background:#13c2c2; }.wf-kind-event { background:#eb2f96; }.wf-kind-persistence { background:#2f54eb; }.wf-kind-context { background:#722ed1; }
 .trace-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(330px,40%); min-height:390px; }
 .trace-tree-pane { min-width:0; border-right:1px solid #e7eaf0; }.tree-body { overflow:auto; }.tree-node { border-bottom:1px solid #eef0f3; }.tree-node:last-child { border-bottom:0; }
 .tree-node-row { display:flex; align-items:center; gap:6px; min-height:38px; padding:6px 12px 6px 8px; color:#1f2937; cursor:pointer; transition:background .15s ease,box-shadow .15s ease,color .15s ease; }.tree-node-row:hover { background:#edf5ff; }.tree-node-row--error { color:#8f1d1d; background:#fff8f7; }.tree-node-row--selected { color:#0958d9; background:#dbeafe; outline:1px solid #91caff; outline-offset:-1px; box-shadow:inset 3px 0 #1677ff,0 2px 8px rgba(22,119,255,.14); font-weight:600; }

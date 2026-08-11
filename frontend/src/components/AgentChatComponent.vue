@@ -62,6 +62,7 @@
                     :message="displayItem.message"
                     :is-processing="isDisplayMessageProcessing(row.conv, displayItem)"
                     :show-refs="showMsgRefs(displayItem.message, row.conv)"
+                    :sources="getConversationSources(row.conv)"
                     :hide-tool-calls="true"
                     :mention="mentionConfig"
                     @retry="retryMessage(displayItem.message)"
@@ -2837,8 +2838,8 @@ const showMsgRefs = (msg, conv) => {
     return false
   }
 
-  // 只有真正完成的消息才显示 refs
-  if (msg.isLast && msg.status === 'finished') {
+  // 对话收尾后，只在本轮最后一条 AI 消息下展示 refs。
+  if (msg.isLast) {
     // 检查是否是当前对话的最后一条 AI 消息
     const lastAiMsg = getLastMessage(conv)
     const isLatestInConv = lastAiMsg && lastAiMsg.id === msg.id
