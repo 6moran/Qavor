@@ -59,6 +59,7 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
 	config.DocumentQueue.ApplyDefaults()
+	config.DocumentParser.ApplyDefaults()
 	config.RAG.ApplyDefaults()
 	config.SSE.ApplyDefaults()
 	config.Agent.ApplyDefaults()
@@ -149,7 +150,7 @@ func Load(configPath string) (*Config, error) {
 	if val := os.Getenv("APP_PORT"); val != "" {
 		config.App.Port = atoiOrDefault(val, config.App.Port)
 	}
-	// RAG 环境变量覆盖
+	// RAG 环境变量覆盖（env 覆盖在 ApplyDefaults 之后执行，需手动同步兼容字段）
 	if val := os.Getenv("RAG_CHUNK_TOKENS"); val != "" {
 		config.RAG.ChunkTokens = atoiOrDefault(val, config.RAG.ChunkTokens)
 	}
@@ -158,6 +159,18 @@ func Load(configPath string) (*Config, error) {
 	}
 	if val := os.Getenv("RAG_TOP_K"); val != "" {
 		config.RAG.TopK = atoiOrDefault(val, config.RAG.TopK)
+		// 未单独配置 RAG_VECTOR_TOP_K 时，将 RAG_TOP_K 同步为向量检索 TopK。
+		if _, ok := os.LookupEnv("RAG_VECTOR_TOP_K"); !ok {
+			config.RAG.VectorTopK = config.RAG.TopK
+		}
+	}
+	if val := os.Getenv("RAG_VECTOR_TOP_K"); val != "" {
+		config.RAG.VectorTopK = atoiOrDefault(val, config.RAG.VectorTopK)
+	}
+	if val := os.Getenv("RAG_SCORE_THRESHOLD"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			config.RAG.ScoreThreshold = f
+		}
 	}
 	if val := os.Getenv("RAG_REQUEST_TIMEOUT_SECONDS"); val != "" {
 		config.RAG.RequestTimeoutSeconds = atoiOrDefault(val, config.RAG.RequestTimeoutSeconds)

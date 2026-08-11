@@ -38,37 +38,39 @@ func NewRAGService(cfg config.RAGConfig, kbRepo repository.KnowledgeBaseReposito
 	return &rAGService{cfg: cfg, kbRepo: kbRepo, retriever: retriever, answerer: answerer}
 }
 
-// validateRequest 校验请求参数，并返回实际可用的知识库 ID 列表。
+// validateRequest 校验请求参数，并返回实际可用的知识库 ID 列表及 kb_id→名称映射。
 // 容错策略：只要至少有一个知识库存在就继续检索，仅当全部不存在时返回 CodeRAGKBNotFound；
 // 不存在的 kb_id 会被静默剔除，调用方应使用返回的 validKBIDs 而非原始 kbIDs 继续检索。
-func (s *rAGService) validateRequest(kbIDs []string, query string) (string, []string, error) {
+func (s *rAGService) validateRequest(kbIDs []string, query string) (string, []string, map[string]string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return "", nil, apperrors.New(CodeRAGInvalidRequest, "query 不能为空")
+		return "", nil, nil, apperrors.New(CodeRAGInvalidRequest, "query 不能为空")
 	}
 	if len(kbIDs) == 0 {
-		return "", nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 不能为空")
+		return "", nil, nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 不能为空")
 	}
 	if len(kbIDs) > 10 {
-		return "", nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 最多 10 个")
+		return "", nil, nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 最多 10 个")
 	}
 	if len(query) > 2000 {
-		return "", nil, apperrors.New(CodeRAGInvalidRequest, "query 过长")
+		return "", nil, nil, apperrors.New(CodeRAGInvalidRequest, "query 过长")
 	}
 
 	// 校验每个知识库存在（一次批量查询，避免逐库往返）。
 	for _, id := range kbIDs {
 		if id == "" {
-			return "", nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 存在空值")
+			return "", nil, nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 存在空值")
 		}
 	}
 	bases, err := s.kbRepo.FindByKBIDs(kbIDs)
 	if err != nil {
-		return "", nil, apperrors.New(CodeRAGRetrievalFailed, "校验知识库失败")
+		return "", nil, nil, apperrors.New(CodeRAGRetrievalFailed, "校验知识库失败")
 	}
 	found := make(map[string]bool, len(bases))
+	kbNames := make(map[string]string, len(bases))
 	for _, base := range bases {
 		found[base.KBID] = true
+		kbNames[base.KBID] = base.Name
 	}
 	valid := make([]string, 0, len(kbIDs))
 	for _, id := range kbIDs {
@@ -78,9 +80,9 @@ func (s *rAGService) validateRequest(kbIDs []string, query string) (string, []st
 	}
 	// 至少一个知识库存在即可继续，全部不存在才报错。
 	if len(valid) == 0 {
-		return "", nil, apperrors.New(CodeRAGKBNotFound, "知识库不存在")
+		return "", nil, nil, apperrors.New(CodeRAGKBNotFound, "知识库不存在")
 	}
-	return query, valid, nil
+	return query, valid, kbNames, nil
 }
 
 func mapRAGRetrievalError(err error) error {
@@ -91,6 +93,8 @@ func mapRAGRetrievalError(err error) error {
 		return apperrors.NewWithErr(CodeRAGEmbeddingFailed, "Embedding 服务不可用", err)
 	case errors.Is(err, rag.ErrRetrievalUnavailable), errors.Is(err, rag.ErrEmbeddingModelMismatch):
 		return apperrors.NewWithErr(CodeRAGRetrievalFailed, "向量检索失败", err)
+	case errors.Is(err, rag.ErrChatModelMismatch):
+		return apperrors.NewWithErr(CodeRAGLLMFailed, "知识库 Chat 模型不一致", err)
 	default:
 		return nil
 	}
@@ -98,7 +102,7 @@ func mapRAGRetrievalError(err error) error {
 
 // Retrieve 执行检索但不调用 Chat Model
 func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string, topK int) (*RAGRetrieveResult, error) {
-	query, validKBIDs, err := s.validateRequest(kbIDs, query)
+	query, validKBIDs, kbNames, err := s.validateRequest(kbIDs, query)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +139,15 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 		}
 	}
 
-	docs, err := s.retriever.Retrieve(ctx, query, rag.WithKnowledgeBaseIDs(validKBIDs), einoretriever.WithTopK(topK))
+	opts := []einoretriever.Option{
+		rag.WithKnowledgeBaseIDs(validKBIDs),
+		einoretriever.WithTopK(topK),
+	}
+	// 相似度阈值过滤：低于 ScoreThreshold 的噪声片段不进 prompt 上下文。
+	if s.cfg.ScoreThreshold > 0 {
+		opts = append(opts, einoretriever.WithScoreThreshold(s.cfg.ScoreThreshold))
+	}
+	docs, err := s.retriever.Retrieve(ctx, query, opts...)
 	if err != nil {
 		if mapped := mapRAGRetrievalError(err); mapped != nil {
 			return nil, mapped
@@ -150,8 +162,9 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 	result := &RAGRetrieveResult{QueryText: query, Chunks: make([]RAGChunk, 0, len(chunks))}
 	for _, chunk := range chunks {
 		result.Chunks = append(result.Chunks, RAGChunk{
-			KBID: chunk.KBID, ChunkID: chunk.ChunkID, FileID: chunk.FileID,
-			Filename: chunk.Filename, Content: chunk.Content, Score: chunk.Score,
+			KBID: chunk.KBID, KBName: kbNames[chunk.KBID], ChunkID: chunk.ChunkID,
+			FileID: chunk.FileID, Filename: chunk.Filename, Content: chunk.Content,
+			Score: chunk.Score,
 		})
 	}
 	return result, nil
@@ -159,7 +172,7 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 
 // Answer 执行问答
 func (s *rAGService) Answer(ctx context.Context, kbIDs []string, query string) (*RAGAnswerResult, error) {
-	query, validKBIDs, err := s.validateRequest(kbIDs, query)
+	query, validKBIDs, _, err := s.validateRequest(kbIDs, query)
 	if err != nil {
 		return nil, err
 	}

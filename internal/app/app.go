@@ -394,7 +394,7 @@ func (a *App) initDependencies() error {
 		a.workerDone = make(chan struct{})
 		imgUploader := imageUploader{storage: storage}
 		parser := ingestion.NewParser(
-			ingestion.NewPythonParser("python", "pkg/documentparser/python/parse_document.py", imgUploader),
+			ingestion.NewPythonParser(a.cfg.DocumentParser.PythonPath, "pkg/documentparser/python/parse_document.py", imgUploader),
 			imgUploader,
 		)
 		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser, indexer)

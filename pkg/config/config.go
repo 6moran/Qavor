@@ -8,10 +8,11 @@ import (
 
 // Config 应用配置结构体
 type Config struct {
-	App           AppConfig           `mapstructure:"app"`
-	Auth          AuthConfig          `mapstructure:"auth"`
-	Database      DatabaseConfig      `mapstructure:"database"`
-	DocumentQueue DocumentQueueConfig `mapstructure:"document_queue"`
+	App             AppConfig             `mapstructure:"app"`
+	Auth            AuthConfig            `mapstructure:"auth"`
+	Database        DatabaseConfig        `mapstructure:"database"`
+	DocumentQueue   DocumentQueueConfig   `mapstructure:"document_queue"`
+	DocumentParser  DocumentParserConfig  `mapstructure:"document_parser"`
 	JWT           JWTConfig           `mapstructure:"jwt"`
 	Log           LogConfig           `mapstructure:"log"`
 	CORS          CORSConfig          `mapstructure:"cors"`
@@ -159,7 +160,8 @@ type RAGConfig struct {
 	RerankTopK            int `mapstructure:"rerank_top_k"`
 	RRFK                  int `mapstructure:"rrf_k"`
 	TopK                  int `mapstructure:"top_k"` // 兼容字段：未启用融合/重排时使用
-	RequestTimeoutSeconds int `mapstructure:"request_timeout_seconds"`
+	ScoreThreshold        float64 `mapstructure:"score_threshold"` // 相似度阈值，低于该值的检索片段将被过滤
+	RequestTimeoutSeconds int     `mapstructure:"request_timeout_seconds"`
 	// Chat/Embedding 模型由知识库绑定的模型 ID 决定，不从这里读取。
 	// Embedding 仅保留批处理参数，旧字段保留用于兼容已有 Go 调用方。
 	Embedding EmbeddingConfig `mapstructure:"embedding"`
@@ -178,6 +180,11 @@ func (c *RAGConfig) ApplyDefaults() {
 	if c.ChunkOverlapTokens <= 0 {
 		c.ChunkOverlapTokens = 100
 	}
+	if c.VectorTopK <= 0 && c.TopK > 0 {
+		// 兼容字段归一化：配置仅写了 top_k（未启用融合/重排）时，
+		// 将 top_k 同步为向量检索默认 TopK，避免 VectorTopK 落到 20 兜底。
+		c.VectorTopK = c.TopK
+	}
 	if c.VectorTopK <= 0 {
 		c.VectorTopK = 20
 	}
@@ -195,6 +202,9 @@ func (c *RAGConfig) ApplyDefaults() {
 	}
 	if c.TopK <= 0 {
 		c.TopK = 5
+	}
+	if c.ScoreThreshold <= 0 {
+		c.ScoreThreshold = 0.3
 	}
 	if c.RequestTimeoutSeconds <= 0 {
 		c.RequestTimeoutSeconds = 60
@@ -317,6 +327,20 @@ func (c *DocumentQueueConfig) ApplyDefaults() {
 	}
 	if c.MaxStreamLength <= 0 {
 		c.MaxStreamLength = 100000
+	}
+}
+
+// DocumentParserConfig 文档解析器（Python OCR）配置。
+type DocumentParserConfig struct {
+	// PythonPath Python 解释器路径，默认 "python"（走系统 PATH）。
+	// 优先使用环境变量 QAVOR_PYTHON 覆盖。
+	PythonPath string `mapstructure:"python_path"`
+}
+
+// ApplyDefaults 设置文档解析器默认值。
+func (c *DocumentParserConfig) ApplyDefaults() {
+	if c.PythonPath == "" {
+		c.PythonPath = "python"
 	}
 }
 
