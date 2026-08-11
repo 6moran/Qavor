@@ -73,7 +73,9 @@ func NewWriter(repo TraceRepository, cfg WriterConfig) *Writer {
 func (w *Writer) run() {
 	defer close(w.done)
 	for {
-		func() {
+		// 单次事件处理用匿名函数包裹以捕获 panic 并继续循环；
+		// stopCh 分支返回 true 时由外层退出 run()，否则 Close 永远等不到 done。
+		stopped := func() bool {
 			defer func() {
 				if r := recover(); r != nil {
 					logger.Error("trace writer: process panic recovered",
@@ -84,14 +86,18 @@ func (w *Writer) run() {
 			case <-w.stopCh:
 				w.drain()
 				w.ackPendingFlushes()
-				return
+				return true
 			case event := <-w.events:
 				w.process(event)
 			case ack := <-w.flushCh:
 				w.drain()
 				close(ack)
 			}
+			return false
 		}()
+		if stopped {
+			return
+		}
 	}
 }
 

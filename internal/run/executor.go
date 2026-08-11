@@ -169,14 +169,8 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 			}
 		case schema.Tool:
 			// 工具结果可能是流式（Message 为 nil，内容在 MessageStream 中），
-			// 统一通过 toolResultContent 取完整内容，避免 nil 解引用。
-			emit(StreamEvent{
-				Type:      "tool_result",
-				MessageID: uuid.New().String(),
-				Role:      "tool",
-				Content:   toolResultContent(mv),
-				ToolCall:  &eventbus.ToolCallInfo{Name: mv.ToolName},
-			})
+			// 统一合并完整消息，并保留 ToolCallID 供持久化层关联调用与结果。
+			emit(toolResultEvent(mv))
 		}
 	}
 	return assistantMsgs, nil
@@ -286,17 +280,29 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 	return nil
 }
 
-// toolResultContent 提取工具结果消息的内容。
+// toolResultEvent 提取工具结果消息，并保留调用 ID 供下游关联。
 // 非流式 Tool 事件内容在 mv.Message 中；流式 Tool 事件（可流式工具）
-// Message 为 nil，需消费 MessageStream 合并。统一经 GetMessage 处理。
-func toolResultContent(mv *adk.MessageVariant) string {
+// Message 为 nil，需消费 MessageStream 合并。统一经 GetMessage 处理，避免只保存
+// 某一个流式片段，导致历史消息中的知识来源内容不完整。
+func toolResultEvent(mv *adk.MessageVariant) StreamEvent {
+	event := StreamEvent{
+		Type:      "tool_result",
+		MessageID: uuid.New().String(),
+		Role:      "tool",
+		ToolCall:  &eventbus.ToolCallInfo{},
+	}
 	if mv == nil {
-		return ""
+		return event
 	}
+	event.ToolCall.Name = mv.ToolName
 	if msg, err := mv.GetMessage(); err == nil && msg != nil {
-		return msg.Content
+		event.Content = msg.Content
+		event.ToolCall.ID = msg.ToolCallID
+		if event.ToolCall.Name == "" {
+			event.ToolCall.Name = msg.ToolName
+		}
 	}
-	return ""
+	return event
 }
 
 // emitStream 读取流式输出，逐 chunk 发出 text_delta 事件，返回累积的完整内容与推理内容。
