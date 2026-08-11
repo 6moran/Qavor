@@ -223,10 +223,10 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	// 0. 解析 conversation_id（用于消息持久化）
 	// 前端可能传 Conversation.ThreadID（UUID）或 Conversation.ID（数字），两者都兼容
 	var conversationID uint
-	if conv, err := w.conversationRepo.FindByThreadID(threadID); err == nil && conv != nil {
+	if conv, err := w.conversationRepo.FindByThreadID(ctx, threadID); err == nil && conv != nil {
 		conversationID = conv.ID
 	} else if numID, parseErr := strconv.ParseUint(threadID, 10, 32); parseErr == nil {
-		if conv, err := w.conversationRepo.FindByID(uint(numID)); err == nil && conv != nil {
+		if conv, err := w.conversationRepo.FindByID(ctx, uint(numID)); err == nil && conv != nil {
 			conversationID = conv.ID
 		}
 	}
@@ -581,9 +581,9 @@ func (w *Worker) publishApproval(ctx context.Context, run *entity.AgentRun, ie *
 	msgPayload := map[string]any{
 		"items": []map[string]any{
 			{
-				"status":   "human_approval_required",
-				"approval": approval,
-				"run_id":   run.ID,
+				"status":    "human_approval_required",
+				"approval":  approval,
+				"run_id":    run.ID,
 				"thread_id": run.ConversationThreadID,
 			},
 		},
