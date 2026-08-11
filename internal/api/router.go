@@ -10,12 +10,13 @@ import (
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
 	"Qavor/internal/api/v1/message"
 	"Qavor/internal/api/v1/model"
+	ocrctrl "Qavor/internal/api/v1/ocr"
 	processingjob "Qavor/internal/api/v1/processing_job"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
 	toolctrl "Qavor/internal/api/v1/tool"
-	workspaceapi "Qavor/internal/api/v1/workspace"
 	tracectrl "Qavor/internal/api/v1/trace"
+	workspaceapi "Qavor/internal/api/v1/workspace"
 	"Qavor/internal/middleware"
 	"Qavor/internal/service"
 	skillapi "Qavor/internal/skill/api"
@@ -41,10 +42,12 @@ type Router struct {
 	skillCtrl         *skillapi.Controller
 	sseCtrl           *ssectrl.Controller
 	mcpServerCtrl     *mcpserverctrl.Controller
+	ocrCtrl           *ocrctrl.Controller
 	postStreamHandler *agentctrl.PostStreamHandler
 	runController     *agentctrl.RunController
 	traceCtrl         *tracectrl.Controller
 	workspaceCtrl     *workspaceapi.Controller
+	tracer            *tracepkg.Tracer
 }
 
 // NewRouter 创建路由
@@ -69,6 +72,7 @@ func NewRouter(
 	runController *agentctrl.RunController,
 	traceCtrl *tracectrl.Controller,
 	workspaceCtrl *workspaceapi.Controller,
+	tracer *tracepkg.Tracer,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
@@ -89,6 +93,7 @@ func NewRouter(
 		runController:     runController,
 		traceCtrl:         traceCtrl,
 		workspaceCtrl:     workspaceCtrl,
+		tracer:            tracer,
 	}
 }
 
@@ -97,7 +102,7 @@ func (r *Router) Setup(engine *gin.Engine) {
 	// 全局中间件
 	engine.Use(middleware.Recovery())
 	engine.Use(middleware.Logger())
-	engine.Use(tracepkg.Trace())
+	engine.Use(tracepkg.Middleware(r.tracer))
 	engine.Use(middleware.CORS())
 
 	// 健康检查
@@ -143,9 +148,13 @@ func (r *Router) Setup(engine *gin.Engine) {
 		if r.ragCtrl != nil {
 			r.ragCtrl.RegisterRoutes(v1)
 		}
-
 		// 工具路由
 		r.toolCtrl.RegisterRoutes(v1)
+		// OCR 引擎路由
+		if r.ocrCtrl == nil {
+			r.ocrCtrl = ocrctrl.NewController()
+		}
+		r.ocrCtrl.RegisterRoutes(v1)
 
 		// Skill 路由
 		r.skillCtrl.RegisterRoutes(v1)

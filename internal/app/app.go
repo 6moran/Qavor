@@ -27,6 +27,7 @@ import (
 	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/skill/remote"
 	"Qavor/internal/sse"
+
 	"github.com/cloudwego/eino/adk"
 
 	tracectrl "Qavor/internal/api/v1/trace"
@@ -170,6 +171,7 @@ type App struct {
 	workerDone       chan struct{}
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
+	traceWriter      *trace.Writer
 	mcpManager       *mcp.MCPManager
 	bgManager        *backgroundtask.Manager
 }
@@ -285,6 +287,8 @@ func (a *App) initDatabase() error {
 			&entity.DocumentProcessingJob{},
 			&entity.AgentTrace{},
 			&entity.AgentTraceSpan{},
+			&entity.TraceRecord{},
+			&entity.TraceSpan{},
 			&entity.LongTermMemory{},
 		); err != nil {
 			logger.Warn("数据库迁移警告", zap.Error(err))
@@ -350,7 +354,7 @@ func (a *App) initDependencies() error {
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
 	storage := service.NewMinIOObjectStorage()
-	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage)
+	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage, agentRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo, a.cfg.Agent.WorkspaceRoot)
@@ -479,12 +483,34 @@ func (a *App) initDependencies() error {
 	if a.redis != nil {
 		checkPointStore = agentpkg.NewRedisCheckPointStore(a.redis, 24*time.Hour)
 	}
+
+	// —— 链路追踪 Tracer 装配（在 AgentRuntime 之前创建，供 Runtime/Handler/Worker 共用）——
+	var tracer *trace.Tracer
+	var traceSpanRepo trace.TraceRepository
+	if a.cfg.Trace.Enabled && a.postgresDB != nil {
+		traceSpanRepo = repository.NewTraceSpanRepository(a.postgresDB)
+		traceWriter := trace.NewWriter(traceSpanRepo, trace.WriterConfig{
+			BufferSize: a.cfg.Trace.WriterBufferSize,
+		})
+		a.traceWriter = traceWriter
+		tracer = trace.NewTracer(traceWriter, trace.Config{
+			Enabled:          a.cfg.Trace.Enabled,
+			ContentMode:      a.cfg.Trace.ContentMode,
+			MaxContentLength: a.cfg.Trace.MaxContentLength,
+			Retention:        time.Duration(a.cfg.Trace.RetentionDays) * 24 * time.Hour,
+			TracedRoutes:     a.cfg.Trace.TracedRoutes,
+		})
+		callbacks.AppendGlobalHandlers(trace.NewHandler(tracer))
+		logger.Info("链路追踪 Tracer 已装配")
+	}
+
 	agentRuntime := &agentpkg.AgentRuntime{
 		Policies:            sharedPolicies,
 		WorkspaceRoot:       a.cfg.Agent.WorkspaceRoot,
 		SkillsDir:           skillsDir,
 		ShellTimeoutSeconds: a.cfg.Agent.Security.ShellTimeoutSeconds,
 		Background:          bgManager,
+		Tracer:              tracer,
 		CheckPointStore:     checkPointStore,
 	}
 
@@ -527,7 +553,7 @@ func (a *App) initDependencies() error {
 	}
 	// 上下文压缩用的摘要器（复用 ModelService 适配器，modelID=0 时返回空摘要跳过压缩）
 	ctxSummarizer := contextmgr.NewLLMSummarizer(logger.GetLogger(), &llmClientAdapter{client: nil, modelSvc: modelSvc, modelID: 0})
-	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, ctxSummarizer, logger.GetLogger())
+	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, ctxSummarizer, logger.GetLogger(), tracer)
 
 	// 创建 SSE 模块
 	heartbeatConfig := &sse.HeartbeatConfig{
@@ -554,7 +580,7 @@ func (a *App) initDependencies() error {
 	chatSvc := service.NewChatService(agentMgr, contextMgr, modelSvc, sseManager, messageRepo, conversationRepo, logger.GetLogger())
 
 	// 创建 Chat Controller
-	chatCtrl := chatctrl.NewController(chatSvc)
+	chatCtrl := chatctrl.NewController(chatSvc, tracer)
 
 	// 创建 Agent Options Provider
 	agentOpts := agentctrl.NewDefaultOptionsProvider(toolRegistry, mcpServerSvc, skillSvc, knowledgeBaseSvc, agentSvc)
@@ -562,8 +588,12 @@ func (a *App) initDependencies() error {
 	// —— Run 流式服务装配（POST 单连接流式 + Redis Stream 持久化）——
 	var postStreamHandler *agentctrl.PostStreamHandler
 	var runController *agentctrl.RunController
+	// runRepo 在 Run 流式和 Trace 查询中都需要（Trace 用于补充 BusinessRunStatus）
+	var runRepo repository.AgentRunRepository
+	if a.postgresDB != nil {
+		runRepo = repository.NewAgentRunRepository(a.postgresDB)
+	}
 	if a.redis != nil {
-		runRepo := repository.NewAgentRunRepository(a.postgresDB)
 		blockDur := time.Duration(a.cfg.Run.BlockSeconds) * time.Second
 		pub := eventbus.NewPublisher(a.redis, a.cfg.Run.StreamMaxLen)
 		sub := eventbus.NewSubscriber(a.redis, blockDur)
@@ -572,7 +602,7 @@ func (a *App) initDependencies() error {
 
 		executor := run.NewAgentExecutor(agentMgr, modelSvc)
 		todoStore := run.NewTodoStore(a.redis, 24*time.Hour)
-		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, logger.GetLogger(), a.cfg.Run.WorkerCount)
+		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, logger.GetLogger(), a.cfg.Run.WorkerCount, tracer)
 
 		// 启动 Run Worker 池
 		runWorkerCtx, cancelRunWorker := context.WithCancel(context.Background())
@@ -581,34 +611,28 @@ func (a *App) initDependencies() error {
 		logger.Info("Run Worker 已启动", zap.Int("worker_count", a.cfg.Run.WorkerCount))
 
 		heartbeatPeriod := time.Duration(a.cfg.SSE.HeartbeatInterval) * time.Second
-		postStreamHandler = agentctrl.NewPostStreamHandler(sub, runRepo, reqQueue, heartbeatPeriod, logger.GetLogger())
+		postStreamHandler = agentctrl.NewPostStreamHandler(sub, runRepo, reqQueue, heartbeatPeriod, logger.GetLogger(), tracer, traceSpanRepo)
 		runController = agentctrl.NewRunController(runRepo, reqQueue, runWorker, logger.GetLogger(), contextMgr, conversationRepo, todoStore)
 	} else {
 		logger.Warn("Redis 不可用，Run 流式服务未启动")
 	}
 
-	// —— 链路追踪装配 ——
+	// —— 链路追踪 Service/Controller/Janitor 装配（Tracer 已在上面创建）——
 	var traceCtrl *tracectrl.Controller
 	if a.cfg.Trace.Enabled && a.postgresDB != nil {
-		traceRepo := repository.NewTraceRepository(a.postgresDB)
-		trace.Init(traceRepo, true, a.cfg.Trace.MaxContentLength)
-		callbacks.AppendGlobalHandlers(trace.NewHandler())
-		traceSvc := service.NewTraceService(traceRepo)
+		traceSvc := service.NewTraceService(traceSpanRepo, runRepo)
 		traceCtrl = tracectrl.NewController(traceSvc)
 		jctx, cancelJanitor := context.WithCancel(context.Background())
 		a.traceJanitorStop = cancelJanitor
-		go trace.NewJanitor(traceRepo,
+		go trace.NewJanitor(traceSpanRepo,
 			time.Duration(a.cfg.Trace.JanitorInterval)*time.Minute,
 			time.Duration(a.cfg.Trace.TimeoutMinutes)*time.Minute,
-			time.Duration(a.cfg.Trace.RetentionDays)*24*time.Hour,
 		).Run(jctx)
 		logger.Info("链路追踪已启用")
-	} else {
-		trace.Init(nil, false, a.cfg.Trace.MaxContentLength)
 	}
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, workspaceCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, workspaceCtrl, tracer)
 
 	return nil
 }
@@ -716,6 +740,16 @@ func (a *App) gracefulShutdown() {
 	if a.traceJanitorStop != nil {
 		a.traceJanitorStop()
 		logger.Info("Trace Janitor 已关闭")
+	}
+
+	// Flush 并关闭 Trace Writer（最多 3 秒）
+	if a.traceWriter != nil {
+		flushCtx, flushCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		if err := a.traceWriter.Close(flushCtx); err != nil {
+			logger.Warn("Trace Writer 关闭超时", zap.Error(err))
+		}
+		flushCancel()
+		logger.Info("Trace Writer 已关闭")
 	}
 
 	// 关闭 MCP 服务器连接（SSE 断开、stdio 子进程终止等）

@@ -14,4 +14,11 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 		group.GET("", ctrl.ListTraces)
 		group.GET("/:trace_id", ctrl.GetTrace)
 	}
+
+	// Run 反向定位：通过 run_id 查询关联的 trace_id
+	runsGroup := r.Group("/runs")
+	runsGroup.Use(middleware.Auth())
+	{
+		runsGroup.GET("/:run_id/trace", ctrl.GetTraceByRunID)
+	}
 }

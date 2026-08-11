@@ -88,3 +88,7 @@ internal/testhelper/
 __pycache__/
 *.pyc
 qavor/
+
+data/
+
+.workbuddy/

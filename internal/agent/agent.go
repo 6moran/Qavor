@@ -10,10 +10,8 @@ import (
 	"Qavor/internal/agent/localfs"
 	"Qavor/internal/agent/localfs/security"
 	"Qavor/internal/mcp"
-	"Qavor/internal/model/entity"
 	"Qavor/internal/skill"
 	"Qavor/internal/tool"
-	"Qavor/internal/trace"
 	"Qavor/pkg/logger"
 
 	"github.com/cloudwego/eino/adk"
@@ -35,6 +33,7 @@ type Agent struct {
 	runner     *adk.Runner // 审批中断/恢复执行器（带 CheckPointStore）
 	mcpManager *mcp.MCPManager
 	config     *AgentConfig
+	runtime    *AgentRuntime // 运行时共享依赖（含 Tracer），用于管理 agent.run Span
 }
 
 // AgentResponse 智能体响应
@@ -124,6 +123,9 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 				return WrapStreamToolError(next, security.ErrDenied)
 			},
 		},
+		// 内层：文件不存在（多为知识库文档被误当 workspace 文件读取）时，
+		// 返回可恢复结果并引导模型改用 query_kb。放在最后=最内层，优先于上面的通用错误喂回。
+		newToolErrorRecoveryMiddleware(),
 	}
 
 	// 组装中间件列表：工具过滤 + Skill 激活检测 + 工具审批
@@ -234,6 +236,7 @@ func newAgent(a adk.ResumableAgent, mcpManager *mcp.MCPManager, cfg *AgentConfig
 		agent:      a,
 		mcpManager: mcpManager,
 		config:     cfg,
+		runtime:    runtime,
 	}
 	var store adk.CheckPointStore
 	if runtime != nil {
@@ -309,14 +312,18 @@ func (a *Agent) executionContext(ctx context.Context, query string) context.Cont
 	return ctx
 }
 
-// Execute 执行智能体（包装：执行 + trace 收尾）
+// Execute 执行智能体（通过 AgentRuntime 管理 agent.run Span 生命周期）
 func (a *Agent) Execute(ctx context.Context, query string) (*AgentResponse, error) {
-	resp, err := a.execute(ctx, query)
+	meta := buildRunMeta(ctx, a.config, query, "sync")
+	var resp *AgentResponse
+	err := a.runtime.Run(ctx, meta, func(runCtx context.Context) error {
+		var execErr error
+		resp, execErr = a.execute(runCtx, query)
+		return execErr
+	})
 	if err != nil {
-		trace.FinishTrace(ctx, entity.TraceStatusFailed, err.Error())
 		return nil, fmt.Errorf("Agent 执行失败: %w", err)
 	}
-	trace.FinishTrace(ctx, entity.TraceStatusSuccess, "")
 	return resp, nil
 }
 
@@ -376,33 +383,13 @@ func (it *AgentEventIterator) Next() (*adk.AgentEvent, bool) {
 	return it.iter.Next()
 }
 
-// traceFinishingIterator 迭代器代理：流结束/出错时收尾 trace
-// （ExecuteIter 的 ctx 由调用方注入 trace 上下文，adk 会将其传给组件回调）
-type traceFinishingIterator struct {
-	inner *adk.AsyncIterator[*adk.AgentEvent]
-	ctx   context.Context
-}
-
-func (it *traceFinishingIterator) Next() (*adk.AgentEvent, bool) {
-	ev, ok := it.inner.Next()
-	if !ok {
-		if it.ctx.Err() != nil {
-			trace.FinishTrace(it.ctx, entity.TraceStatusCancelled, "context cancelled")
-		} else {
-			trace.FinishTrace(it.ctx, entity.TraceStatusSuccess, "")
-		}
-		return nil, false
-	}
-	if ev.Err != nil {
-		trace.FinishTrace(it.ctx, entity.TraceStatusFailed, ev.Err.Error())
-	}
-	return ev, true
-}
-
 // ExecuteIter 执行智能体并返回事件迭代器（用于流式输出）。
-// 通过 runner 执行以启用 CheckPointStore，确保审批中断时 checkpoint 被持久化。
+// 通过 AgentRuntime.StartRun 创建 agent.run Span，由 tracedIterator 在迭代器
+// 真正耗尽/错误/取消/中断时结束 Span（不在返回迭代器时提前结束）。
 func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schema.Message) *AgentEventIterator {
 	ctx = a.executionContext(ctx, query)
+	meta := buildRunMeta(ctx, a.config, query, "stream")
+	runCtx, span := a.runtime.StartRun(ctx, meta)
 
 	messages := make([]*schema.Message, 0, len(history)+1)
 	messages = append(messages, history...)
@@ -427,19 +414,24 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schem
 	}
 
 	// 使用 runner 执行以支持 CheckPointStore（中断时自动保存 checkpoint）
-	iter := a.runner.Run(ctx, messages, runOpts...)
-	return &AgentEventIterator{iter: &traceFinishingIterator{inner: iter, ctx: ctx}}
+	iter := a.runner.Run(runCtx, messages, runOpts...)
+	return &AgentEventIterator{iter: newTracedIterator(runCtx, span, iter)}
 }
 
 // Resume 从审批中断点恢复执行。
 // checkpointID 为中断时保存的 checkpoint key；targets 为 中断地址→用户决定 的映射
 // （approve 放行 / reject 拒绝）。
+// 恢复执行创建新的 agent.run Span，不重新打开中断时的旧 Span。
 func (a *Agent) Resume(ctx context.Context, checkpointID string, targets map[string]any) (*AgentEventIterator, error) {
-	iter, err := a.runner.ResumeWithParams(ctx, checkpointID, &adk.ResumeParams{Targets: targets})
+	meta := buildRunMeta(ctx, a.config, "", "resume")
+	runCtx, span := a.runtime.StartRun(ctx, meta)
+
+	iter, err := a.runner.ResumeWithParams(runCtx, checkpointID, &adk.ResumeParams{Targets: targets})
 	if err != nil {
+		EndRunFromError(span, err, runCtx.Err())
 		return nil, err
 	}
-	return &AgentEventIterator{iter: iter}, nil
+	return &AgentEventIterator{iter: newTracedIterator(runCtx, span, iter)}, nil
 }
 
 // GetMCPManager 获取 MCP 管理器

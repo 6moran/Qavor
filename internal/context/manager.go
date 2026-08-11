@@ -28,9 +28,11 @@ type contextManager struct {
 	longTermMgr  *longterm.Manager
 	summarizer   Summarizer
 	logger       *zap.Logger
+	tracer       *trace.Tracer
 }
 
 // NewContextManager 创建上下文管理器
+// tracer 为链路追踪实例（可为 nil，nil 时手动 span 为 no-op）
 func NewContextManager(
 	config *ContextConfig,
 	messageRepo repository.MessageRepository,
@@ -38,6 +40,7 @@ func NewContextManager(
 	longTermMgr *longterm.Manager,
 	summarizer Summarizer,
 	logger *zap.Logger,
+	tracer *trace.Tracer,
 ) ContextManager {
 	return &contextManager{
 		config:       config,
@@ -49,6 +52,7 @@ func NewContextManager(
 		longTermMgr:  longTermMgr,
 		summarizer:   summarizer,
 		logger:       logger,
+		tracer:       tracer,
 	}
 }
 
@@ -73,7 +77,7 @@ func (m *contextManager) LoadHistory(ctx context.Context, conversationID uint) (
 func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistoryQuery) (*ContextWindow, error) {
 	start := time.Now()
 
-	spanCtx, span := trace.StartSpan(ctx, entity.SpanKindContext, "FetchContext",
+	spanCtx, span := trace.StartSpan(m.tracer, ctx, entity.SpanKindContext, "FetchContext",
 		fmt.Sprintf("conv=%d limit=%d", query.ConversationID, query.Limit))
 
 	messages, err := m.fetcher.LoadHistory(spanCtx, query)
@@ -139,7 +143,7 @@ func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistory
 func (m *contextManager) CompressContext(ctx context.Context, window *ContextWindow) (*ContextWindow, error) {
 	start := time.Now()
 
-	spanCtx, span := trace.StartSpan(ctx, entity.SpanKindContext, "CompressContext",
+	spanCtx, span := trace.StartSpan(m.tracer, ctx, entity.SpanKindContext, "CompressContext",
 		fmt.Sprintf("orig=%d msgs, %d tokens", len(window.Messages), window.TotalTokens))
 
 	systemTokens := m.builder.EstimateSystemTokens(window)
@@ -175,7 +179,7 @@ func (m *contextManager) CompressContext(ctx context.Context, window *ContextWin
 func (m *contextManager) CompressWithSummary(ctx context.Context, window *ContextWindow) (*ContextWindow, error) {
 	start := time.Now()
 
-	spanCtx, span := trace.StartSpan(ctx, entity.SpanKindContext, "CompressWithSummary",
+	spanCtx, span := trace.StartSpan(m.tracer, ctx, entity.SpanKindContext, "CompressWithSummary",
 		fmt.Sprintf("msg_count=%d", len(window.Messages)))
 
 	// 检查是否需要摘要（消息数 > 阈值）
@@ -218,7 +222,7 @@ func (m *contextManager) CompressWithSummary(ctx context.Context, window *Contex
 func (m *contextManager) BuildPrompt(ctx context.Context, window *ContextWindow, userMessage *schema.Message) []*schema.Message {
 	start := time.Now()
 
-	spanCtx, span := trace.StartSpan(ctx, entity.SpanKindContext, "BuildPrompt",
+	spanCtx, span := trace.StartSpan(m.tracer, ctx, entity.SpanKindContext, "BuildPrompt",
 		fmt.Sprintf("input=%d msgs, %d tokens", len(window.Messages), window.TotalTokens))
 
 	result := m.builder.BuildPrompt(window, userMessage)
@@ -260,7 +264,7 @@ func (m *contextManager) UpdateShortMemory(ctx context.Context, conversationID u
 		return nil
 	}
 
-	spanCtx, span := trace.StartSpan(ctx, entity.SpanKindContext, "UpdateShortMemory",
+	spanCtx, span := trace.StartSpan(m.tracer, ctx, entity.SpanKindContext, "UpdateShortMemory",
 		fmt.Sprintf("conv=%d role=%s", conversationID, message.Role))
 
 	err := m.shortTermMgr.UpdateMemory(spanCtx, conversationID, message, modelID)

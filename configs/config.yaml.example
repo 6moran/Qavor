@@ -162,13 +162,20 @@ rag:
   embedding:
     batch_size: 15
 
-# 链路追踪：Agent 对话执行链路观测（eino Callback 全局采集）
+# 链路追踪：Middleware 管理 HTTP Span、AgentRuntime 管理 Agent Run Span、eino Callback 管理组件 Span
 trace:
-  enabled: true             # 总开关，关闭后不注册 Handler/中间件透传/janitor 不启动
+  enabled: true             # 总开关，关闭后不注册 Handler/中间件/janitor，Agent/Run 行为不受影响
+  content_mode: summary     # 内容模式：none（不保存摘要）/ summary（按 Unicode rune 截断）
   max_content_length: 500   # 内容字段截断长度（字符）
-  retention_days: 7         # 数据保留天数，过期物理删除
-  timeout_minutes: 30       # running 超过此时长标记为 timeout
+  retention_days: 7         # 数据保留天数，过期物理删除（按 trace_records.expires_at）
+  timeout_minutes: 30       # running Span 超过此时长标记为 timeout
   janitor_interval: 5       # 清理任务执行间隔（分钟）
+  writer_buffer_size: 2048  # Writer 异步队列缓冲区大小
+  traced_routes:            # 需追踪的 HTTP 路由（method + path 精确匹配）
+    - "POST /api/v1/chat"
+    - "POST /api/v1/chat/call"
+    - "POST /api/v1/chat/stream"
+    - "POST /api/v1/agent/runs"
 
 # 联网搜索工具配置
 # 所有字段优先从环境变量读取（WEB_SEARCH_PROVIDER / WEB_SEARCH_BASE_URL / WEB_SEARCH_API_KEY），

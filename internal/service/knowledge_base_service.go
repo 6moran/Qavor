@@ -10,8 +10,10 @@ import (
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	bizerrors "Qavor/pkg/errors"
+	"Qavor/pkg/logger"
 
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 )
 
 // knowledgeBaseService 知识库服务实现
@@ -20,6 +22,7 @@ type knowledgeBaseService struct {
 	modelRepo repository.ModelRepository
 	fileRepo  repository.KnowledgeFileRepository
 	storage   ObjectStorage
+	agentRepo repository.AgentRepository
 }
 
 // Get 根据知识库ID获取知识库详情
@@ -172,7 +175,21 @@ func (s *knowledgeBaseService) Delete(kbID string) error {
 		}
 	}
 	// 级联删除数据库记录（同一事务）。
-	return s.repo.DeleteByKBID(kbID)
+	if err := s.repo.DeleteByKBID(kbID); err != nil {
+		return err
+	}
+	// 联动清理：解除所有智能体对该知识库的绑定，避免 Agent 侧残留失效引用。
+	if s.agentRepo != nil {
+		if affected, err := s.agentRepo.UnbindKnowledge(context.Background(), kbID); err != nil {
+			// 绑定清理失败不应阻断删除主流程，仅记录告警。
+			if logger.Initialized() {
+				logger.Warn("删除知识库后清理 Agent 绑定失败", zap.String("kb_id", kbID), zap.Error(err))
+			}
+		} else if affected > 0 && logger.Initialized() {
+			logger.Info("删除知识库后已自动解绑 Agent", zap.String("kb_id", kbID), zap.Int64("affected_agents", affected))
+		}
+	}
+	return nil
 }
 
 // knowledgeBaseNotFoundError 返回知识库不存在的错误
@@ -181,9 +198,10 @@ func knowledgeBaseNotFoundError() error {
 }
 
 // NewKnowledgeBaseService 创建知识库服务实例。
-// fileRepo 与 storage 用于删除知识库时清理文件记录与对象存储。
-func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository, modelRepo repository.ModelRepository, fileRepo repository.KnowledgeFileRepository, storage ObjectStorage) KnowledgeBaseService {
-	return &knowledgeBaseService{repo: repo, modelRepo: modelRepo, fileRepo: fileRepo, storage: storage}
+// fileRepo 与 storage 用于删除知识库时清理文件记录与对象存储；
+// agentRepo 用于删除知识库时联动解除 Agent 绑定（可为 nil，此时跳过联动清理）。
+func NewKnowledgeBaseService(repo repository.KnowledgeBaseRepository, modelRepo repository.ModelRepository, fileRepo repository.KnowledgeFileRepository, storage ObjectStorage, agentRepo repository.AgentRepository) KnowledgeBaseService {
+	return &knowledgeBaseService{repo: repo, modelRepo: modelRepo, fileRepo: fileRepo, storage: storage, agentRepo: agentRepo}
 }
 
 // Create 创建知识库

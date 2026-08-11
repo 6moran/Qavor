@@ -38,41 +38,49 @@ func NewRAGService(cfg config.RAGConfig, kbRepo repository.KnowledgeBaseReposito
 	return &rAGService{cfg: cfg, kbRepo: kbRepo, retriever: retriever, answerer: answerer}
 }
 
-func (s *rAGService) validateRequest(kbIDs []string, query string) (string, error) {
+// validateRequest 校验请求参数，并返回实际可用的知识库 ID 列表。
+// 容错策略：只要至少有一个知识库存在就继续检索，仅当全部不存在时返回 CodeRAGKBNotFound；
+// 不存在的 kb_id 会被静默剔除，调用方应使用返回的 validKBIDs 而非原始 kbIDs 继续检索。
+func (s *rAGService) validateRequest(kbIDs []string, query string) (string, []string, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return "", apperrors.New(CodeRAGInvalidRequest, "query 不能为空")
+		return "", nil, apperrors.New(CodeRAGInvalidRequest, "query 不能为空")
 	}
 	if len(kbIDs) == 0 {
-		return "", apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 不能为空")
+		return "", nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 不能为空")
 	}
 	if len(kbIDs) > 10 {
-		return "", apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 最多 10 个")
+		return "", nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 最多 10 个")
 	}
 	if len(query) > 2000 {
-		return "", apperrors.New(CodeRAGInvalidRequest, "query 过长")
+		return "", nil, apperrors.New(CodeRAGInvalidRequest, "query 过长")
 	}
 
 	// 校验每个知识库存在（一次批量查询，避免逐库往返）。
 	for _, id := range kbIDs {
 		if id == "" {
-			return "", apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 存在空值")
+			return "", nil, apperrors.New(CodeRAGInvalidRequest, "knowledge_base_ids 存在空值")
 		}
 	}
 	bases, err := s.kbRepo.FindByKBIDs(kbIDs)
 	if err != nil {
-		return "", apperrors.New(CodeRAGRetrievalFailed, "校验知识库失败")
+		return "", nil, apperrors.New(CodeRAGRetrievalFailed, "校验知识库失败")
 	}
 	found := make(map[string]bool, len(bases))
 	for _, base := range bases {
 		found[base.KBID] = true
 	}
+	valid := make([]string, 0, len(kbIDs))
 	for _, id := range kbIDs {
-		if !found[id] {
-			return "", apperrors.New(CodeRAGKBNotFound, "知识库不存在")
+		if found[id] {
+			valid = append(valid, id)
 		}
 	}
-	return query, nil
+	// 至少一个知识库存在即可继续，全部不存在才报错。
+	if len(valid) == 0 {
+		return "", nil, apperrors.New(CodeRAGKBNotFound, "知识库不存在")
+	}
+	return query, valid, nil
 }
 
 func mapRAGRetrievalError(err error) error {
@@ -90,7 +98,7 @@ func mapRAGRetrievalError(err error) error {
 
 // Retrieve 执行检索但不调用 Chat Model
 func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string, topK int) (*RAGRetrieveResult, error) {
-	query, err := s.validateRequest(kbIDs, query)
+	query, validKBIDs, err := s.validateRequest(kbIDs, query)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +118,24 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 		}
 	}
 
-	docs, err := s.retriever.Retrieve(ctx, query, rag.WithKnowledgeBaseIDs(kbIDs), einoretriever.WithTopK(topK))
+	// 静默剔除不存在的知识库后，记录剩余不可用范围，便于排查配置漂移。
+	if len(validKBIDs) < len(kbIDs) {
+		dropped := make([]string, 0, len(kbIDs)-len(validKBIDs))
+		validSet := make(map[string]bool, len(validKBIDs))
+		for _, id := range validKBIDs {
+			validSet[id] = true
+		}
+		for _, id := range kbIDs {
+			if !validSet[id] {
+				dropped = append(dropped, id)
+			}
+		}
+		if logger.Initialized() {
+			logger.Warn("部分知识库不存在，已跳过", zap.Strings("dropped_kb_ids", dropped))
+		}
+	}
+
+	docs, err := s.retriever.Retrieve(ctx, query, rag.WithKnowledgeBaseIDs(validKBIDs), einoretriever.WithTopK(topK))
 	if err != nil {
 		if mapped := mapRAGRetrievalError(err); mapped != nil {
 			return nil, mapped
@@ -134,7 +159,7 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 
 // Answer 执行问答
 func (s *rAGService) Answer(ctx context.Context, kbIDs []string, query string) (*RAGAnswerResult, error) {
-	query, err := s.validateRequest(kbIDs, query)
+	query, validKBIDs, err := s.validateRequest(kbIDs, query)
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +167,7 @@ func (s *rAGService) Answer(ctx context.Context, kbIDs []string, query string) (
 		return nil, apperrors.New(CodeRAGNotConfigured, "RAG 未配置")
 	}
 
-	out, err := s.answerer.Answer(ctx, rag.AnswerInput{KnowledgeBaseIDs: kbIDs, Query: query})
+	out, err := s.answerer.Answer(ctx, rag.AnswerInput{KnowledgeBaseIDs: validKBIDs, Query: query})
 	if err != nil {
 		if mapped := mapRAGRetrievalError(err); mapped != nil {
 			return nil, mapped

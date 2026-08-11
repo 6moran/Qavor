@@ -1,6 +1,7 @@
 //go:build ignore
 
-// 临时脚本：为链路追踪创建 agent_traces / agent_trace_spans 表（AutoMigrate 幂等）。
+// 临时脚本：为链路追踪创建 agent_traces / agent_trace_spans（旧表）和 trace_records / trace_spans（新表）。
+// AutoMigrate 幂等，不删除旧表。
 // 用法: go run scripts/migrate_trace.go
 package main
 
@@ -24,9 +25,12 @@ func main() {
 		fmt.Println("open db error:", err)
 		os.Exit(1)
 	}
-	if err := db.AutoMigrate(&entity.AgentTrace{}, &entity.AgentTraceSpan{}); err != nil {
+	if err := db.AutoMigrate(
+		&entity.AgentTrace{}, &entity.AgentTraceSpan{},
+		&entity.TraceRecord{}, &entity.TraceSpan{},
+	); err != nil {
 		fmt.Println("migrate error:", err)
 		os.Exit(1)
 	}
-	fmt.Println("agent_traces / agent_trace_spans 表已就绪")
+	fmt.Println("agent_traces / agent_trace_spans（旧表）和 trace_records / trace_spans（新表）已就绪")
 }
