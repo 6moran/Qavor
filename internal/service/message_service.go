@@ -43,7 +43,7 @@ func NewMessageService(messageRepo repository.MessageRepository, conversationRep
 // CreateMessage 创建消息
 func (s *messageService) CreateMessage(req *request.CreateMessageRequest) (*dto.MessageResponse, error) {
 	// 校验会话存在
-	conv, err := s.conversationRepo.FindByID(req.ConversationID)
+	conv, err := s.conversationRepo.FindByID(context.Background(), req.ConversationID)
 	if err != nil {
 		return nil, err
 	}

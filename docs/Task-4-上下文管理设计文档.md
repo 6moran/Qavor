@@ -667,12 +667,339 @@ context:
 
 ---
 
-# 12 后续扩展
+# 12 上下文管理六大维度
 
-1. **精确 Token 计数**：接入 tiktoken-go，支持模型特定的 Token 计数
-2. **消息摘要压缩**：当历史消息过多时，调用 LLM 生成摘要替代旧消息
-3. **多轮对话优化**：支持 Tool Call 消息的上下文保留
-4. **滑动窗口**：支持按时间范围（而非数量）裁剪历史消息
-5. **RAG 集成**：接入向量检索，注入相关知识片段
-6. **工具调用**：支持 Function Calling / Tool Use
-7. **多模态支持**：支持图片、文件等多模态消息
+## 12.1 维度总览
+
+| 维度 | 关注点 | 当前状态 | 优先级 |
+|------|--------|----------|--------|
+| **存储和传递** | 消息持久化、历史加载、数据流转 | ✅ 已实现 | - |
+| **裁剪和压缩** | Token 限制、硬切片、摘要生成 | ⚠️ 部分实现 | P1 |
+| **组装和注入** | System Prompt、RAG、工具定义 | ✅ 已实现 | - |
+| **理解和增强** | 代词消解、省略恢复、实体链接 | ❌ 未实现 | P2 |
+| **优化和策略** | 滑动窗口、重要性排序、动态调整 | ❌ 未实现 | P2 |
+| **监控和调试** | Token 用量追踪、上下文质量评估 | ❌ 未实现 | P1 |
+
+---
+
+## 12.2 存储和传递（✅ 已实现）
+
+### 已完成
+- 消息持久化（同步/异步）
+- 历史消息加载（游标分页）
+- Redis 短期记忆缓存
+
+### 架构图
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  用户消息   │ ──► │ MessageRepo │ ──► │  历史加载   │
+│  (Persist)  │     │  (MySQL)    │     │  (Fetcher)  │
+└─────────────┘     └─────────────┘     └─────────────┘
+                           │
+                           ▼
+                    ┌─────────────┐
+                    │   Redis     │
+                    │ (短期记忆)   │
+                    └─────────────┘
+```
+
+---
+
+## 12.3 裁剪和压缩（⚠️ 部分实现）
+
+### 已完成
+- Token 硬切片（保留最近消息）
+- Tool Calling 消息对保护
+
+### 待实现
+
+#### 12.3.1 LLM 摘要压缩
+```go
+// Compressor 新增方法
+type Compressor interface {
+    // SummarizeMessages 使用 LLM 生成消息摘要
+    SummarizeMessages(ctx context.Context, messages []*schema.Message) (string, error)
+    
+    // CompressWithSummary 使用摘要替代旧消息
+    CompressWithSummary(ctx context.Context, window *ContextWindow) (*ContextWindow, error)
+}
+```
+
+**触发条件**：
+- 消息数量 > `SummaryThreshold`（默认 20 条）
+- Token 数量 > `SummaryMaxTokens`（默认 8000）
+
+**压缩策略**：
+```
+原始消息: [msg1, msg2, msg3, ..., msg20, msg21, msg22]
+                    │
+                    ▼ LLM 摘要
+压缩后:   [摘要: "用户讨论了...", msg21, msg22]
+```
+
+#### 12.3.2 重要性排序裁剪
+```go
+// 重要性评分
+type MessageImportance struct {
+    Message  *schema.Message
+    Score    float64  // 0.0 - 1.0
+    Reason   string   // 评分原因
+}
+
+// 评分规则
+// - 包含实体/数字的消息：+0.3
+// - 包含决策/结论的消息：+0.4
+// - 用户明确要求记住的消息：+0.5
+// - 纯寒暄/确认消息：-0.2
+```
+
+#### 12.3.3 时间范围裁剪
+```go
+// 按时间裁剪
+type TimeRangeTrimmer struct {
+    MaxAge      time.Duration  // 最大保留时间（如 24h）
+    MinMessages int            // 最少保留消息数
+}
+```
+
+---
+
+## 12.4 组装和注入（✅ 已实现）
+
+### 已完成
+- System Prompt 注入
+- 长期记忆上下文注入
+- RAG 检索结果注入
+- 工具定义注入
+
+### 增强：上下文指代注入
+
+```go
+// ContextWindow 新增字段
+type ContextWindow struct {
+    // ... 现有字段
+    EntityContext string  // 实体上下文：代词→实体映射
+}
+
+// 注入格式
+// [实体上下文]
+// 张三 → 用户提到的人物
+// 北京 → 用户提到的地点
+// Python → 用户偏好的编程语言
+```
+
+---
+
+## 12.5 理解和增强（❌ 未实现）
+
+### 12.5.1 代词消解（Coreference Resolution）
+
+**问题场景**：
+```
+用户：张三今天去北京了
+用户：他住在哪里？  // "他" 指向 "张三"
+```
+
+**解决方案**：
+```go
+// CoreferenceResolver 代词消解器
+type CoreferenceResolver interface {
+    // Resolve 识别代词指向的实体
+    Resolve(ctx context.Context, messages []*schema.Message) ([]*EntityLink, error)
+}
+
+type EntityLink struct {
+    Pronoun   string  // 代词：他、她、它、这个
+    Entity    string  // 实体：张三、北京
+    Position  int     // 在消息中的位置
+    Confidence float64 // 置信度
+}
+```
+
+**实现策略**：
+1. **规则匹配**：基于性别、单复数等语法规则
+2. **LLM 辅助**：复杂场景调用轻量级 LLM
+3. **上下文缓存**：实体信息缓存到 `ContextWindow`
+
+### 12.5.2 省略恢复
+
+**问题场景**：
+```
+用户：今天天气怎么样？
+助手：北京今天晴天，25度
+用户：明天呢？  // 省略了"天气"
+```
+
+**解决方案**：
+```go
+// EllipsisRecovery 省略恢复器
+type EllipsisRecovery interface {
+    // Recover 恢复省略的信息
+    Recover(ctx context.Context, currentMsg *schema.Message, history []*schema.Message) (*schema.Message, error)
+}
+```
+
+**实现策略**：
+1. **模式识别**：识别常见省略模式（"呢"、"那"、"这个"）
+2. **上下文补全**：从历史消息中提取被省略的信息
+3. **Prompt 增强**：在用户消息前追加补全信息
+
+### 12.5.3 实体链接
+
+**问题场景**：
+```
+用户：我喜欢 Python
+用户：帮我写个脚本  // 需要知道"脚本"是 Python 脚本
+```
+
+**解决方案**：
+```go
+// EntityLinker 实体链接器
+type EntityLinker interface {
+    // Link 链接实体到具体指代
+    Link(ctx context.Context, messages []*schema.Message) ([]*EntityInfo, error)
+}
+
+type EntityInfo struct {
+    Name       string            // 实体名
+    Type       string            // 实体类型：person/location/language
+    Attributes map[string]string // 实体属性
+    FirstMention int             // 首次提及的消息索引
+}
+```
+
+---
+
+## 12.6 优化和策略（❌ 未实现）
+
+### 12.6.1 滑动窗口
+
+```go
+// SlidingWindow 滑动窗口
+type SlidingWindow struct {
+    MaxAge      time.Duration  // 最大保留时间
+    MinMessages int            // 最少保留消息数
+    MaxMessages int            // 最多保留消息数
+}
+
+// 策略
+// 1. 优先保留最近时间的消息
+// 2. 保证至少 MinMessages 条消息
+// 3. 不超过 MaxMessages 条消息
+```
+
+### 12.6.2 动态窗口调整
+
+```go
+// DynamicWindow 动态窗口
+type DynamicWindow struct {
+    BaseSize        int     // 基础窗口大小
+    ComplexityScale float64 // 复杂度缩放因子
+}
+
+// 根据问题复杂度调整窗口
+// - 简单问题（天气、时间）：小窗口
+// - 复杂问题（代码调试、多轮推理）：大窗口
+```
+
+### 12.6.3 重要性排序
+
+```go
+// ImportanceRanker 重要性排序器
+type ImportanceRanker interface {
+    // Rank 对消息进行重要性排序
+    Rank(messages []*schema.Message) []*MessageImportance
+}
+
+// 评分维度
+// - 实体密度：包含多少命名实体
+// - 信息增益：是否提供了新信息
+// - 决策相关：是否包含决策/结论
+// - 用户强调：用户是否明确要求记住
+```
+
+---
+
+## 12.7 监控和调试（❌ 未实现）
+
+### 12.7.1 Token 用量追踪
+
+```go
+// TokenUsage Token 用量
+type TokenUsage struct {
+    ConversationID uint
+    RequestID      string
+    InputTokens    int
+    OutputTokens   int
+    TotalTokens    int
+    TruncatedCount int     // 被裁剪的消息数
+    Timestamp      time.Time
+}
+
+// 存储到数据库，用于成本核算和优化
+```
+
+### 12.7.2 上下文质量评估
+
+```go
+// ContextQuality 上下文质量
+type ContextQuality struct {
+    Completeness   float64  // 完整性：保留了多少关键信息
+    Relevance      float64  // 相关性：上下文与问题的相关度
+    Coherence      float64  // 连贯性：上下文是否连贯
+    InformationLoss float64 // 信息损失：裁剪丢失了多少信息
+}
+
+// 评估方法
+// - 完整性：实体覆盖率
+// - 相关性：语义相似度
+// - 连贯性：对话流畅度
+// - 信息损失：摘要前后对比
+```
+
+### 12.7.3 调试日志
+
+```go
+// ContextDebug 上下文调试信息
+type ContextDebug struct {
+    OriginalMessages  []*schema.Message  // 原始消息
+    TrimmedMessages   []*schema.Message  // 裁剪后消息
+    SystemPrompt      string             // 最终 System Prompt
+    TokenBreakdown    map[string]int     // Token 分布
+    CompressionRatio  float64            // 压缩率
+    ProcessingTime    time.Duration      // 处理耗时
+}
+
+// 输出格式
+// [DEBUG] 原始消息: 15 条, 4500 tokens
+// [DEBUG] 裁剪后: 8 条, 2800 tokens
+// [DEBUG] 压缩率: 37.8%
+// [DEBUG] 处理耗时: 23ms
+```
+
+---
+
+# 13 后续扩展优先级
+
+## P0（当前迭代）
+1. ✅ 消息持久化
+2. ✅ 历史加载
+3. ✅ Token 裁剪
+4. ✅ Prompt 组装
+
+## P1（下一迭代）
+1. LLM 摘要压缩
+2. Token 用量追踪
+3. 调试日志
+
+## P2（后续迭代）
+1. 代词消解
+2. 省略恢复
+3. 滑动窗口
+4. 动态窗口调整
+
+## P3（远期规划）
+1. 重要性排序
+2. 上下文质量评估
+3. 多模态支持

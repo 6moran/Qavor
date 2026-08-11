@@ -257,7 +257,8 @@ export class MessageProcessor {
 
       for (const toolCall of msg.tool_calls) {
         const toolName = (toolCall?.name || toolCall?.function?.name || '').toLowerCase()
-        if (!toolName.includes('tavily_search')) continue
+        // 兼容 web_search（新工具名）与 tavily_search（历史映射）
+        if (!toolName.includes('tavily_search') && !toolName.includes('web_search')) continue
 
         const content = toolCall?.tool_call_result?.content
         const parsed = parseToolResultContent(content)

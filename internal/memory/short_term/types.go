@@ -66,10 +66,12 @@ type SummaryConfig struct {
 }
 
 // DefaultSummaryConfig 默认摘要配置
+// TokenThreshold 应小于上下文窗口的 MaxTokens，确保摘要先于裁剪生成
+// 当前上下文窗口为 32768，80% ≈ 26214，取 26000 留余量
 func DefaultSummaryConfig() *SummaryConfig {
 	return &SummaryConfig{
 		MessageThreshold: 20,
-		TokenThreshold:   8000,
+		TokenThreshold:   26000,
 		EnableAsync:      true,
 	}
 }
