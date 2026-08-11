@@ -5,21 +5,25 @@
     </div>
 
     <div class="kb-results" v-if="normalizedChunks.length > 0">
-      <div v-for="fileGroup in fileGroupList" :key="fileGroup.filename" class="file-group">
+      <div v-for="fileGroup in fileGroupList" :key="fileGroup.key" class="file-group">
         <div
           class="file-header"
-          :class="{ expanded: expandedFiles.has(fileGroup.filename) }"
-          @click="toggleFile(fileGroup.filename)"
+          :class="{ expanded: expandedFiles.has(fileGroup.key) }"
+          @click="toggleFile(fileGroup.key)"
         >
           <div class="file-info">
             <ChevronRight
-              v-if="!expandedFiles.has(fileGroup.filename)"
+              v-if="!expandedFiles.has(fileGroup.key)"
               :size="14"
               class="expand-icon"
             />
             <ChevronDown v-else :size="14" class="expand-icon" />
             <FileText :size="14" color="var(--gray-600)" />
-            <span class="file-name">{{ fileGroup.filename }}</span>
+            <span v-if="fileGroup.kb_name" class="file-kb-name" :title="fileGroup.kb_name">
+              {{ fileGroup.kb_name }}
+            </span>
+            <span v-if="fileGroup.kb_name" class="kb-name-sep">/</span>
+            <span class="file-name" :title="fileGroup.filename">{{ fileGroup.filename }}</span>
             <span class="chunk-count">{{ fileGroup.chunks.length }} chunks</span>
           </div>
           <button
@@ -32,7 +36,7 @@
           </button>
         </div>
 
-        <div v-if="expandedFiles.has(fileGroup.filename)" class="chunks-container">
+        <div v-if="expandedFiles.has(fileGroup.key)" class="chunks-container">
           <div
             v-for="(chunk, index) in fileGroup.chunks"
             :key="getChunkKey(chunk, index)"
@@ -82,6 +86,9 @@ import { computed, ref, watch } from 'vue'
 import { FileText, ChevronRight, ChevronDown, Eye } from 'lucide-vue-next'
 import KbChunkDetailModal from './KbChunkDetailModal.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
+import { useDatabaseStore } from '@/stores/database'
+
+const databaseStore = useDatabaseStore()
 
 const props = defineProps({
   chunks: {
@@ -148,37 +155,48 @@ const fileGroupList = computed(() => {
   const groups = new Map()
   for (const item of normalizedChunks.value) {
     const filename = item?.metadata?.source || '未知来源'
-    if (!groups.has(filename)) {
-      groups.set(filename, {
+    const kbId = item?.kb_id || ''
+    // 分组维度 = 知识库 + 文件，避免不同知识库的同名文件被合并
+    const groupKey = `${kbId}::${filename}`
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, {
+        key: groupKey,
         filename,
-        kb_id: item?.kb_id || '',
+        kb_id: kbId,
         file_id: item?.file_id || '',
+        kb_name:
+          item?.kb_name ||
+          item?.metadata?.kb_name ||
+          (kbId ? databaseStore.getDatabaseNameById(kbId) : ''),
         chunks: []
       })
     }
-    groups.get(filename).chunks.push(item)
+    groups.get(groupKey).chunks.push(item)
   }
 
-  return Array.from(groups.values()).sort((a, b) => a.filename.localeCompare(b.filename))
+  return Array.from(groups.values()).sort((a, b) => {
+    const kbDiff = (a.kb_name || '').localeCompare(b.kb_name || '')
+    return kbDiff !== 0 ? kbDiff : a.filename.localeCompare(b.filename)
+  })
 })
 
 watch(
   fileGroupList,
   (groups) => {
     // 分组变化时仅清理失效展开项，默认保持折叠状态。
-    const validFilenames = new Set(groups.map((item) => item.filename))
+    const validKeys = new Set(groups.map((item) => item.key))
     expandedFiles.value = new Set(
-      [...expandedFiles.value].filter((filename) => validFilenames.has(filename))
+      [...expandedFiles.value].filter((key) => validKeys.has(key))
     )
   },
   { immediate: true }
 )
 
-const toggleFile = (filename) => {
-  if (expandedFiles.value.has(filename)) {
-    expandedFiles.value.delete(filename)
+const toggleFile = (key) => {
+  if (expandedFiles.value.has(key)) {
+    expandedFiles.value.delete(key)
   } else {
-    expandedFiles.value.add(filename)
+    expandedFiles.value.add(key)
   }
 }
 
@@ -275,6 +293,25 @@ const openFileDetail = (fileGroup) => {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+        }
+
+        .file-kb-name {
+          font-size: 12px;
+          color: var(--main-700);
+          font-weight: 500;
+          background: var(--main-50);
+          border-radius: 4px;
+          padding: 1px 6px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 40%;
+          flex-shrink: 0;
+        }
+
+        .kb-name-sep {
+          color: var(--gray-400);
+          flex-shrink: 0;
         }
 
         .chunk-count {

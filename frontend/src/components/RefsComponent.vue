@@ -205,15 +205,7 @@ const copyText = async (text) => {
 }
 
 const showRefs = computed(() => {
-  // 如果只是为了显示模型信息，不需要检查状态
-  if (props.showRefs && Array.isArray(props.showRefs) && props.showRefs.includes('model')) {
-    return true
-  }
-  // 原有的逻辑
-  return (
-    (msg.value.role == 'received' || msg.value.role == 'assistant') &&
-    msg.value.status == 'finished'
-  )
+  return props.showRefs === true || (Array.isArray(props.showRefs) && props.showRefs.length > 0)
 })
 
 // 添加重新生成方法
