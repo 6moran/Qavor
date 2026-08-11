@@ -34,6 +34,7 @@ import (
 	"Qavor/internal/store"
 	"Qavor/internal/tool"
 	"Qavor/internal/tool/builtin"
+	"Qavor/internal/tool/builtin/websearch"
 	"Qavor/internal/trace"
 	"Qavor/internal/worker"
 	"Qavor/pkg/config"
@@ -433,9 +434,16 @@ func (a *App) initDependencies() error {
 	// 创建 ToolVectorizer（预留，embedder 为 nil 时不启用向量检索）
 	vectorizer := mcp.NewToolVectorizer(mcpManager, nil)
 
+	// 创建 WebSearch 工具
+	// 按 config.App.Mode 与 API Key 决定：真实 Provider / Mock（debug 无 Key）/ 不注册（release 无 Key）
+	wsTool, wsErr := websearch.NewTool(a.cfg.WebSearch, a.cfg.App.Mode)
+	if wsErr != nil {
+		logger.Warn("WebSearch 工具初始化失败，跳过注册", zap.Error(wsErr))
+	}
+
 	// 创建 ToolRegistry
 	toolRegistry := tool.NewDefaultRegistry()
-	toolProvider := builtin.NewBuiltinToolProvider(ragSvc)
+	toolProvider := builtin.NewBuiltinToolProvider(ragSvc, wsTool)
 	toolRegistry.RegisterFromProvider(toolProvider)
 
 	// 初始化 Skill 相关组件
@@ -498,7 +506,7 @@ func (a *App) initDependencies() error {
 	shortTermMgr := shortterm.NewManager(shortTermStore, shortTermBuffer, shortTermState, shortTermSummary, logger.GetLogger())
 
 	// 创建 Service
-	conversationSvc := service.NewConversationService(conversationRepo, shortTermMgr)
+	conversationSvc := service.NewConversationService(conversationRepo, shortTermMgr, logger.GetLogger())
 	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建长期记忆模块（用户画像/偏好/决策/项目事实，跨会话持久化）
@@ -513,8 +521,8 @@ func (a *App) initDependencies() error {
 
 	// 创建上下文管理器（集成 Short Memory + Long Term Memory）
 	contextConfig := &contextmgr.ContextConfig{
-		MaxTokens:     4096,
-		ReserveTokens: 1024,
+		MaxTokens:     32768, // 上下文窗口（对话历史保留上限），中文每字约2-3 Token
+		ReserveTokens: 4096,  // 预留给模型回复的 Token
 		SystemPrompt:  "You are a helpful assistant.",
 	}
 	// 上下文压缩用的摘要器（复用 ModelService 适配器，modelID=0 时返回空摘要跳过压缩）

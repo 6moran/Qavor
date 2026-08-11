@@ -1,13 +1,14 @@
 package conversation
 
 import (
+	"strconv"
+
 	"Qavor/internal/model/dto/request"
 	"Qavor/internal/service"
 	"Qavor/pkg/errors"
 	"Qavor/pkg/logger"
 	"Qavor/pkg/response"
 	"Qavor/pkg/validator"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -32,7 +33,7 @@ func (ctrl *Controller) CreateConversation(c *gin.Context) {
 		return
 	}
 
-	resp, err := ctrl.conversationService.CreateConversation(&req)
+	resp, err := ctrl.conversationService.CreateConversation(c.Request.Context(), &req)
 	if err != nil {
 		if errors.IsBizError(err) {
 			logger.Warn("业务错误，创建会话失败", zap.Error(err))
@@ -56,7 +57,7 @@ func (ctrl *Controller) GetConversation(c *gin.Context) {
 		return
 	}
 
-	resp, err := ctrl.conversationService.GetConversation(uint(id))
+	resp, err := ctrl.conversationService.GetConversation(c.Request.Context(), uint(id))
 	if err != nil {
 		if errors.IsBizError(err) {
 			logger.Warn("业务错误，获取会话失败", zap.Uint64("id", id), zap.Error(err))
@@ -87,7 +88,7 @@ func (ctrl *Controller) UpdateConversation(c *gin.Context) {
 		return
 	}
 
-	resp, err := ctrl.conversationService.UpdateConversation(uint(id), &req)
+	resp, err := ctrl.conversationService.UpdateConversation(c.Request.Context(), uint(id), &req)
 	if err != nil {
 		if errors.IsBizError(err) {
 			logger.Warn("业务错误，更新会话失败", zap.Uint64("id", id), zap.Error(err))
@@ -111,7 +112,7 @@ func (ctrl *Controller) DeleteConversation(c *gin.Context) {
 		return
 	}
 
-	if err := ctrl.conversationService.DeleteConversation(uint(id)); err != nil {
+	if err := ctrl.conversationService.DeleteConversation(c.Request.Context(), uint(id)); err != nil {
 		if errors.IsBizError(err) {
 			logger.Warn("业务错误，删除会话失败", zap.Uint64("id", id), zap.Error(err))
 			response.BizError(c, err)
@@ -140,7 +141,7 @@ func (ctrl *Controller) ListConversations(c *gin.Context) {
 		return
 	}
 
-	resp, err := ctrl.conversationService.ListConversations(&req)
+	resp, err := ctrl.conversationService.ListConversations(c.Request.Context(), &req)
 	if err != nil {
 		if errors.IsBizError(err) {
 			logger.Warn("业务错误，获取会话列表失败", zap.Error(err))
@@ -173,7 +174,7 @@ func (ctrl *Controller) SearchConversations(c *gin.Context) {
 		pageSize = ps
 	}
 
-	resp, err := ctrl.conversationService.SearchConversations(query, page, pageSize)
+	resp, err := ctrl.conversationService.SearchConversations(c.Request.Context(), query, page, pageSize)
 	if err != nil {
 		response.BizError(c, err)
 		return
@@ -191,7 +192,7 @@ func (ctrl *Controller) CloseConversation(c *gin.Context) {
 		return
 	}
 
-	resp, err := ctrl.conversationService.CloseConversation(uint(id))
+	resp, err := ctrl.conversationService.CloseConversation(c.Request.Context(), uint(id))
 	if err != nil {
 		if errors.IsBizError(err) {
 			logger.Warn("业务错误，关闭会话失败", zap.Uint64("id", id), zap.Error(err))
@@ -215,7 +216,7 @@ func (ctrl *Controller) ArchiveConversation(c *gin.Context) {
 		return
 	}
 
-	resp, err := ctrl.conversationService.ArchiveConversation(uint(id))
+	resp, err := ctrl.conversationService.ArchiveConversation(c.Request.Context(), uint(id))
 	if err != nil {
 		if errors.IsBizError(err) {
 			logger.Warn("业务错误，归档会话失败", zap.Uint64("id", id), zap.Error(err))
@@ -228,4 +229,27 @@ func (ctrl *Controller) ArchiveConversation(c *gin.Context) {
 	}
 
 	response.Success(c, resp)
+}
+
+// ClearContext 清空会话上下文（轻量重置）
+func (ctrl *Controller) ClearContext(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		response.BadRequest(c, "无效的ID")
+		return
+	}
+
+	if err := ctrl.conversationService.ClearContext(c.Request.Context(), uint(id)); err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，清空上下文失败", zap.Uint64("id", id), zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("清空上下文失败", zap.Uint64("id", id), zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+
+	response.Success(c, nil)
 }

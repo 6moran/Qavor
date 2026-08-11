@@ -360,9 +360,10 @@ func (m *contextManager) GetAgentState(ctx context.Context, conversationID uint)
 	llmMessagesTokens := contentTokens + toolTokens + summaryTokens
 	llmInputTokens := systemTokens + llmMessagesTokens // tools_tokens 暂未追踪
 
-	// 摘要触发阈值（与 short_term DefaultSummaryConfig.TokenThreshold 一致）
-	summaryTriggerTokens := 8000
+	// 上下文窗口上限（裁剪阈值）
 	contextWindow := m.config.MaxTokens
+	// 摘要触发阈值：在上下文窗口 80% 时触发，确保摘要先于裁剪生成
+	summaryTriggerTokens := int(float64(contextWindow) * 0.8)
 	remainingContextTokens := contextWindow - llmInputTokens
 	if remainingContextTokens < 0 {
 		remainingContextTokens = 0

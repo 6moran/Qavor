@@ -64,6 +64,7 @@ func Load(configPath string) (*Config, error) {
 	config.Agent.ApplyDefaults()
 	config.Run.ApplyDefaults()
 	config.Trace.ApplyDefaults()
+	config.WebSearch.ApplyDefaults()
 
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -163,6 +164,26 @@ func Load(configPath string) (*Config, error) {
 	}
 	if val := os.Getenv("RAG_EMBEDDING_BATCH_SIZE"); val != "" {
 		config.RAG.Embedding.BatchSize = atoiOrDefault(val, config.RAG.Embedding.BatchSize)
+	}
+	// WebSearch 环境变量覆盖（API Key 建议通过环境变量注入，避免提交到代码仓库）
+	if val := os.Getenv("WEB_SEARCH_PROVIDER"); val != "" {
+		config.WebSearch.Provider = val
+	}
+	if val := os.Getenv("WEB_SEARCH_BASE_URL"); val != "" {
+		config.WebSearch.BaseURL = val
+	}
+	if val := os.Getenv("WEB_SEARCH_API_KEY"); val != "" {
+		config.WebSearch.APIKey = val
+	}
+	// QAVOR_ 前缀的环境变量（与 viper SetEnvPrefix 对齐）
+	if val := os.Getenv("QAVOR_WEB_SEARCH_PROVIDER"); val != "" {
+		config.WebSearch.Provider = val
+	}
+	if val := os.Getenv("QAVOR_WEB_SEARCH_BASE_URL"); val != "" {
+		config.WebSearch.BaseURL = val
+	}
+	if val := os.Getenv("QAVOR_WEB_SEARCH_API_KEY"); val != "" {
+		config.WebSearch.APIKey = val
 	}
 
 	globalConfig = config
