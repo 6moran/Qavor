@@ -503,10 +503,11 @@ export const queryApi = {
    * @returns {Promise} - 测试结果
    */
   queryTest: async (kbId, query, meta = {}) => {
-    return apiPost(`/api/knowledge/databases/${kbId}/query-test`, {
+    const response = await apiPost(`/api/knowledge/databases/${kbId}/query-test`, {
       query,
       meta
     })
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -515,7 +516,8 @@ export const queryApi = {
    * @returns {Promise} - 查询参数
    */
   getKnowledgeBaseQueryParams: async (kbId) => {
-    return apiGet(`/api/knowledge/databases/${kbId}/query-params`)
+    const response = await apiGet(`/api/knowledge/databases/${kbId}/query-params`)
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -525,7 +527,8 @@ export const queryApi = {
    * @returns {Promise} - 更新结果
    */
   updateKnowledgeBaseQueryParams: async (kbId, params) => {
-    return apiPut(`/api/knowledge/databases/${kbId}/query-params`, params)
+    const response = await apiPut(`/api/knowledge/databases/${kbId}/query-params`, params)
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -535,9 +538,10 @@ export const queryApi = {
    * @returns {Promise} - 生成的问题列表
    */
   generateSampleQuestions: async (kbId, count = 10) => {
-    return apiPost(`/api/knowledge/databases/${kbId}/sample-questions`, {
+    const response = await apiPost(`/api/knowledge/databases/${kbId}/sample-questions`, {
       count
     })
+    return unwrapKnowledgeResponse(response)
   },
 
   /**
@@ -546,7 +550,8 @@ export const queryApi = {
    * @returns {Promise} - 问题列表
    */
   getSampleQuestions: async (kbId) => {
-    return apiGet(`/api/knowledge/databases/${kbId}/sample-questions`)
+    const response = await apiGet(`/api/knowledge/databases/${kbId}/sample-questions`)
+    return unwrapKnowledgeResponse(response)
   }
 }
 
@@ -668,6 +673,23 @@ export const typeApi = {
 // === RAG评估分组 ===
 // =============================================================================
 
+/**
+ * 解包 Go 后端统一响应为前端组件期望的 { message: 'success', data } 结构。
+ * 后端统一响应为 { code, message, data }，成功时 code=0；
+ * 失败时抛出带业务信息的 Error，供组件 catch 后展示。
+ */
+const unwrapEvaluationResponse = (response) => {
+  if (response && typeof response === 'object' && typeof response.code === 'number') {
+    if (response.code !== 0) {
+      const error = new Error(response.message || '评估接口请求失败')
+      error.response = { status: 400, data: response }
+      throw error
+    }
+    return { message: 'success', data: response.data }
+  }
+  return response
+}
+
 export const evaluationApi = {
   uploadDataset: async (kbId, file, metadata = {}) => {
     const formData = new FormData()
@@ -675,11 +697,13 @@ export const evaluationApi = {
     formData.append('name', metadata.name || '')
     formData.append('description', metadata.description || '')
 
-    return apiPost(`/api/evaluation/databases/${kbId}/datasets/upload`, formData)
+    const response = await apiPost(`/api/v1/evaluation/databases/${kbId}/datasets/upload`, formData)
+    return unwrapEvaluationResponse(response)
   },
 
   listDatasets: async (kbId) => {
-    return apiGet(`/api/evaluation/databases/${kbId}/datasets`)
+    const response = await apiGet(`/api/v1/evaluation/databases/${kbId}/datasets`)
+    return unwrapEvaluationResponse(response)
   },
 
   getDataset: async (kbId, datasetId, page = 1, pageSize = 50) => {
@@ -687,31 +711,37 @@ export const evaluationApi = {
       page: page.toString(),
       page_size: pageSize.toString()
     })
-    return apiGet(`/api/evaluation/databases/${kbId}/datasets/${datasetId}?${params}`)
+    const response = await apiGet(`/api/v1/evaluation/databases/${kbId}/datasets/${datasetId}?${params}`)
+    return unwrapEvaluationResponse(response)
   },
 
   deleteDataset: async (datasetId) => {
-    return apiDelete(`/api/evaluation/datasets/${datasetId}`)
+    const response = await apiDelete(`/api/v1/evaluation/datasets/${datasetId}`)
+    return unwrapEvaluationResponse(response)
   },
 
   downloadDataset: async (datasetId) => {
-    return apiGet(`/api/evaluation/datasets/${datasetId}/download`, {}, 'blob')
+    return apiGet(`/api/v1/evaluation/datasets/${datasetId}/download`, {}, 'blob')
   },
 
   generateDataset: async (kbId, params) => {
-    return apiPost(`/api/evaluation/databases/${kbId}/datasets/generate`, params)
+    const response = await apiPost(`/api/v1/evaluation/databases/${kbId}/datasets/generate`, params)
+    return unwrapEvaluationResponse(response)
   },
 
   resumeDatasetGeneration: async (kbId, datasetId) => {
-    return apiPost(`/api/evaluation/databases/${kbId}/datasets/${datasetId}/resume`, {})
+    const response = await apiPost(`/api/v1/evaluation/databases/${kbId}/datasets/${datasetId}/resume`, {})
+    return unwrapEvaluationResponse(response)
   },
 
   runEvaluation: async (kbId, params) => {
-    return apiPost(`/api/evaluation/databases/${kbId}/runs`, params)
+    const response = await apiPost(`/api/v1/evaluation/databases/${kbId}/runs`, params)
+    return unwrapEvaluationResponse(response)
   },
 
   listRuns: async (kbId) => {
-    return apiGet(`/api/evaluation/databases/${kbId}/runs`)
+    const response = await apiGet(`/api/v1/evaluation/databases/${kbId}/runs`)
+    return unwrapEvaluationResponse(response)
   },
 
   getRunResults: async (kbId, runId, params = {}) => {
@@ -721,11 +751,13 @@ export const evaluationApi = {
     if (params.pageSize) queryParams.append('page_size', params.pageSize)
     if (params.errorOnly !== undefined) queryParams.append('error_only', params.errorOnly)
 
-    const url = `/api/evaluation/databases/${kbId}/runs/${runId}${queryParams.toString() ? '?' + queryParams.toString() : ''}`
-    return apiGet(url)
+    const url = `/api/v1/evaluation/databases/${kbId}/runs/${runId}${queryParams.toString() ? '?' + queryParams.toString() : ''}`
+    const response = await apiGet(url)
+    return unwrapEvaluationResponse(response)
   },
 
   deleteRun: async (kbId, runId) => {
-    return apiDelete(`/api/evaluation/databases/${kbId}/runs/${runId}`)
+    const response = await apiDelete(`/api/v1/evaluation/databases/${kbId}/runs/${runId}`)
+    return unwrapEvaluationResponse(response)
   }
 }
