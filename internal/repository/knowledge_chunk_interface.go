@@ -17,6 +17,8 @@ type KnowledgeChunkRepository interface {
 	ReplaceByFileID(ctx context.Context, kbID, fileID string, chunks []*entity.KnowledgeChunk) error
 	// FindNearestByKBIDs 按知识库列表向量检索 TopK，只查询 ready 状态的文件。
 	FindNearestByKBIDs(ctx context.Context, kbIDs []string, queryVector pgvector.Vector, limit int) ([]ChunkWithFile, error)
+	// FindKeywordByKBIDs 按字符相似度检索指定知识库的已入库分块。
+	FindKeywordByKBIDs(ctx context.Context, kbIDs []string, query string, limit int) ([]ChunkWithFile, error)
 }
 
 // ChunkWithFile 携带文件名的分块结果，用于向量检索直接构造引用。

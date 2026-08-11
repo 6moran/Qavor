@@ -70,3 +70,26 @@ func (r *knowledgeChunkRepository) FindNearestByKBIDs(ctx context.Context, kbIDs
 	}
 	return rows, nil
 }
+
+// FindKeywordByKBIDs 使用 pg_trgm 按字符相似度检索已入库分块。
+func (r *knowledgeChunkRepository) FindKeywordByKBIDs(ctx context.Context, kbIDs []string, query string, limit int) ([]ChunkWithFile, error) {
+	if len(kbIDs) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	var rows []ChunkWithFile
+	sql := `SELECT c.chunk_id, c.kb_id, c.file_id, f.filename, c.content,
+		word_similarity($1, c.content) AS score
+		FROM knowledge_chunks c
+		JOIN knowledge_files f ON f.file_id = c.file_id AND f.kb_id = c.kb_id
+		WHERE c.kb_id = ANY($2)
+		  AND f.status = $3
+		ORDER BY $1 <<-> c.content, c.chunk_id
+		LIMIT $4`
+	if err := r.db.WithContext(ctx).Raw(sql, query, kbIDs, searchableKnowledgeFileStatus, limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}

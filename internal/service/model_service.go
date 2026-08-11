@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"Qavor/internal/embedding"
 	"Qavor/internal/llm"
 	"Qavor/internal/model/dto/request"
 	dto "Qavor/internal/model/dto/response"
 	"Qavor/internal/model/entity"
+	"Qavor/internal/rag"
 	"Qavor/internal/repository"
 	"Qavor/pkg/crypto"
 	"Qavor/pkg/database/types"
@@ -38,6 +40,8 @@ type ModelService interface {
 	ResolveEmbedding(ctx context.Context, modelID uint) (einoEmbedding.Embedder, error)
 	// ResolveChatModel 根据模型管理中的 ID 创建原生 Eino ChatModel。
 	ResolveChatModel(ctx context.Context, modelID uint) (einoModel.ToolCallingChatModel, error)
+	// ResolveReranker 根据模型管理中的 ID 创建重排客户端。
+	ResolveReranker(ctx context.Context, modelID uint) (rag.Reranker, error)
 	// TestConnection 测试未保存的模型配置是否能正常连接。
 	TestConnection(ctx context.Context, req *request.ModelConnectionTestRequest) (*dto.ModelConnectionTestResponse, error)
 	// SetModelConfigChangeCallback 设置模型配置变更回调
@@ -340,6 +344,31 @@ func (s *modelService) ResolveChatModel(ctx context.Context, modelID uint) (eino
 		return nil, errors.New(errors.CodeInternalError, "LLM client 不支持 ToolCallingChatModel")
 	}
 	return chatModel, nil
+}
+
+// ResolveReranker 根据模型管理中的配置创建重排客户端。
+func (s *modelService) ResolveReranker(ctx context.Context, modelID uint) (rag.Reranker, error) {
+	model, err := s.GetModelWithDecryptedKey(modelID)
+	if err != nil {
+		return nil, err
+	}
+	if !model.Enabled {
+		return nil, errors.New(errors.CodeInvalidParam, "模型未启用")
+	}
+	if model.ModelType != "rerank" {
+		return nil, errors.New(errors.CodeInvalidParam, "模型类型不是 rerank")
+	}
+	headers := make(map[string]string, len(model.Headers))
+	for key, value := range model.Headers {
+		headers[key] = value
+	}
+	return rag.NewHTTPReranker(rag.HTTPRerankerConfig{
+		Model:   model.Name,
+		BaseURL: model.BaseURL,
+		APIKey:  model.APIKey,
+		Headers: headers,
+		Timeout: time.Duration(model.Timeout) * time.Millisecond,
+	})
 }
 
 // toResponse 将实体转换为响应 DTO
