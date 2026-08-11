@@ -10,6 +10,7 @@ import (
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
+	systemctrl "Qavor/internal/api/v1/system"
 	workspaceapi "Qavor/internal/api/v1/workspace"
 	contextmgr "Qavor/internal/context"
 	"Qavor/internal/eventbus"
@@ -57,7 +58,6 @@ import (
 
 	"github.com/cloudwego/eino/adk/backgroundtask"
 	"github.com/cloudwego/eino/callbacks"
-	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -280,6 +280,7 @@ func (a *App) initDatabase() error {
 			&entity.SubagentThread{},
 			&entity.TaskRecord{},
 			&entity.Model{},
+			&entity.SystemSetting{},
 			&entity.Skill{},
 			&entity.KnowledgeBase{},
 			&entity.KnowledgeFile{},
@@ -325,6 +326,7 @@ func (a *App) initDependencies() error {
 	knowledgeChunkRepo := repository.NewKnowledgeChunkRepository(a.postgresDB)
 	processingJobRepo := repository.NewDocumentProcessingJobRepository(a.postgresDB)
 	modelRepo := repository.NewModelRepository(a.postgresDB)
+	systemSettingRepo := repository.NewSystemSettingRepository(a.postgresDB)
 	conversationRepo := repository.NewConversationRepository(a.postgresDB)
 	messageRepo := repository.NewMessageRepository(a.postgresDB)
 	agentRepo := repository.NewAgentRepository(a.postgresDB)
@@ -353,6 +355,8 @@ func (a *App) initDependencies() error {
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
+	ragSettingsSvc := service.NewRAGSettingsService(systemSettingRepo, modelRepo)
+	systemCtrl := systemctrl.NewController(ragSettingsSvc)
 	storage := service.NewMinIOObjectStorage()
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage, agentRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
@@ -371,21 +375,33 @@ func (a *App) initDependencies() error {
 			a.cfg.RAG.Embedding.BatchSize,
 			a.cfg.RAG.Embedding.Dimension,
 		)
-		// 快速回答与独立检索共享同一个按知识库解析 Embedding 模型的检索器。
-		dynamicRetriever retriever.Retriever = rag.NewDynamicRetriever(
+		// 向量召回按知识库绑定的 Embedding 模型分组并保留独立排名。
+		dynamicVectorRetriever = rag.NewDynamicRetriever(
 			knowledgeBaseRepo,
 			modelSvc,
 			knowledgeChunkRepo,
 			a.cfg.RAG.VectorTopK,
 		)
+		keywordRetriever = rag.NewKeywordRetriever(knowledgeChunkRepo, a.cfg.RAG.KeywordTopK)
+		dynamicReranker  = rag.NewDynamicReranker(ragSettingsSvc, modelSvc)
+		hybridRetriever  = rag.NewHybridRetriever(
+			dynamicVectorRetriever,
+			keywordRetriever,
+			dynamicReranker,
+			rag.HybridConfig{
+				VectorTopK: a.cfg.RAG.VectorTopK, KeywordTopK: a.cfg.RAG.KeywordTopK,
+				FusedTopK: a.cfg.RAG.FusedTopK, RerankTopK: a.cfg.RAG.RerankTopK, RRFK: a.cfg.RAG.RRFK,
+			},
+		)
+		// 快速回答与独立检索共享同一个混合检索器实例。
 		answerer rag.AnswerChain = rag.NewDynamicAnswerEngine(
 			knowledgeBaseRepo,
 			modelSvc,
-			dynamicRetriever,
+			hybridRetriever,
 		)
 		ragCtrl *ragctrl.Controller
 	)
-	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, dynamicRetriever, answerer)
+	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, hybridRetriever, answerer)
 	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
 
 	if queue != nil {
@@ -635,7 +651,7 @@ func (a *App) initDependencies() error {
 	dashboardSvc := service.NewDashboardService(a.postgresDB)
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, tracer)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, tracer)
 
 	return nil
 }

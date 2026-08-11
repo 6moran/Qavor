@@ -15,6 +15,7 @@ import (
 	processingjob "Qavor/internal/api/v1/processing_job"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
+	systemctrl "Qavor/internal/api/v1/system"
 	toolctrl "Qavor/internal/api/v1/tool"
 	tracectrl "Qavor/internal/api/v1/trace"
 	workspaceapi "Qavor/internal/api/v1/workspace"
@@ -39,6 +40,7 @@ type Router struct {
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
 	ragCtrl           *ragctrl.Controller
+	systemCtrl        *systemctrl.Controller
 	toolCtrl          *toolctrl.Controller
 	skillCtrl         *skillapi.Controller
 	sseCtrl           *ssectrl.Controller
@@ -66,6 +68,7 @@ func NewRouter(
 	agentCacheInvalidator agentctrl.AgentCacheInvalidator,
 	chatCtrl *chatctrl.Controller,
 	ragCtrl *ragctrl.Controller,
+	systemCtrl *systemctrl.Controller,
 	toolRegistry *tool.Registry,
 	skillCtrl *skillapi.Controller,
 	sseCtrl *ssectrl.Controller,
@@ -88,6 +91,7 @@ func NewRouter(
 		agentCtrl:         agentctrl.NewController(agentService, agentOpts, agentCacheInvalidator),
 		chatCtrl:          chatCtrl,
 		ragCtrl:           ragCtrl,
+		systemCtrl:        systemCtrl,
 		toolCtrl:          toolctrl.NewController(toolRegistry),
 		sseCtrl:           sseCtrl,
 		skillCtrl:         skillCtrl,
@@ -151,6 +155,10 @@ func (r *Router) Setup(engine *gin.Engine) {
 		// RAG 路由
 		if r.ragCtrl != nil {
 			r.ragCtrl.RegisterRoutes(v1)
+		}
+		// 全局 RAG 设置路由
+		if r.systemCtrl != nil {
+			r.systemCtrl.RegisterRoutes(v1)
 		}
 		// 工具路由
 		r.toolCtrl.RegisterRoutes(v1)
