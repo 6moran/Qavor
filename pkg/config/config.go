@@ -22,6 +22,7 @@ type Config struct {
 	Run           RunConfig           `mapstructure:"run"`   // Run 执行器 / 队列配置
 	Trace         TraceConfig         `mapstructure:"trace"` // 链路追踪配置
 	Agent         AgentConfig         `mapstructure:"agent"`
+	WebSearch     WebSearchConfig     `mapstructure:"web_search"`
 }
 
 // AgentConfig agent 运行时配置（本地文件系统与安全管控）。
@@ -266,6 +267,21 @@ type MCPToolRetrievalConfig struct {
 type OllamaConfig struct {
 	BaseURL string `mapstructure:"base_url"` // Ollama 服务地址
 	Model   string `mapstructure:"model"`    // 默认模型
+}
+
+// WebSearchConfig 联网搜索工具配置
+// 所有字段优先从环境变量获取，其次 config.yaml
+type WebSearchConfig struct {
+	Provider string `mapstructure:"provider"` // Provider: tavily | brave，默认 tavily
+	BaseURL  string `mapstructure:"base_url"` // API 基础地址，从环境变量或配置文件获取
+	APIKey   string `mapstructure:"api_key"`  // 搜索 API Key，建议通过环境变量注入
+}
+
+// ApplyDefaults 为 WebSearch 设置默认值
+func (c *WebSearchConfig) ApplyDefaults() {
+	if c.Provider == "" {
+		c.Provider = "tavily"
+	}
 }
 
 // DocumentQueueConfig 配置文档异步处理使用的 Redis Stream。

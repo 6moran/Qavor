@@ -18,5 +18,6 @@ func (ctrl *Controller) RegisterRoutes(router *gin.RouterGroup) {
 		conversations.DELETE("/:id", ctrl.DeleteConversation)
 		conversations.PUT("/:id/close", ctrl.CloseConversation)
 		conversations.PUT("/:id/archive", ctrl.ArchiveConversation)
+		conversations.POST("/:id/clear-context", ctrl.ClearContext)
 	}
 }

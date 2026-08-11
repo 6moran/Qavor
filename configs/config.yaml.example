@@ -177,4 +177,16 @@ trace:
     - "POST /api/v1/chat/stream"
     - "POST /api/v1/agent/runs"
 
+# 联网搜索工具配置
+# 所有字段优先从环境变量读取（WEB_SEARCH_PROVIDER / WEB_SEARCH_BASE_URL / WEB_SEARCH_API_KEY），
+# 其次读本文件，代码中不内置 BaseURL 默认值。
+web_search:
+  provider: "tavily"        # tavily | brave，默认 tavily
+  base_url: ""              # 必须显式配置（环境变量或此处），代码中无默认值
+                           #   tavily 官方：https://api.tavily.com
+                           #   brave  官方：https://api.search.brave.com
+                           # 企业/自托管场景可填反向代理地址
+  api_key: ""               # 留空则读取环境变量，都为空时不注册搜索工具
+                           # debug 模式使用 Mock Provider，release 模式不注册
+
 

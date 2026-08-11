@@ -20,19 +20,6 @@
         </div>
         <div class="header__right">
           <button
-            v-if="showStateEntry"
-            type="button"
-            class="agent-nav-btn agent-state-btn state-entry-btn"
-            :class="{ active: statePanelOpen }"
-            title="查看状态"
-            :aria-expanded="statePanelOpen"
-            aria-controls="agent-state-panel"
-            @click.stop="toggleStatePanel"
-          >
-            <LayoutList size="16" class="nav-btn-icon" />
-            <span class="hide-text">状态</span>
-          </button>
-          <button
             v-if="showFileEntry && !isFilePanelOpen"
             type="button"
             class="agent-nav-btn agent-state-btn file-entry-btn"
@@ -48,7 +35,6 @@
             name="header-right"
             :side-active="sideActive"
             :is-file-panel-open="isFilePanelOpen"
-            :is-state-panel-open="statePanelOpen"
             :has-active-thread="!!currentChatId"
             :toggle-agent-panel="toggleAgentPanel"
           ></slot>
@@ -59,9 +45,7 @@
         ref="chatContentContainerRef"
         class="chat-content-container"
         :class="{
-          'has-file-panel': isFilePanelOpen,
-          'has-state-panel': statePanelDocked,
-          'has-floating-state-panel': statePanelFloating
+          'has-file-panel': isFilePanelOpen
         }"
       >
         <!-- Main Chat Area -->
@@ -116,6 +100,19 @@
               </div>
             </div>
           </div>
+
+          <!-- Token 上下文容量折叠条：内嵌于输入框上方，就近使用、无遮挡 -->
+          <div v-if="currentTokenUsage" class="token-usage-bar-wrapper">
+            <TokenUsageBar
+              :token-usage="currentTokenUsage"
+              :auto-poll="true"
+              :poll-interval="5000"
+              :fetch-token-usage="fetchTokenUsageSilently"
+              @refresh="handleTokenRefresh"
+              @clear-context="handleClearContext"
+            />
+          </div>
+
           <div class="bottom" :class="{ 'start-screen': !conversations.length }">
             <div class="message-input-wrapper">
               <!-- 加载状态：加载消息 -->
@@ -273,326 +270,6 @@
           </div>
         </div>
 
-        <div
-          id="agent-state-panel"
-          class="side-panel side-panel--state"
-          :class="{
-            'is-visible': statePanelOpen,
-            'is-docked': statePanelDocked,
-            'is-floating': statePanelFloating
-          }"
-          :style="{
-            flexBasis: statePanelDocked ? `${statePanelDockWidth}px` : '0px'
-          }"
-        >
-          <div v-if="statePanelOpen" class="state-panel">
-            <div class="side-panel__header state-panel-header">
-              <span class="state-panel-title">状态</span>
-              <div class="state-panel-header-actions">
-                <button
-                  type="button"
-                  class="state-refresh-btn"
-                  title="刷新状态"
-                  :disabled="isRefreshingState"
-                  @click.stop="handleAgentStateRefresh()"
-                >
-                  <RefreshCw :size="14" :class="{ 'is-spinning': isRefreshingState }" />
-                </button>
-              </div>
-            </div>
-
-            <div class="state-panel-body">
-              <section
-                v-if="currentTokenUsage"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('tokenUsage') }"
-                aria-label="上下文使用情况"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('tokenUsage')"
-                  aria-controls="state-section-token-usage"
-                  @click="toggleStateSection('tokenUsage')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">上下文使用</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('tokenUsage') }"
-                    />
-                  </span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('tokenUsage')"
-                  id="state-section-token-usage"
-                  class="state-section-content"
-                >
-                  <div class="token-usage-content">
-                    <div class="token-usage-stack">
-                      <div class="token-usage-stack-head">
-                        <span>{{ tokenUsageHeaderPercentLabel }}</span>
-                        <strong>{{ tokenUsageStackHeadLabel }}</strong>
-                      </div>
-                      <div class="token-usage-stack-track" aria-label="Token 构成">
-                        <div
-                          v-for="segment in tokenUsageBarSegments"
-                          :key="segment.key"
-                          class="token-usage-stack-segment"
-                          :class="segment.tone"
-                          :style="{ width: segment.percent }"
-                          :title="`${segment.label}: ${segment.valueLabel}`"
-                        ></div>
-                      </div>
-                      <div class="token-usage-stack-legend">
-                        <span
-                          v-for="segment in tokenUsageSegments"
-                          :key="segment.key"
-                          class="token-usage-stack-legend-item"
-                        >
-                          <i :class="segment.tone"></i>
-                          {{ segment.label }} {{ segment.valueLabel }}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div v-if="tokenUsageMetaRows.length" class="token-usage-breakdown">
-                      <div
-                        v-for="item in tokenUsageMetaRows"
-                        :key="item.key"
-                        class="token-usage-breakdown-row"
-                      >
-                        <span>{{ item.label }}</span>
-                        <strong>{{ item.value }}</strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentTodos.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('todos') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('todos')"
-                  aria-controls="state-section-todos"
-                  @click="toggleStateSection('todos')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">待办</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('todos') }"
-                    />
-                  </span>
-                  <span v-if="totalTodoCount" class="state-section-meta">
-                    {{ completedTodoCount }}/{{ totalTodoCount }}
-                  </span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('todos')"
-                  id="state-section-todos"
-                  class="state-section-content"
-                >
-                  <div class="todo-panel-list">
-                    <div
-                      v-for="(todo, index) in currentTodos"
-                      :key="`${todo.fullContent}-${index}`"
-                      class="todo-item"
-                      :class="{ completed: todo.status === 'completed' }"
-                    >
-                      <div class="todo-item-icon" :class="todo.status || 'unknown'">
-                        <CheckCircleOutlined v-if="todo.status === 'completed'" />
-                        <SyncOutlined v-else-if="todo.status === 'in_progress'" spin />
-                        <ClockCircleOutlined v-else-if="todo.status === 'pending'" />
-                        <CloseCircleOutlined v-else-if="todo.status === 'cancelled'" />
-                        <QuestionCircleOutlined v-else />
-                      </div>
-                      <div class="todo-item-body">
-                        <span class="todo-item-text" :title="todo.fullContent">
-                          {{ todo.displayContent }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentStateFiles.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('files') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('files')"
-                  aria-controls="state-section-files"
-                  @click="toggleStateSection('files')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">附件/文件</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('files') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ currentStateFiles.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('files')"
-                  id="state-section-files"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <div v-for="file in currentStateFiles" :key="file.key" class="state-list-item">
-                      <FileTypeIcon
-                        :name="file.name || file.path"
-                        :size="18"
-                        class="state-list-item-icon"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title">{{ file.name }}</div>
-                        <div class="state-list-item-meta">{{ file.meta || file.path }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentArtifactFiles.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('artifacts') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('artifacts')"
-                  aria-controls="state-section-artifacts"
-                  @click="toggleStateSection('artifacts')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">产物</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('artifacts') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ currentArtifactFiles.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('artifacts')"
-                  id="state-section-artifacts"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <button
-                      v-for="file in currentArtifactFiles"
-                      :key="file.path"
-                      type="button"
-                      class="state-list-item state-list-item--button"
-                      :title="`打开 ${file.name}`"
-                      @click="openPanelPreview(file)"
-                    >
-                      <FileTypeIcon
-                        :name="file.name || file.path"
-                        :size="18"
-                        class="state-list-item-icon"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title">{{ file.name }}</div>
-                        <div class="state-list-item-meta">{{ file.meta }}</div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="displaySubagentRuns.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('subagents') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('subagents')"
-                  aria-controls="state-section-subagents"
-                  @click="toggleStateSection('subagents')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">子智能体</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('subagents') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ displaySubagentRuns.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('subagents')"
-                  id="state-section-subagents"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <div
-                      v-for="(run, index) in displaySubagentRuns"
-                      :key="run.id || `${run.subagent_slug || 'subagent'}-${index}`"
-                      class="state-list-item"
-                      :class="{ 'is-clickable': run.child_thread_id }"
-                      @click="run.child_thread_id && openSubagentThread(run)"
-                    >
-                      <FallbackAvatar
-                        class="state-subagent-icon"
-                        :src="getSubagentIconSrc(run)"
-                        :default-src="getSubagentDefaultIconSrc(run)"
-                        :name="getSubagentRunName(run)"
-                        :seed="run.subagent_slug || getSubagentRunName(run)"
-                        kind="agent"
-                        :size="28"
-                        shape="rounded"
-                        :alt="`${getSubagentRunName(run)}图标`"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title state-subagent-title">
-                          <span>{{ getSubagentRunName(run) }}</span>
-                          <CheckCircleOutlined
-                            v-if="run.status === 'completed'"
-                            class="state-subagent-status-icon state-subagent-completed-icon"
-                          />
-                          <CloseCircleOutlined
-                            v-else-if="run.status === 'failed'"
-                            class="state-subagent-status-icon state-subagent-failed-icon"
-                          />
-                          <SyncOutlined
-                            v-else-if="run.status === 'running'"
-                            spin
-                            class="state-subagent-status-icon state-subagent-running-icon"
-                          />
-                        </div>
-                        <div class="state-list-item-meta">
-                          {{ run.description || getSubagentRunMeta(run) }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <div v-if="!hasVisibleStateSections" class="state-panel-empty">暂无状态内容</div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div
@@ -644,6 +321,7 @@
 
 <script setup>
 import {
+  h,
   ref,
   reactive,
   onMounted,
@@ -660,7 +338,6 @@ import {
   ChevronDown,
   CornerDownRight,
   FolderKanban,
-  LayoutList,
   Play,
   RefreshCw,
   Trash2
@@ -702,6 +379,7 @@ import AgentArtifactsCard from '@/components/AgentArtifactsCard.vue'
 import AgentPanel from '@/components/AgentPanel.vue'
 import AttachmentTmpUploadModal from '@/components/AttachmentTmpUploadModal.vue'
 import SubagentThreadModal from '@/components/SubagentThreadModal.vue'
+import TokenUsageBar from '@/components/TokenUsageBar.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import { enrichTaskToolCalls, parseToolCallArgs } from '@/components/ToolCallingResult/toolRegistry'
 import { getConversationDisplayItems } from '@/utils/messageGrouping'
@@ -791,13 +469,6 @@ const attachmentUploadModalOpen = ref(false)
 const attachmentInitialFiles = ref([])
 const attachmentInitialFilesKey = ref(0)
 const isRefreshingState = ref(false)
-const collapsedStateSections = reactive({
-  tokenUsage: false,
-  todos: false,
-  files: false,
-  artifacts: false,
-  subagents: false
-})
 const threadConfigNoticeMap = ref({})
 const threadPendingConfigNoticeMap = ref({})
 const threadConfigSnapshotMap = ref({})
@@ -812,10 +483,8 @@ const localUIState = reactive({
 
 // Agent Panel State
 const isFilePanelOpen = ref(false)
-const statePanelOpen = ref(false)
 const sideActive = computed(() => {
   if (isFilePanelOpen.value) return 'file'
-  if (statePanelOpen.value) return 'state'
   return ''
 })
 const isResizing = ref(false)
@@ -826,8 +495,6 @@ const maxPanelRatio = 0.75
 const minChatMainWidth = 350
 const filePanelGapWidth = 0
 const mobilePanelBreakpoint = 768
-const statePanelDockWidth = 340
-const statePanelDockMinChatWidth = 800
 const panelRatio = ref(defaultPanelRatio) // 面板宽度比例 (0-1)
 const filePanelDragWidth = ref(null)
 const agentPanelPreviewTabs = ref([])
@@ -888,14 +555,6 @@ const filePanelWidthStyle = computed(() => {
   return `${Math.max(minWidth, Math.min(preferredWidth, maxWidth))}px`
 })
 
-const statePanelCanDock = computed(() => {
-  if (isFilePanelOpen.value) return false
-  const containerWidth = localUIState.chatContentWidth || getPanelContainerWidth()
-  return containerWidth - statePanelDockWidth > statePanelDockMinChatWidth
-})
-const statePanelDocked = computed(() => statePanelOpen.value && statePanelCanDock.value)
-const statePanelFloating = computed(() => statePanelOpen.value && !statePanelDocked.value)
-
 const setPanelRatioForViewMode = () => {
   const hasPreview = Boolean(agentPanelActivePreviewPath.value)
   panelRatio.value = clampPanelRatio(hasPreview ? previewPanelRatio : defaultPanelRatio)
@@ -903,7 +562,6 @@ const setPanelRatioForViewMode = () => {
 
 const showFilePanel = (mode = 'tree') => {
   isFilePanelOpen.value = true
-  statePanelOpen.value = false
   agentPanelViewMode.value =
     mode === 'preview' && agentPanelActivePreviewPath.value ? 'preview' : 'tree'
   setPanelRatioForViewMode()
@@ -911,7 +569,6 @@ const showFilePanel = (mode = 'tree') => {
 
 const showFileTreePanel = () => {
   isFilePanelOpen.value = true
-  statePanelOpen.value = false
   agentPanelActivePreviewPath.value = ''
   agentPanelViewMode.value = 'tree'
   setPanelRatioForViewMode()
@@ -969,7 +626,6 @@ const isSameOrChildPanelPath = (path, targetPath) => {
 
 const resetAgentPanelState = () => {
   isFilePanelOpen.value = false
-  statePanelOpen.value = false
   panelRatio.value = defaultPanelRatio
   agentPanelPreviewTabs.value = []
   agentPanelActivePreviewPath.value = ''
@@ -1278,11 +934,12 @@ const tokenUsageStackTotal = computed(() => {
     .reduce((sum, segment) => sum + segment.value, 0)
 })
 const tokenUsageStackLimit = computed(() => {
-  const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
-  if (summaryTriggerTokens && summaryTriggerTokens > 0) return summaryTriggerTokens
-
+  // 统一用 context_window 作为总额上限，与 TokenUsageBar 保持一致
   const contextWindow = toFiniteNumber(currentTokenUsage.value?.context_window)
   if (contextWindow && contextWindow > 0) return contextWindow
+
+  const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
+  if (summaryTriggerTokens && summaryTriggerTokens > 0) return summaryTriggerTokens
 
   return Math.max(tokenUsageStackTotal.value, 1)
 })
@@ -1293,9 +950,9 @@ const tokenUsageHeaderPercentLabel = computed(() => {
   return `${Math.round(percent)}%`
 })
 const tokenUsageStackHeadLabel = computed(() => {
-  const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
-  if (summaryTriggerTokens && summaryTriggerTokens > 0) {
-    return `${formatTokenCount(tokenUsageStackTotal.value)} / ${formatTokenCount(summaryTriggerTokens)} Token`
+  const lim = tokenUsageStackLimit.value
+  if (lim > 0) {
+    return `${formatTokenCount(tokenUsageStackTotal.value)} / ${formatTokenCount(lim)} Token`
   }
   return `${formatTokenCount(tokenUsageStackTotal.value)} Token`
 })
@@ -1406,10 +1063,6 @@ const openSubagentThread = (run) => {
   subagentThreadModal.subagentDefaultAvatar = getSubagentDefaultIconSrc(run)
   subagentThreadModal.open = true
 }
-const isStateSectionExpanded = (key) => !collapsedStateSections[key]
-const toggleStateSection = (key) => {
-  collapsedStateSections[key] = !collapsedStateSections[key]
-}
 const currentStateFiles = computed(() => {
   const files = []
   const seenPaths = new Set()
@@ -1440,16 +1093,7 @@ const totalTodoCount = computed(() => currentTodos.value.length)
 const completedTodoCount = computed(
   () => currentTodos.value.filter((todo) => todo?.status === 'completed').length
 )
-const showStateEntry = computed(() => Boolean(currentChatId.value))
 const showFileEntry = computed(() => Boolean(currentChatId.value))
-const hasVisibleStateSections = computed(
-  () =>
-    Boolean(currentTokenUsage.value) ||
-    currentTodos.value.length > 0 ||
-    currentStateFiles.value.length > 0 ||
-    currentArtifactFiles.value.length > 0 ||
-    displaySubagentRuns.value.length > 0
-)
 
 const { mentionConfig } = useAgentMentionConfig({
   currentAgentState,
@@ -1933,7 +1577,7 @@ const canCancelQueuedRequest = (request) =>
   request?.queue_policy !== 'steer' ||
   (!isStreaming.value && currentQueueSnapshot.value.status !== 'running')
 const shouldRefreshStateWhileStreaming = computed(
-  () => Boolean(currentChatId.value) && isStreaming.value && statePanelOpen.value
+  () => Boolean(currentChatId.value) && isStreaming.value && isFilePanelOpen.value
 )
 const isProcessing = computed(
   () =>
@@ -3012,11 +2656,78 @@ const handleAgentStateRefresh = async (threadId = null) => {
   }
 }
 
-const toggleStatePanel = async () => {
-  const nextOpen = !statePanelOpen.value
-  statePanelOpen.value = nextOpen
-  if (nextOpen && currentChatId.value && !currentAgentState.value) {
-    await handleAgentStateRefresh()
+// Token 条专用：静默刷新（不触发 isRefreshingState）
+const fetchTokenUsageSilently = async () => {
+  if (!currentAgentId.value || !currentChatId.value) return
+  try {
+    await fetchAgentState(currentAgentId.value, currentChatId.value)
+  } catch (e) {
+    // 静默失败，Token 条下次轮询会重试
+    console.debug('[TokenUsageBar] fetchTokenUsageSilently failed:', e?.message)
+  }
+}
+
+// Token 条刷新按钮
+const handleTokenRefresh = async () => {
+  await handleAgentStateRefresh()
+}
+
+// Token 条清空上下文（轻量重置，不删除会话）
+const handleClearContext = async () => {
+  if (!currentChatId.value) return
+  
+  Modal.confirm({
+    title: '清空上下文',
+    content: '选择清空方式：',
+    width: 480,
+    okText: null,
+    cancelText: '取消',
+    footer: () => {
+      return h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' } }, [
+        h('button', {
+          style: { padding: '6px 16px', borderRadius: '6px', border: '1px solid #d9d9d9', background: '#fff', cursor: 'pointer' },
+          onClick: () => Modal.destroyAll()
+        }, '取消'),
+        h('button', {
+          style: { padding: '6px 16px', borderRadius: '6px', border: '1px solid #ff7875', background: '#fff', color: '#ff4d4f', cursor: 'pointer' },
+          onClick: async () => {
+            Modal.destroyAll()
+            await performClearContext()
+          }
+        }, '彻底销毁会话'),
+        h('button', {
+          style: { padding: '6px 16px', borderRadius: '6px', border: 'none', background: '#1677ff', color: '#fff', cursor: 'pointer' },
+          onClick: async () => {
+            Modal.destroyAll()
+            await performClearContext(true)
+          }
+        }, '仅清空上下文')
+      ])
+    }
+  })
+}
+
+// 执行清空操作
+const performClearContext = async (lightReset = false) => {
+  if (!currentChatId.value) return
+  
+  try {
+    if (lightReset) {
+      // 轻量重置：仅清空上下文，保留会话
+      await threadApi.clearThreadContext(currentChatId.value)
+      message.success('上下文已清空')
+      // 清空后刷新状态
+      await handleAgentStateRefresh()
+    } else {
+      // 彻底销毁：删除整个会话
+      await chatThreadsStore.deleteThread(currentChatId.value)
+      message.success('会话已删除')
+      // 切换到新会话
+      await selectChat(null)
+    }
+  } catch (e) {
+    console.error('清空操作失败:', e)
+    message.error(lightReset ? '清空上下文失败' : '删除会话失败')
   }
 }
 
@@ -3198,12 +2909,6 @@ const initAll = async () => {
 onMounted(async () => {
   await initAll()
   scrollController.enableAutoScroll()
-})
-
-watch(showStateEntry, (visible) => {
-  if (!visible && statePanelOpen.value) {
-    statePanelOpen.value = false
-  }
 })
 
 watch(showFileEntry, (visible) => {
@@ -3682,6 +3387,15 @@ watch(currentChatId, (threadId, oldThreadId) => {
   font-size: 12px;
   line-height: 1.6;
   text-align: center;
+}
+
+/* Token 条包装器：固定在消息区与输入框之间 */
+.token-usage-bar-wrapper {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 4px 1rem;
+  flex-shrink: 0;
 }
 
 .bottom {
@@ -4294,6 +4008,17 @@ watch(currentChatId, (threadId, oldThreadId) => {
   color: var(--gray-500);
   font-size: 13px;
   text-align: center;
+
+  p {
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  .state-panel-empty-hint {
+    font-size: 12px;
+    color: var(--gray-400);
+    margin-top: 4px;
+  }
 }
 
 .token-usage-content {

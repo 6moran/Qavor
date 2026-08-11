@@ -411,6 +411,14 @@ export const threadApi = {
   deleteThread: (threadId) => apiDelete(`/api/v1/conversations/${threadId}`),
 
   /**
+   * 清空会话上下文（轻量重置：清除短期记忆和上下文窗口，保留会话本身）
+   * @param {string} threadId - 对话线程ID
+   * @returns {Promise}
+   */
+  clearThreadContext: (threadId) =>
+    apiPost(`/api/v1/conversations/${threadId}/clear-context`, {}),
+
+  /**
    * 获取线程附件列表
    * @param {string} threadId - 对话线程ID
    * @returns {Promise}（后端未实现，返回空数组）
