@@ -2,7 +2,7 @@ import { apiGet } from './base'
 
 /**
  * Dashboard API模块
- * 用于管理员查看所有用户的对话记录
+ * 用于管理员查看所有对话记录
  */
 
 export const dashboardApi = {
@@ -37,7 +37,7 @@ export const dashboardApi = {
   },
 
   /**
-   * 获取Dashboard统计信息
+   * 获取Dashboard基础统计信息
    * @returns {Promise<Object>} - 统计信息
    */
   getStats: () => {
@@ -59,67 +59,6 @@ export const dashboardApi = {
     return apiGet(`/api/dashboard/feedbacks?${queryParams.toString()}`)
   },
 
-  // ========== 新增并行API接口 ==========
-
-  /**
-   * 获取用户活跃度统计
-   * @returns {Promise<Object>} - 用户活跃度统计信息
-   */
-  getUserStats: () => {
-    return apiGet('/api/dashboard/stats/users')
-  },
-
-  /**
-   * 获取工具调用统计
-   * @returns {Promise<Object>} - 工具调用统计信息
-   */
-  getToolStats: () => {
-    return apiGet('/api/dashboard/stats/tools')
-  },
-
-  /**
-   * 获取知识库统计
-   * @returns {Promise<Object>} - 知识库统计信息
-   */
-  getKnowledgeStats: () => {
-    return apiGet('/api/dashboard/stats/knowledge')
-  },
-
-  /**
-   * 获取AI智能体分析数据
-   * @returns {Promise<Object>} - AI智能体分析信息
-   */
-  getAgentStats: () => {
-    return apiGet('/api/dashboard/stats/agents')
-  },
-
-  /**
-   * 批量获取所有统计数据（并行请求）
-   * @returns {Promise<Object>} - 所有统计数据
-   */
-  getAllStats: async () => {
-    try {
-      const [basicStats, userStats, toolStats, knowledgeStats, agentStats] = await Promise.all([
-        apiGet('/api/dashboard/stats'),
-        apiGet('/api/dashboard/stats/users'),
-        apiGet('/api/dashboard/stats/tools'),
-        apiGet('/api/dashboard/stats/knowledge'),
-        apiGet('/api/dashboard/stats/agents')
-      ])
-
-      return {
-        basic: basicStats,
-        users: userStats,
-        tools: toolStats,
-        knowledge: knowledgeStats,
-        agents: agentStats
-      }
-    } catch (error) {
-      console.error('批量获取统计数据失败:', error)
-      throw error
-    }
-  },
-
   /**
    * 获取调用统计时间序列数据
    * @param {string} type - 数据类型 (models/agents/tokens/tools)
@@ -128,5 +67,19 @@ export const dashboardApi = {
    */
   getCallTimeseries: (type = 'models', timeRange = '14days') => {
     return apiGet(`/api/dashboard/stats/calls/timeseries?type=${type}&time_range=${timeRange}`)
+  },
+
+  /**
+   * 仅获取基础统计数据（无需并行请求）
+   * @returns {Promise<Object>} - 基础统计数据
+   */
+  getAllStats: async () => {
+    try {
+      const basicStats = await apiGet('/api/dashboard/stats')
+      return { basic: basicStats }
+    } catch (error) {
+      console.error('获取基础统计数据失败:', error)
+      throw error
+    }
   }
 }

@@ -6,6 +6,7 @@ import (
 	"Qavor/internal/model/entity"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // MessageRepository 消息仓储接口
@@ -34,7 +35,20 @@ func NewMessageRepository(db *gorm.DB) MessageRepository {
 
 // Create 创建消息
 func (r *messageRepository) Create(message *entity.Message) error {
-	return r.db.Create(message).Error
+	// 保存消息（不含关联，避免 GORM 自动处理 has-many 可能失败）
+	if err := r.db.Omit(clause.Associations).Create(message).Error; err != nil {
+		return err
+	}
+	// 显式保存 ToolCalls
+	if len(message.ToolCalls) > 0 {
+		for i := range message.ToolCalls {
+			message.ToolCalls[i].MessageID = message.ID
+		}
+		if err := r.db.Create(&message.ToolCalls).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // FindByID 根据 ID 查找消息
@@ -89,7 +103,7 @@ func (r *messageRepository) ListByConversationID(conversationID uint, offset, li
 		return nil, 0, err
 	}
 
-	err := query.Order("created_at ASC").Offset(offset).Limit(limit).Find(&messages).Error
+	err := query.Preload("ToolCalls").Order("created_at ASC").Offset(offset).Limit(limit).Find(&messages).Error
 	if err != nil {
 		return nil, 0, err
 	}
@@ -108,7 +122,7 @@ func (r *messageRepository) ListByConversationIDWithRole(conversationID uint, ro
 		return nil, 0, err
 	}
 
-	err := query.Order("created_at ASC").Offset(offset).Limit(limit).Find(&messages).Error
+	err := query.Preload("ToolCalls").Order("created_at ASC").Offset(offset).Limit(limit).Find(&messages).Error
 	if err != nil {
 		return nil, 0, err
 	}

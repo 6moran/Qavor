@@ -130,6 +130,7 @@
       <!-- 错误消息 -->
     </div>
 
+    <!-- DEBUG: 显示 AI 消息的推理内容和工具调用原始数据 -->
     <div v-if="infoStore.debugMode" class="status-info">{{ message }}</div>
 
     <!-- 自定义内容 -->

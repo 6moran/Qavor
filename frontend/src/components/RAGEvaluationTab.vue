@@ -453,7 +453,6 @@ import { evaluationApi } from '@/apis/knowledge_api'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { BarChart3, ChevronDown, ClipboardList, RefreshCw, X } from 'lucide-vue-next'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
-import { useTaskerStore } from '@/stores/tasker'
 
 const props = defineProps({
   kbId: {
@@ -463,9 +462,6 @@ const props = defineProps({
 })
 
 defineEmits(['switch-to-benchmarks'])
-
-// 使用任务中心 store
-const taskerStore = useTaskerStore()
 
 // 状态
 const selectedDatasetId = ref(null)
@@ -887,7 +883,6 @@ const startEvaluation = async () => {
       evaluationDropdownOpen.value = false
       configForm.name = buildDefaultEvaluationName()
       loadEvaluationHistory()
-      taskerStore.loadTasks()
     } else {
       message.error(response.message || '启动评估失败')
     }

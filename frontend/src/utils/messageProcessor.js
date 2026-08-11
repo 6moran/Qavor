@@ -329,7 +329,7 @@ export class MessageProcessor {
    */
   static parseAssistantMessageBody(message) {
     let content = typeof message?.content === 'string' ? message.content.trim() : ''
-    let reasoningContent = message?.additional_kwargs?.reasoning_content || ''
+    let reasoningContent = message?.reasoning_content || message?.additional_kwargs?.reasoning_content || ''
 
     if (!reasoningContent && content) {
       const thinkRegex = /<think>(.*?)<\/think>|<think>(.*?)$/s

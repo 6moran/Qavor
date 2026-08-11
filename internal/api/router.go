@@ -5,6 +5,7 @@ import (
 	"Qavor/internal/api/v1/auth"
 	chatctrl "Qavor/internal/api/v1/chat"
 	"Qavor/internal/api/v1/conversation"
+	dashboardctrl "Qavor/internal/api/v1/dashboard"
 	knowledgebase "Qavor/internal/api/v1/knowledge_base"
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
@@ -44,6 +45,7 @@ type Router struct {
 	postStreamHandler *agentctrl.PostStreamHandler
 	runController     *agentctrl.RunController
 	traceCtrl         *tracectrl.Controller
+	dashboardCtrl     *dashboardctrl.Controller
 	workspaceCtrl     *workspaceapi.Controller
 	tracer            *tracepkg.Tracer
 }
@@ -69,6 +71,7 @@ func NewRouter(
 	postStreamHandler *agentctrl.PostStreamHandler,
 	runController *agentctrl.RunController,
 	traceCtrl *tracectrl.Controller,
+	dashboardService service.DashboardService,
 	workspaceCtrl *workspaceapi.Controller,
 	tracer *tracepkg.Tracer,
 ) *Router {
@@ -90,6 +93,7 @@ func NewRouter(
 		postStreamHandler: postStreamHandler,
 		runController:     runController,
 		traceCtrl:         traceCtrl,
+		dashboardCtrl:     dashboardctrl.NewController(dashboardService),
 		workspaceCtrl:     workspaceCtrl,
 		tracer:            tracer,
 	}
@@ -165,6 +169,11 @@ func (r *Router) Setup(engine *gin.Engine) {
 		// 链路追踪路由
 		if r.traceCtrl != nil {
 			r.traceCtrl.RegisterRoutes(v1)
+		}
+
+		// 仪表盘路由
+		if r.dashboardCtrl != nil {
+			r.dashboardCtrl.RegisterRoutes(v1)
 		}
 	}
 }

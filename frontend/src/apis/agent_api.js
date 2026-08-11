@@ -97,12 +97,38 @@ export const agentApi = {
    * @param {string} conversationId - 会话ID
    * @returns {Promise} - 历史消息
    */
+  // 后端 tool_calls 字段格式 → 前端期望格式
+  _normalizeToolCalls(toolCalls) {
+    if (!Array.isArray(toolCalls)) return toolCalls
+    return toolCalls.map((tc) => {
+      // 已经是前端格式（有 function.name）则直接返回
+      if (tc.function?.name || tc.name) return tc
+      // 后端格式（tool_name / tool_input / langgraph_tool_call_id）→ 转换为前端格式
+      return {
+        id: tc.langgraph_tool_call_id || String(tc.id),
+        name: tc.tool_name,
+        function: {
+          name: tc.tool_name,
+          arguments:
+            typeof tc.tool_input === 'object' && tc.tool_input !== null
+              ? JSON.stringify(tc.tool_input)
+              : tc.tool_input || ''
+        },
+        tool_call_result: tc.tool_output ? { content: tc.tool_output } : null,
+        status: tc.status,
+        error_message: tc.error_message,
+        message_id: tc.message_id
+      }
+    })
+  },
+
   getAgentHistory: (conversationId) => {
     return apiGet(`/api/v1/conversations/${conversationId}/messages`).then((res) => {
       const data = res?.data
       const items = (data?.items || []).map((item) => ({
         ...item,
-        type: item.type || (item.role === 'user' ? 'human' : item.role === 'assistant' ? 'ai' : item.role)
+        type: item.type || (item.role === 'user' ? 'human' : item.role === 'assistant' ? 'ai' : item.role),
+        tool_calls: agentApi._normalizeToolCalls(item.tool_calls)
       }))
       return { history: items }
     })

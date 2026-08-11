@@ -61,7 +61,6 @@
 <script setup>
 import { Graph } from '@antv/g6'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useThemeStore } from '@/stores/theme'
 
 const props = defineProps({
   graphData: {
@@ -88,7 +87,6 @@ const emit = defineEmits(['ready', 'data-rendered', 'node-click', 'edge-click', 
 
 const container = ref(null)
 const rootEl = ref(null)
-const themeStore = useThemeStore()
 const activeStatsPanel = ref('')
 let graphInstance = null
 let resizeObserver = null
@@ -559,16 +557,6 @@ watch(
     }
   },
   { deep: true }
-)
-
-// 监听主题切换，重新加载图形
-watch(
-  () => themeStore.isDark,
-  () => {
-    if (graphInstance && isMounted) {
-      refreshGraph()
-    }
-  }
 )
 
 onMounted(() => {

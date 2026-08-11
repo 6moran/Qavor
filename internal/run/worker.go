@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -392,16 +393,36 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		}
 		persistFailed := false
 		for _, msg := range assistantMsgs {
-			if msg == nil || msg.Content == "" {
+			if msg == nil || (msg.Content == "" && len(msg.ToolCalls) == 0) {
 				continue
 			}
-			aiMsg := &entity.Message{
-				ConversationID: conversationID,
-				Role:           "assistant",
-				Content:        msg.Content,
-				RunID:          run.ID,
-				RequestID:      requestID,
+			reasoningContent := msg.ReasoningContent
+			if reasoningContent == "" {
+				reasoningContent = extractReasoningFromSchemaMsg(msg)
 			}
+			aiMsg := &entity.Message{
+				ConversationID:   conversationID,
+				Role:             "assistant",
+				Content:          msg.Content,
+				ReasoningContent: reasoningContent,
+				RunID:            run.ID,
+				RequestID:        requestID,
+			}
+			// 持久化工具调用
+			for i := range msg.ToolCalls {
+				tc := &msg.ToolCalls[i]
+				var toolInput entity.JSON
+				if tc.Function.Arguments != "" {
+					_ = json.Unmarshal([]byte(tc.Function.Arguments), &toolInput)
+				}
+				aiMsg.ToolCalls = append(aiMsg.ToolCalls, entity.ToolCall{
+					LanggraphToolCallID: tc.ID,
+					ToolName:            tc.Function.Name,
+					ToolInput:           toolInput,
+					Status:              "success",
+				})
+			}
+			// aiMsg 已通过 aiMsg.ToolCalls 携带 tool_calls，由 Create 显式保存
 			if err := w.messageRepo.Create(aiMsg); err != nil {
 				w.logger.Error("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))
 				persistFailed = true
@@ -610,6 +631,23 @@ func (w *Worker) saveInterruptInfo(_ context.Context, run *entity.AgentRun, ie *
 	if err := w.runRepo.Update(run); err != nil {
 		w.logger.Warn("worker 保存中断信息失败", zap.String("run_id", run.ID), zap.Error(err))
 	}
+}
+
+// extractReasoningFromSchemaMsg 从 schema.Message 中提取推理内容。
+// 优先读 ReasoninContent 字段（eino v0.10.0+），兜底从 AssistantGenMultiContent 的 reasoning part 提取。
+func extractReasoningFromSchemaMsg(m *schema.Message) string {
+	if m == nil {
+		return ""
+	}
+	if m.ReasoningContent != "" {
+		return m.ReasoningContent
+	}
+	for _, part := range m.AssistantGenMultiContent {
+		if part.Type == schema.ChatMessagePartTypeReasoning && part.Reasoning != nil {
+			return part.Reasoning.Text
+		}
+	}
+	return ""
 }
 
 // CancelRun 取消运行中的 Run（调用其 cancel 函数）。返回是否找到运行中的 Run。

@@ -280,7 +280,6 @@ import {
 import hljs from 'highlight.js/lib/common'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
-import { useThemeStore } from '@/stores/theme'
 import { escapeHtml } from '@/utils/html'
 import {
   getCodeLanguageByPath,
@@ -363,7 +362,6 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'download', 'save'])
 
-const themeStore = useThemeStore()
 const closeTitle = computed(() =>
   props.closeVariant === 'collapse-right' ? '收起预览面板' : '关闭预览'
 )
@@ -401,7 +399,7 @@ const htmlPreviewSrcdoc = computed(() =>
 const htmlPreviewFullscreenSrcdoc = computed(() =>
   buildHtmlPreviewSrcdoc(props.file?.content, HTML_PREVIEW_FULLSCREEN_SCALE)
 )
-const codeThemeClass = computed(() => (themeStore.isDark ? 'hljs-theme-dark' : 'hljs-theme-light'))
+const codeThemeClass = 'hljs-theme-light'
 const codeLanguage = computed(() => getCodeLanguageByPath(props.filePath))
 const isCodePreview = computed(
   () =>

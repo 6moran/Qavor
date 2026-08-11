@@ -7,19 +7,21 @@ import (
 
 // MessageResponse 消息响应
 type MessageResponse struct {
-	ID             uint        `json:"id"`
-	ConversationID uint        `json:"conversation_id"`
-	Role           string      `json:"role"`
-	Content        string      `json:"content"`
-	MessageType    string      `json:"message_type"`
-	CreatedAt      time.Time   `json:"created_at"`
-	UpdatedAt      time.Time   `json:"updated_at"`
-	TokenCount     *int        `json:"token_count,omitempty"`
-	ImageContent   string      `json:"image_content,omitempty"`
-	ExtraMetadata  entity.JSON `json:"extra_metadata,omitempty"`
-	RunID          string      `json:"run_id,omitempty"`
-	RequestID      string      `json:"request_id,omitempty"`
-	DeliveryStatus string      `json:"delivery_status"`
+	ID                uint              `json:"id"`
+	ConversationID    uint              `json:"conversation_id"`
+	Role              string            `json:"role"`
+	Content           string            `json:"content"`
+	ReasoningContent  string            `json:"reasoning_content,omitempty"`
+	MessageType       string            `json:"message_type"`
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	TokenCount        *int              `json:"token_count,omitempty"`
+	ImageContent      string            `json:"image_content,omitempty"`
+	ExtraMetadata     entity.JSON       `json:"extra_metadata,omitempty"`
+	RunID             string            `json:"run_id,omitempty"`
+	RequestID         string            `json:"request_id,omitempty"`
+	DeliveryStatus    string            `json:"delivery_status"`
+	ToolCalls         []ToolCallResponse `json:"tool_calls,omitempty"`
 }
 
 // MessageListResponse 消息列表响应
