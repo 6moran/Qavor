@@ -139,17 +139,17 @@
             </button>
             <button
               type="button"
-              class="suggestion-row"
+              class="suggestion-row suggestion-row--regenerate"
               @click="() => generateSampleQuestions(false)"
             >
-              <RefreshCw class="suggestion-icon" />
+              <RefreshCw class="suggestion-icon suggestion-icon--regenerate" />
               <span class="suggestion-text">重新生成</span>
             </button>
           </div>
 
           <div v-else class="suggestions-empty">
-            <button class="suggestion-row" @click="() => generateSampleQuestions(false)">
-              <RefreshCw class="suggestion-icon" />
+            <button class="suggestion-row suggestion-row--regenerate" @click="() => generateSampleQuestions(false)">
+              <RefreshCw class="suggestion-icon suggestion-icon--regenerate" />
               <span class="suggestion-text">生成示例问题</span>
             </button>
           </div>
@@ -680,7 +680,7 @@ defineExpose({
   gap: 12px;
   padding: 8px 16px;
   border: none;
-  border-radius: 30px;
+  border-radius: 6px;
   background-color: var(--gray-0);
   color: var(--gray-800);
   text-align: left;
@@ -708,6 +708,30 @@ defineExpose({
   }
 }
 
+// 重新生成按钮特殊样式
+.suggestion-row--regenerate {
+  background-color: var(--main-50);
+  border: 1px solid var(--main-200);
+  color: var(--main-700);
+  font-weight: 500;
+
+  &:hover {
+    background-color: var(--main-100);
+    border-color: var(--main-300);
+    box-shadow: 0 2px 8px rgba(1, 136, 166, 0.15);
+
+    .suggestion-icon--regenerate {
+      color: var(--main-600);
+      opacity: 1;
+      transform: rotate(-180deg);
+    }
+  }
+
+  &:active {
+    background-color: var(--main-200);
+  }
+}
+
 .suggestion-text {
   flex: 1;
   min-width: 0;
@@ -726,6 +750,15 @@ defineExpose({
   transition:
     color 0.2s ease,
     opacity 0.2s ease;
+}
+
+.suggestion-icon--regenerate {
+  color: var(--main-500);
+  opacity: 1;
+  transition:
+    color 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.3s ease;
 }
 
 .generate-suggestions-btn {
