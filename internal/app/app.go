@@ -7,6 +7,7 @@ import (
 	"Qavor/internal/api"
 	agentctrl "Qavor/internal/api/v1/agent"
 	chatctrl "Qavor/internal/api/v1/chat"
+	evaluationctrl "Qavor/internal/api/v1/evaluation"
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
@@ -171,9 +172,11 @@ type App struct {
 	workerDone       chan struct{}
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
+	evaluationStop   context.CancelFunc
 	traceWriter      *trace.Writer
 	mcpManager       *mcp.MCPManager
 	bgManager        *backgroundtask.Manager
+	evaluationSvc    service.EvaluationService
 }
 
 // NewApp 创建应用实例
@@ -291,6 +294,10 @@ func (a *App) initDatabase() error {
 			&entity.TraceRecord{},
 			&entity.TraceSpan{},
 			&entity.LongTermMemory{},
+			&entity.EvaluationDataset{},
+			&entity.EvaluationDatasetItem{},
+			&entity.EvaluationRun{},
+			&entity.EvaluationRunResult{},
 		); err != nil {
 			logger.Warn("数据库迁移警告", zap.Error(err))
 		} else {
@@ -403,6 +410,8 @@ func (a *App) initDependencies() error {
 	)
 	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, hybridRetriever, answerer)
 	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
+	// 检索测试与示例问题服务：复用 RAG 检索链路与模型解析能力。
+	knowledgeQuerySvc := service.NewKnowledgeQueryService(a.cfg.RAG, knowledgeBaseRepo, knowledgeFileRepo, ragSvc, modelSvc)
 
 	if queue != nil {
 		workerCtx, cancelWorker := context.WithCancel(context.Background())
@@ -650,8 +659,19 @@ func (a *App) initDependencies() error {
 	// 创建 Dashboard Service（只读统计查询）
 	dashboardSvc := service.NewDashboardService(a.postgresDB)
 
+	// —— RAG 评估服务（基准管理 + 评估运行，后台执行器随应用启动）——
+	evaluationSvc := service.NewEvaluationService(
+		repository.NewEvaluationRepository(a.postgresDB),
+		knowledgeBaseRepo,
+		knowledgeChunkRepo,
+		ragSvc,
+		modelSvc,
+	)
+	evaluationCtrl := evaluationctrl.NewController(evaluationSvc)
+	a.evaluationSvc = evaluationSvc
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, tracer)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl)
 
 	return nil
 }
@@ -712,6 +732,14 @@ func (a *App) buildMCPWhitelist(agentRepo repository.AgentRepository) []string {
 
 // Run 运行应用
 func (a *App) Run() {
+	// 启动 RAG 评估后台执行器（处理基准生成与评估运行任务）
+	if a.evaluationSvc != nil {
+		evalCtx, cancelEval := context.WithCancel(context.Background())
+		a.evaluationStop = cancelEval
+		a.evaluationSvc.Start(evalCtx)
+		logger.Info("RAG 评估执行器已启动")
+	}
+
 	// 启动 HTTP 服务器
 	go func() {
 		logger.Info("HTTP 服务器启动",
@@ -759,6 +787,12 @@ func (a *App) gracefulShutdown() {
 	if a.traceJanitorStop != nil {
 		a.traceJanitorStop()
 		logger.Info("Trace Janitor 已关闭")
+	}
+
+	// 停止 RAG 评估执行器
+	if a.evaluationStop != nil {
+		a.evaluationStop()
+		logger.Info("RAG 评估执行器已关闭")
 	}
 
 	// Flush 并关闭 Trace Writer（最多 3 秒）

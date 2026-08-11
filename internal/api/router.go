@@ -6,6 +6,7 @@ import (
 	chatctrl "Qavor/internal/api/v1/chat"
 	"Qavor/internal/api/v1/conversation"
 	dashboardctrl "Qavor/internal/api/v1/dashboard"
+	evaluationctrl "Qavor/internal/api/v1/evaluation"
 	knowledgebase "Qavor/internal/api/v1/knowledge_base"
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
@@ -51,6 +52,7 @@ type Router struct {
 	traceCtrl         *tracectrl.Controller
 	dashboardCtrl     *dashboardctrl.Controller
 	workspaceCtrl     *workspaceapi.Controller
+	evaluationCtrl    *evaluationctrl.Controller
 	tracer            *tracepkg.Tracer
 }
 
@@ -78,11 +80,13 @@ func NewRouter(
 	traceCtrl *tracectrl.Controller,
 	dashboardService service.DashboardService,
 	workspaceCtrl *workspaceapi.Controller,
+	knowledgeQueryService service.KnowledgeQueryService,
 	tracer *tracepkg.Tracer,
+	evaluationCtrl *evaluationctrl.Controller,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
-		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService),
+		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService, knowledgeQueryService),
 		knowledgeFileCtrl: knowledgefile.NewController(knowledgeFileService),
 		processingJobCtrl: processingjob.NewController(processingJobService),
 		modelCtrl:         model.NewController(modelService),
@@ -101,6 +105,7 @@ func NewRouter(
 		traceCtrl:         traceCtrl,
 		dashboardCtrl:     dashboardctrl.NewController(dashboardService),
 		workspaceCtrl:     workspaceCtrl,
+		evaluationCtrl:    evaluationCtrl,
 		tracer:            tracer,
 	}
 }
@@ -188,6 +193,11 @@ func (r *Router) Setup(engine *gin.Engine) {
 		// 仪表盘路由
 		if r.dashboardCtrl != nil {
 			r.dashboardCtrl.RegisterRoutes(v1)
+		}
+
+		// 评估路由
+		if r.evaluationCtrl != nil {
+			r.evaluationCtrl.RegisterRoutes(v1)
 		}
 	}
 }
