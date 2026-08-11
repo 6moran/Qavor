@@ -164,10 +164,14 @@ ollama:
 rag:
   chunk_tokens: 800
   chunk_overlap_tokens: 100
-  # top_k 为默认检索数量(未启用融合/重排时作为向量检索 TopK 使用)；
-  # 也可显式配置 vector_top_k 单独指定向量检索数量。
+  # top_k 是旧配置兼容字段；显式的混合检索窗口优先。
   top_k: 5
-  # 相似度阈值：低于该值的检索片段将被过滤，不进 prompt 上下文。
+  vector_top_k: 20
+  keyword_top_k: 20
+  fused_top_k: 20
+  rerank_top_k: 5
+  rrf_k: 60
+  # 相似度阈值仅过滤向量召回分支。
   score_threshold: 0.3
   request_timeout_seconds: 60
   embedding:

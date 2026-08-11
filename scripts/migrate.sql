@@ -4,6 +4,9 @@
 -- 启用 pgvector 扩展（需先在 PostgreSQL 实例安装 pgvector）
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- 启用中文友好的字符级关键词检索扩展
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- 知识库必须绑定 Embedding 与 Chat 模型；模型配置存放在 models 表。
 ALTER TABLE knowledge_bases
     ADD COLUMN IF NOT EXISTS embedding_model_id bigint NOT NULL DEFAULT 0,
@@ -25,3 +28,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_knowledge_chunks_file_index
 -- 知识库 / 文件联合查询索引
 CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_kb_file
     ON knowledge_chunks(kb_id, file_id);
+
+-- 为关键词 TopK 近邻排序创建 trigram GiST 索引
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_content_trgm
+ON knowledge_chunks
+USING gist (content gist_trgm_ops(siglen=64));
