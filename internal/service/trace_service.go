@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -122,27 +123,7 @@ func (s *traceServiceImpl) GetTraceDetail(ctx context.Context, traceID string) (
 
 	spanItems := make([]TraceSpanItem, 0, len(spans))
 	for _, sp := range spans {
-		item := TraceSpanItem{
-			SpanID:          sp.SpanID,
-			ParentSpanID:    sp.ParentSpanID,
-			Kind:            sp.Kind,
-			Operation:       sp.Operation,
-			DisplayName:     sp.DisplayName,
-			RunID:           sp.RunID,
-			RequestID:       sp.RequestID,
-			Status:          sp.Status,
-			StartedAt:       sp.StartedAt,
-			EndedAt:         sp.EndedAt,
-			DurationMs:      sp.DurationMs,
-			InputSummary:    sp.InputSummary,
-			OutputSummary:   sp.OutputSummary,
-			TokensIn:        sp.TokensIn,
-			TokensOut:       sp.TokensOut,
-			ReasoningTokens: sp.ReasoningTokens,
-			ErrorType:       sp.ErrorType,
-			ErrorMessage:    sp.ErrorMessage,
-			Attributes:      sp.Attributes,
-		}
+		item := spanToItem(sp, "")
 		// 为 Tool Span 关联触发它的 LLM Span（数据库 parent_span_id 保持不变）
 		if sp.Kind == entity.SpanKindTool && sp.Attributes != nil {
 			if tcID, ok := sp.Attributes["tool_call_id"].(string); ok && tcID != "" {
@@ -151,6 +132,8 @@ func (s *traceServiceImpl) GetTraceDetail(ctx context.Context, traceID string) (
 				}
 			}
 		}
+		// 列表不返回 Attributes 大字段，前端按需通过 GetSpanDetail 拉取完整详情
+		item.Attributes = nil
 		spanItems = append(spanItems, item)
 	}
 
@@ -177,8 +160,51 @@ func (s *traceServiceImpl) GetTraceDetail(ctx context.Context, traceID string) (
 		Trace:       *rec,
 		Run:         runSummary,
 		Spans:       spanItems,
+		SpanTotal:   int64(len(spans)),
 		Diagnostics: diagnostics,
 	}, nil
+}
+
+// GetSpanDetail 获取单条 Span 完整详情（含 attributes），供详情页按需懒加载。
+func (s *traceServiceImpl) GetSpanDetail(ctx context.Context, spanID string) (*TraceSpanItem, error) {
+	if spanID == "" {
+		return nil, pkgerrors.New(pkgerrors.CodeBadRequest, "span_id 不能为空")
+	}
+	sp, err := s.repo.GetSpan(ctx, spanID)
+	if err != nil {
+		return nil, err
+	}
+	if sp == nil {
+		return nil, pkgerrors.New(pkgerrors.CodeNotFound, fmt.Sprintf("span %s 不存在", spanID))
+	}
+	item := spanToItem(sp, "")
+	return &item, nil
+}
+
+// spanToItem 将持久化 Span 转换为前端展示用的平铺项（含 attributes）。
+func spanToItem(sp *entity.TraceSpan, triggeredBy string) TraceSpanItem {
+	return TraceSpanItem{
+		SpanID:            sp.SpanID,
+		ParentSpanID:      sp.ParentSpanID,
+		Kind:              sp.Kind,
+		Operation:         sp.Operation,
+		DisplayName:       sp.DisplayName,
+		RunID:             sp.RunID,
+		RequestID:         sp.RequestID,
+		Status:            sp.Status,
+		StartedAt:         sp.StartedAt,
+		EndedAt:           sp.EndedAt,
+		DurationMs:        sp.DurationMs,
+		InputSummary:      sp.InputSummary,
+		OutputSummary:     sp.OutputSummary,
+		TokensIn:          sp.TokensIn,
+		TokensOut:         sp.TokensOut,
+		ReasoningTokens:   sp.ReasoningTokens,
+		ErrorType:         sp.ErrorType,
+		ErrorMessage:      sp.ErrorMessage,
+		Attributes:        sp.Attributes,
+		TriggeredBySpanID: triggeredBy,
+	}
 }
 
 func (s *traceServiceImpl) GetTraceByRunID(ctx context.Context, runID string) (string, error) {
@@ -258,6 +284,16 @@ func buildDiagnostics(spans []*entity.TraceSpan, run *TraceRunSummary) []TraceDi
 				SpanID:  sp.SpanID,
 			})
 		}
+		// 慢队列诊断（queue.consume 排队超过阈值）
+		if sp.Operation == "queue.consume" && sp.Attributes != nil {
+			if ms := attrInt64(sp.Attributes["queue_wait_ms"]); ms > slowQueueThresholdMs {
+				diags = append(diags, TraceDiagnostic{
+					Code:    "slow_queue",
+					Message: fmt.Sprintf("排队等待 %dms 超过阈值 %dms", ms, slowQueueThresholdMs),
+					SpanID:  sp.SpanID,
+				})
+			}
+		}
 	}
 	// 状态不一致诊断
 	if run != nil {
@@ -273,6 +309,26 @@ func buildDiagnostics(spans []*entity.TraceSpan, run *TraceRunSummary) []TraceDi
 		}
 	}
 	return diags
+}
+
+// slowQueueThresholdMs 慢队列诊断阈值（与前端 collectDiagnostics 默认值保持一致）
+const slowQueueThresholdMs = 10000
+
+// attrInt64 从 attributes 中读取整型值（兼容 int/int64/float64/json.Number）。
+func attrInt64(v any) int64 {
+	switch n := v.(type) {
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case float64:
+		return int64(n)
+	case json.Number:
+		if p, err := n.Int64(); err == nil {
+			return p
+		}
+	}
+	return 0
 }
 
 func findAgentRunSpan(spans []*entity.TraceSpan) *entity.TraceSpan {
