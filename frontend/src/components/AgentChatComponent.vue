@@ -102,18 +102,20 @@
           </div>
 
           <!-- Token 上下文容量折叠条：内嵌于输入框上方，就近使用、无遮挡 -->
-          <div v-if="currentTokenUsage" class="token-usage-bar-wrapper">
-            <TokenUsageBar
-              :token-usage="currentTokenUsage"
-              :auto-poll="true"
-              :poll-interval="5000"
-              :fetch-token-usage="fetchTokenUsageSilently"
-              @refresh="handleTokenRefresh"
-              @clear-context="handleClearContext"
-            />
-          </div>
 
           <div class="bottom" :class="{ 'start-screen': !conversations.length }">
+            <!-- Token 使用量：固定在输入框上方 -->
+            <div v-if="currentTokenUsage" class="token-usage-bar-wrapper">
+              <TokenUsageBar
+                :token-usage="currentTokenUsage"
+                :auto-poll="true"
+                :poll-interval="5000"
+                :fetch-token-usage="fetchTokenUsageSilently"
+                @refresh="handleTokenRefresh"
+                @clear-context="handleClearContext"
+              />
+            </div>
+
             <div class="message-input-wrapper">
               <!-- 加载状态：加载消息 -->
               <div v-if="isLoadingMessages" class="chat-loading">
@@ -240,14 +242,6 @@
                         <CornerDownRight :size="14" aria-hidden="true" />
                         引导
                       </button>
-                      <div class="input-agent-selector">
-                        <AgentSelectorComponent
-                          :agent-slug="currentAgentId"
-                          size="nano"
-                          placeholder="选择智能体"
-                          @select-agent="handleAgentSelect"
-                        />
-                      </div>
                       <slot name="input-actions-right" :has-active-thread="!!currentChatId"></slot>
                     </template>
                   </AgentInputArea>
