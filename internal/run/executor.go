@@ -48,7 +48,7 @@ func (e *InterruptedError) Is(target error) bool {
 	return target == ErrInterrupted
 }
 
-// agentExecutor AgentExecutor 的实现：桥接 eino adk 事件到 run.StreamEvent
+// agentExecutor Agent 执行器：桥接 eino adk 事件到 run.StreamEvent
 type agentExecutor struct {
 	agentMgr *agent.AgentManager
 	resolver ModelResolver
@@ -73,12 +73,12 @@ func (e *agentExecutor) GetModelID(ctx context.Context, slug string) uint {
 	return 0
 }
 
-// ExecuteOption 执行选项（函数式选项，向后兼容）。
+// ExecuteOption 执行选项（向后兼容函数选项模式）。
 type ExecuteOption func(*executeOptions)
 
 type executeOptions struct {
 	approvalMode string            // 审批模式（default/always_trust）
-	resume       *agentResumeParam // 非 nil 时走 resume 恢复执行
+	resume       *agentResumeParam // 非 nil 时走 resume 执行
 }
 
 // agentResumeParam resume 执行参数。
@@ -215,7 +215,7 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 	// 流式输出：逐 chunk 发 text_delta，共享 msgID
 	// 流式工具调用（chunk.ToolCalls）在流结束后统一补发，避免事件丢失
 	if mv.IsStreaming && mv.MessageStream != nil {
-		content, toolCalls := e.emitStream(ctx, mv.MessageStream, msgID, emit)
+		content, reasoningContent, toolCalls := e.emitStream(ctx, mv.MessageStream, msgID, emit)
 		for _, tc := range toolCalls {
 			idx := 0
 			if tc.Index != nil {
@@ -234,7 +234,12 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 			})
 		}
 		emit(StreamEvent{Type: "message_end", MessageID: msgID, Role: "assistant"})
-		return &schema.Message{Role: schema.Assistant, Content: content, ToolCalls: toolCalls}
+		return &schema.Message{
+			Role:             schema.Assistant,
+			Content:          content,
+			ReasoningContent: reasoningContent,
+			ToolCalls:        toolCalls,
+		}
 	}
 
 	// 非流式完整消息
@@ -294,12 +299,13 @@ func toolResultContent(mv *adk.MessageVariant) string {
 	return ""
 }
 
-// emitStream 读取流式输出，逐 chunk 发出 text_delta 事件，返回累积的完整内容
+// emitStream 读取流式输出，逐 chunk 发出 text_delta 事件，返回累积的完整内容与推理内容。
 // 同时收集流式工具调用：chunk.ToolCalls 中每个 index 的 ID/name 相同、args 为增量片段，
 // 按 index 拼接为完整的 ToolCall，供调用方在流结束后补发 tool_call 事件
-func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamReader[*schema.Message], msgID string, emit func(StreamEvent)) (string, []schema.ToolCall) {
+func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamReader[*schema.Message], msgID string, emit func(StreamEvent)) (string, string, []schema.ToolCall) {
 	defer stream.Close()
 	var sb strings.Builder
+	var reasoningSb strings.Builder
 	startTime := time.Now()
 	chunkCount := 0
 	firstChunkAt := time.Time{}
@@ -308,6 +314,7 @@ func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamRea
 			logger.GetLogger().Debug("流式输出统计",
 				zap.Int("chunk_count", chunkCount),
 				zap.Int("total_chars", sb.Len()),
+				zap.Int("reasoning_chars", reasoningSb.Len()),
 				zap.Duration("first_token_latency", firstChunkAt.Sub(startTime)),
 				zap.Duration("total_duration", time.Since(startTime)),
 			)
@@ -338,11 +345,11 @@ func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamRea
 	}
 	for {
 		if ctx.Err() != nil {
-			return sb.String(), toolCalls
+			return sb.String(), reasoningSb.String(), toolCalls
 		}
 		chunk, err := stream.Recv()
 		if err != nil {
-			return sb.String(), toolCalls
+			return sb.String(), reasoningSb.String(), toolCalls
 		}
 		if chunk == nil {
 			continue
@@ -360,18 +367,39 @@ func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamRea
 				Content:   chunk.Content,
 			})
 		}
-		if reasoning := extractReasoning(chunk); reasoning != "" {
+		// 提取推理内容：
+		// 1. 优先读 Message.ReasoningContent 字段（eino v0.10.0+ 原生支持，stream chunk 直接携带）
+		// 2. 兜底从 AssistantGenMultiContent 的 reasoning part 提取
+		reasoningContent := chunk.ReasoningContent
+		if reasoningContent == "" {
+			reasoningContent = extractReasoning(chunk)
+		}
+		if reasoningContent != "" {
+			reasoningSb.WriteString(reasoningContent)
+			if logger.Initialized() {
+				logger.GetLogger().Debug("emitStream 提取到推理内容",
+					zap.Int("reasoning_chars", len(reasoningContent)),
+					zap.String("reasoning_preview", truncateStr(reasoningContent, 120)))
+			}
 			emit(StreamEvent{
 				Type:      "text_delta",
 				MessageID: msgID,
 				Role:      "assistant",
-				Reasoning: reasoning,
+				Reasoning: reasoningContent,
 			})
 		}
 		for i := range chunk.ToolCalls {
 			mergeToolCall(&chunk.ToolCalls[i])
 		}
 	}
+}
+
+// truncateStr 截断字符串用于日志预览
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // extractReasoning 从流式消息中提取推理内容增量（reasoning part）

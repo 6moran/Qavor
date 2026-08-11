@@ -2,7 +2,6 @@ import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { databaseApi, documentApi, queryApi } from '@/apis/knowledge_api'
-import { useTaskerStore } from '@/stores/tasker'
 import { useUserStore } from '@/stores/user'
 import { useRouter } from 'vue-router'
 import { parseToShanghai } from '@/utils/time'
@@ -10,7 +9,6 @@ import { canSelectFile, isProcessingFile } from '@/utils/knowledge_file_policy'
 
 export const useDatabaseStore = defineStore('database', () => {
   const router = useRouter()
-  const taskerStore = useTaskerStore()
   const userStore = useUserStore()
 
   // 状态
@@ -480,20 +478,7 @@ export const useDatabaseStore = defineStore('database', () => {
       if (data.status === 'success' || data.status === 'queued') {
         const itemType = contentType === 'file' ? '文件' : 'URL'
         enableAutoRefresh('auto')
-        message.success(data.message || `${itemType}已提交处理，请在任务中心查看进度`)
-        if (data.task_id) {
-          taskerStore.registerQueuedTask({
-            task_id: data.task_id,
-            name: `知识库导入 (${kbId.value || ''})`,
-            task_type: 'knowledge_ingest',
-            message: data.message,
-            payload: {
-              kb_id: kbId.value,
-              count: items.length,
-              content_type: contentType
-            }
-          })
-        }
+        message.success(data.message || `${itemType}已提交处理`)
         await delayedRefresh() // 延迟1秒后刷新
         return true // Indicate success
       } else {
@@ -518,17 +503,6 @@ export const useDatabaseStore = defineStore('database', () => {
       )
       const queuedCount = results.length
       enableAutoRefresh('auto')
-      for (const item of results) {
-        if (item.job_id) {
-          taskerStore.registerQueuedTask({
-            task_id: item.job_id,
-            name: `文档解析 (${kbId.value})`,
-            task_type: 'knowledge_parse',
-            message: item.message,
-            payload: { kb_id: kbId.value, count: 1 }
-          })
-        }
-      }
       message.success(`${queuedCount} 个解析任务已提交`)
       await delayedRefresh()
       return true
@@ -548,18 +522,6 @@ export const useDatabaseStore = defineStore('database', () => {
       const data = await documentApi.indexDocuments(kbId.value, fileIds, params)
       const queuedItems = data.queued_items || []
       const failedItems = data.failed_items || []
-
-      for (const item of queuedItems) {
-        if (item.job_id) {
-          taskerStore.registerQueuedTask({
-            task_id: item.job_id,
-            name: `文档入库 (${kbId.value})`,
-            task_type: 'knowledge_index',
-            message: item.message,
-            payload: { kb_id: kbId.value, file_id: item.file_id }
-          })
-        }
-      }
 
       enableAutoRefresh('auto')
 
@@ -588,18 +550,6 @@ export const useDatabaseStore = defineStore('database', () => {
       const data = await documentApi.indexPendingDocuments(kbId.value, params)
       const queuedItems = data.queued_items || []
       const failedItems = data.failed_items || []
-
-      for (const item of queuedItems) {
-        if (item.job_id) {
-          taskerStore.registerQueuedTask({
-            task_id: item.job_id,
-            name: `文档入库 (${kbId.value})`,
-            task_type: 'knowledge_index',
-            message: item.message,
-            payload: { kb_id: kbId.value, file_id: item.file_id }
-          })
-        }
-      }
 
       enableAutoRefresh('auto')
 

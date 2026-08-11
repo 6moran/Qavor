@@ -13,7 +13,6 @@
       :current-folder-id="currentFolderId"
       :is-folder-mode="isFolderUploadMode"
       :mode="addFilesMode"
-      @success="onFileUploadSuccess"
     />
 
     <FileSearchModal
@@ -326,7 +325,6 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDatabaseStore } from '@/stores/database'
-import { useTaskerStore } from '@/stores/tasker'
 import {
   ArrowLeft,
   BarChart3,
@@ -367,7 +365,6 @@ import { formatFileSize } from '@/utils/file_utils'
 const route = useRoute()
 const router = useRouter()
 const store = useDatabaseStore()
-const taskerStore = useTaskerStore()
 const {
   chunkPresetSelectOptions: chunkPresetOptions,
   chunkPresetLoading,
@@ -570,10 +567,6 @@ const folderTree = computed(() => {
   }
   return roots
 })
-
-const onFileUploadSuccess = () => {
-  taskerStore.loadTasks()
-}
 
 const resetFileSelectionState = () => {
   store.selectedRowKeys = []

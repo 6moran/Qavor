@@ -18,7 +18,7 @@
           class="index-pending-alert"
           type="info"
           show-icon
-          :message="`将提交 ${pendingIndexTotalText} 个待入库文件，任务会在后台按批处理，可在任务中心查看进度。`"
+          :message="`将提交 ${pendingIndexTotalText} 个待入库文件，任务会在后台按批处理。`"
         />
         <ChunkParamsConfig
           :temp-chunk-params="indexParams"

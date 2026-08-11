@@ -307,7 +307,6 @@ import {
   X
 } from 'lucide-vue-next'
 import { evaluationApi } from '@/apis/knowledge_api'
-import { useTaskerStore } from '@/stores/tasker'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
 import BenchmarkUploadModal from './modals/BenchmarkUploadModal.vue'
 import BenchmarkGenerateModal from './modals/BenchmarkGenerateModal.vue'
@@ -320,8 +319,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['refresh'])
-
-const taskerStore = useTaskerStore()
 
 // 状态
 const loading = ref(false)
@@ -566,7 +563,6 @@ const showGenerateModal = () => {
 const onUploadSuccess = () => {
   loadBenchmarks()
   message.success('基准上传成功')
-  taskerStore.loadTasks() // 刷新任务列表
   // 通知父组件刷新基准列表
   emit('refresh')
 }
@@ -575,7 +571,6 @@ const onUploadSuccess = () => {
 const onGenerateSuccess = () => {
   loadBenchmarks()
   // message.success('基准生成成功'); // 移除，由模态框提示任务提交
-  taskerStore.loadTasks() // 刷新任务列表
   // 通知父组件刷新基准列表
   emit('refresh')
 }
@@ -722,7 +717,6 @@ const resumeDataset = async (benchmark) => {
     if (response.message === 'success') {
       message.success(response.data?.message || '已恢复生成')
       loadBenchmarks()
-      taskerStore.loadTasks()
     }
   } catch (error) {
     console.error('恢复生成失败:', error)

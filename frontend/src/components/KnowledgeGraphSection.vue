@@ -398,7 +398,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onUnmounted, reactive } from 'vue'
 import { useDatabaseStore } from '@/stores/database'
-import { useTaskerStore } from '@/stores/tasker'
 import { useConfigStore } from '@/stores/config'
 import {
   RefreshCw,
@@ -419,8 +418,6 @@ import { Modal, message } from 'ant-design-vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { useGraph } from '@/composables/useGraph'
 
-const GRAPH_BUILD_TASK_TYPE = 'knowledge_graph_index'
-
 const props = defineProps({
   active: {
     type: Boolean,
@@ -429,7 +426,6 @@ const props = defineProps({
 })
 
 const store = useDatabaseStore()
-const taskerStore = useTaskerStore()
 const configStore = useConfigStore()
 
 const kbId = computed(() => store.kbId)
@@ -688,15 +684,6 @@ const startGraphBuild = async () => {
   try {
     const data = await graphBuildApi.startIndex(kbId.value)
     message.success(data.message || '图谱构建任务已提交')
-    if (data.task_id) {
-      taskerStore.registerQueuedTask({
-        task_id: data.task_id,
-        name: `图谱构建 (${kbId.value})`,
-        task_type: GRAPH_BUILD_TASK_TYPE,
-        message: data.message,
-        payload: { kb_id: kbId.value }
-      })
-    }
     await loadGraphBuildStatus()
   } catch (e) {
     console.error('Failed to start graph build:', e)
@@ -708,15 +695,6 @@ const retryGraphVectors = async () => {
   try {
     const data = await graphBuildApi.reconcile(kbId.value, 'failed')
     message.success(data.message || '图谱向量索引修复任务已提交')
-    if (data.task_id) {
-      taskerStore.registerQueuedTask({
-        task_id: data.task_id,
-        name: `图谱向量索引修复 (${kbId.value})`,
-        task_type: GRAPH_BUILD_TASK_TYPE,
-        message: data.message,
-        payload: { kb_id: kbId.value, reconcile_mode: 'failed' }
-      })
-    }
     await loadGraphBuildStatus()
   } catch (e) {
     console.error('Failed to reconcile graph vectors:', e)

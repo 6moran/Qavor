@@ -631,8 +631,11 @@ func (a *App) initDependencies() error {
 		logger.Info("链路追踪已启用")
 	}
 
+	// 创建 Dashboard Service（只读统计查询）
+	dashboardSvc := service.NewDashboardService(a.postgresDB)
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, workspaceCtrl, tracer)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, tracer)
 
 	return nil
 }

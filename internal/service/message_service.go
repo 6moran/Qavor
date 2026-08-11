@@ -217,19 +217,37 @@ func (s *messageService) GetLatestMessage(conversationID uint) (*dto.MessageResp
 
 // toResponse 将实体转换为响应 DTO
 func (s *messageService) toResponse(msg *entity.Message) *dto.MessageResponse {
-	return &dto.MessageResponse{
-		ID:             msg.ID,
-		ConversationID: msg.ConversationID,
-		Role:           msg.Role,
-		Content:        msg.Content,
-		MessageType:    msg.MessageType,
-		TokenCount:     msg.TokenCount,
-		ImageContent:   msg.ImageContent,
-		ExtraMetadata:  msg.ExtraMetadata,
-		RunID:          msg.RunID,
-		RequestID:      msg.RequestID,
-		DeliveryStatus: msg.DeliveryStatus,
-		CreatedAt:      msg.CreatedAt,
-		UpdatedAt:      msg.UpdatedAt,
+	resp := &dto.MessageResponse{
+		ID:               msg.ID,
+		ConversationID:   msg.ConversationID,
+		Role:             msg.Role,
+		Content:          msg.Content,
+		ReasoningContent: msg.ReasoningContent,
+		MessageType:      msg.MessageType,
+		TokenCount:       msg.TokenCount,
+		ImageContent:     msg.ImageContent,
+		ExtraMetadata:    msg.ExtraMetadata,
+		RunID:            msg.RunID,
+		RequestID:        msg.RequestID,
+		DeliveryStatus:   msg.DeliveryStatus,
+		CreatedAt:        msg.CreatedAt,
+		UpdatedAt:        msg.UpdatedAt,
 	}
+	if len(msg.ToolCalls) > 0 {
+		resp.ToolCalls = make([]dto.ToolCallResponse, 0, len(msg.ToolCalls))
+		for _, tc := range msg.ToolCalls {
+			resp.ToolCalls = append(resp.ToolCalls, dto.ToolCallResponse{
+				ID:                  tc.ID,
+				MessageID:           tc.MessageID,
+				LanggraphToolCallID: tc.LanggraphToolCallID,
+				ToolName:            tc.ToolName,
+				ToolInput:           tc.ToolInput,
+				ToolOutput:          tc.ToolOutput,
+				Status:              tc.Status,
+				ErrorMessage:        tc.ErrorMessage,
+				CreatedAt:           tc.CreatedAt,
+			})
+		}
+	}
+	return resp
 }
