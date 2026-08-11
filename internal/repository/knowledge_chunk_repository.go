@@ -93,3 +93,26 @@ func (r *knowledgeChunkRepository) FindKeywordByKBIDs(ctx context.Context, kbIDs
 	}
 	return rows, nil
 }
+
+// FindRandomByKBIDs 随机采样指定知识库的已入库分块。
+// 只查询 ready 状态文件的分块，返回顺序随机。
+func (r *knowledgeChunkRepository) FindRandomByKBIDs(ctx context.Context, kbIDs []string, limit int) ([]ChunkWithFile, error) {
+	if len(kbIDs) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	var rows []ChunkWithFile
+	sql := `SELECT c.chunk_id, c.kb_id, c.file_id, f.filename, c.content, 0 AS score
+		FROM knowledge_chunks c
+		JOIN knowledge_files f ON f.file_id = c.file_id AND f.kb_id = c.kb_id
+		WHERE c.kb_id = ANY($1)
+		  AND f.status = $2
+		ORDER BY random()
+		LIMIT $3`
+	if err := r.db.WithContext(ctx).Raw(sql, kbIDs, searchableKnowledgeFileStatus, limit).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}

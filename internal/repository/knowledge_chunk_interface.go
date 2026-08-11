@@ -19,6 +19,8 @@ type KnowledgeChunkRepository interface {
 	FindNearestByKBIDs(ctx context.Context, kbIDs []string, queryVector pgvector.Vector, limit int) ([]ChunkWithFile, error)
 	// FindKeywordByKBIDs 按字符相似度检索指定知识库的已入库分块。
 	FindKeywordByKBIDs(ctx context.Context, kbIDs []string, query string, limit int) ([]ChunkWithFile, error)
+	// FindRandomByKBIDs 随机采样指定知识库的已入库分块，用于评测基准生成等场景。
+	FindRandomByKBIDs(ctx context.Context, kbIDs []string, limit int) ([]ChunkWithFile, error)
 }
 
 // ChunkWithFile 携带文件名的分块结果，用于向量检索直接构造引用。

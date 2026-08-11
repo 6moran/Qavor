@@ -40,6 +40,9 @@ type ModelService interface {
 	ResolveEmbedding(ctx context.Context, modelID uint) (einoEmbedding.Embedder, error)
 	// ResolveChatModel 根据模型管理中的 ID 创建原生 Eino ChatModel。
 	ResolveChatModel(ctx context.Context, modelID uint) (einoModel.ToolCallingChatModel, error)
+	// ResolveChatModelWithTimeout 创建带超时下限的 Chat 模型客户端，用于生成类批处理场景。
+	// 客户端超时取模型配置与 minTimeout 中的较大值；minTimeout 非正时与 ResolveChatModel 一致。
+	ResolveChatModelWithTimeout(ctx context.Context, modelID uint, minTimeout time.Duration) (einoModel.ToolCallingChatModel, error)
 	// ResolveReranker 根据模型管理中的 ID 创建重排客户端。
 	ResolveReranker(ctx context.Context, modelID uint) (rag.Reranker, error)
 	// TestConnection 测试未保存的模型配置是否能正常连接。
@@ -325,6 +328,12 @@ func (s *modelService) ResolveEmbedding(ctx context.Context, modelID uint) (eino
 
 // ResolveChatModel 根据模型管理中的配置创建原生 Eino ChatModel。
 func (s *modelService) ResolveChatModel(ctx context.Context, modelID uint) (einoModel.ToolCallingChatModel, error) {
+	return s.ResolveChatModelWithTimeout(ctx, modelID, 0)
+}
+
+// ResolveChatModelWithTimeout 创建带超时下限的 Chat 模型客户端。
+// 批处理场景（如生成示例问题）可传入较长 minTimeout，避免模型配置的短超时导致生成失败。
+func (s *modelService) ResolveChatModelWithTimeout(ctx context.Context, modelID uint, minTimeout time.Duration) (einoModel.ToolCallingChatModel, error) {
 	model, err := s.GetModelWithDecryptedKey(modelID)
 	if err != nil {
 		return nil, err
@@ -335,7 +344,11 @@ func (s *modelService) ResolveChatModel(ctx context.Context, modelID uint) (eino
 	if model.ModelType != "chat" {
 		return nil, errors.New(errors.CodeInvalidParam, "模型类型不是 chat")
 	}
-	client, err := llm.NewClient(ctx, model.Protocol, model.Name, model.APIKey, model.BaseURL, model.Timeout)
+	timeout := model.Timeout
+	if minTimeout > 0 && time.Duration(timeout)*time.Millisecond < minTimeout {
+		timeout = int(minTimeout / time.Millisecond)
+	}
+	client, err := llm.NewClient(ctx, model.Protocol, model.Name, model.APIKey, model.BaseURL, timeout)
 	if err != nil {
 		return nil, err
 	}
