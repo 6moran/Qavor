@@ -251,17 +251,17 @@ func (s *rAGService) Answer(ctx context.Context, kbIDs []string, query string) (
 	result := &RAGAnswerResult{Answer: out.Answer}
 	for _, c := range out.Citations {
 		result.Citations = append(result.Citations, RAGCitation{
-			Index:    c.Index,
-			ChunkID:  c.ChunkID,
-			FileID:   c.FileID,
-			Filename: c.Filename,
-			Content:  c.Content,
-			Score:    c.Score,
-			VectorScore: c.VectorScore,
+			Index:        c.Index,
+			ChunkID:      c.ChunkID,
+			FileID:       c.FileID,
+			Filename:     c.Filename,
+			Content:      c.Content,
+			Score:        c.Score,
+			VectorScore:  c.VectorScore,
 			KeywordScore: c.KeywordScore,
-			RRFScore: c.RRFScore,
-			RerankScore: c.RerankScore,
-			MatchedBy: c.MatchedBy,
+			RRFScore:     c.RRFScore,
+			RerankScore:  c.RerankScore,
+			MatchedBy:    c.MatchedBy,
 		})
 	}
 	return result, nil
