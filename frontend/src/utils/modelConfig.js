@@ -75,17 +75,11 @@ export const formatModelTestSuccess = ({ latency_ms } = {}) =>
 // 后端业务错误响应为 { code, message, detail }（message 为分类后的友好提示，
 // detail 为脱敏后的原始错误）；网络/未知错误回退到 error.message。
 export const formatModelTestError = (error) => {
-  if (error && error.response && error.response.data) {
-    const data = error.response.data
-    return {
-      message: typeof data.message === 'string' && data.message ? data.message : '连接测试失败',
-      detail: typeof data.detail === 'string' ? data.detail : ''
-    }
+  const data = error?.response?.data
+  return {
+    message: data?.message || error?.message || '连接测试失败',
+    detail: data?.detail || ''
   }
-  if (error && error.message) {
-    return { message: error.message, detail: '' }
-  }
-  return { message: '连接测试失败', detail: '' }
 }
 
 export const modelToForm = (model) => ({

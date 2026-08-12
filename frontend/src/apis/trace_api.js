@@ -14,7 +14,17 @@ export const traceApi = {
    * @param {Object} params - keyword / agent_slug / conversation_id / status / model / tool / error_only / mismatch_only / from / to / page / page_size
    * @returns {Promise} - { items, total }
    */
-  listTraces: (params = {}) => apiGet(BASE_URL, { params }).then(res => res?.data || { items: [], total: 0 }),
+  listTraces: (params = {}) => {
+    // 与其它 API 一致：手动拼查询串（base.js 的 fetch 封装不处理 options.params）
+    const query = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        query.set(key, String(value))
+      }
+    })
+    const qs = query.toString()
+    return apiGet(qs ? `${BASE_URL}?${qs}` : BASE_URL).then(res => res?.data || { items: [], total: 0 })
+  },
 
   /**
    * Trace 详情（头部 + spans 平铺 + diagnostics）

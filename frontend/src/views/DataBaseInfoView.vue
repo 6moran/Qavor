@@ -275,6 +275,7 @@
             v-model="editForm.description"
             :name="editForm.name"
             :files="fileList"
+            :chat-model-id="editForm.chat_model_id"
             placeholder="请输入知识库描述"
             action-placement="header"
             :rows="4"
@@ -308,6 +309,36 @@
           />
         </a-form-item>
 
+        <a-divider style="margin: 4px 0 20px" />
+
+        <a-form-item label="Chat 模型" name="chat_model_id" required>
+          <a-select
+            v-model:value="editForm.chat_model_id"
+            :options="chatModelOptions"
+            :loading="modelsLoading"
+            placeholder="请选择问答模型"
+            show-search
+            option-filter-prop="label"
+          />
+          <span class="edit-model-hint">
+            更换后仅影响问答生成，不影响已入库数据
+          </span>
+        </a-form-item>
+
+        <a-form-item label="Embedding 模型" name="embedding_model_id">
+          <a-input :value="embeddingModelName" disabled placeholder="未绑定 Embedding 模型" />
+          <span class="edit-model-hint">
+            创建后不可修改；更换需新建知识库并重新入库
+          </span>
+        </a-form-item>
+
+        <a-form-item label="Rerank 模型" name="rerank_model_id">
+          <a-input :value="rerankModelName" disabled placeholder="未配置，将使用 RRF 融合结果" />
+          <span class="edit-model-hint">
+            全局 Rerank 模型，所有知识库共享，请在基础设置中修改
+          </span>
+        </a-form-item>
+
       </a-form>
     </a-modal>
   </div>
@@ -317,6 +348,7 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDatabaseStore } from '@/stores/database'
+import { useConfigStore } from '@/stores/config'
 import {
   ArrowLeft,
   BarChart3,
@@ -347,9 +379,10 @@ import RAGEvaluationTab from '@/components/RAGEvaluationTab.vue'
 import EvaluationBenchmarks from '@/components/EvaluationBenchmarks.vue'
 import SearchConfigPanel from '@/components/SearchConfigPanel.vue'
 import AiTextarea from '@/components/AiTextarea.vue'
-import { databaseApi } from '@/apis/knowledge_api'
+import { databaseApi, modelApi } from '@/apis/knowledge_api'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
+import { buildModelSelectOptions } from '@/utils/model_options'
 import { formatFileSize } from '@/utils/file_utils'
 
 const route = useRoute()
@@ -365,7 +398,8 @@ const {
 const kbId = computed(() => store.kbId)
 const database = computed(() => store.database)
 const isCurrentDatabaseLoaded = computed(() => database.value?.kb_id === kbId.value)
-const supportsFileManagement = computed(() => isCurrentDatabaseLoaded.value)
+// 文件管理只依赖 kbId，不依赖详情数据加载成功（详情接口失败时仍应显示文件管理入口）
+const supportsFileManagement = computed(() => Boolean(kbId.value))
 const isEvaluationSupported = computed(() => true)
 
 const databaseSubtitle = computed(() => {
@@ -651,11 +685,17 @@ const copyDatabaseId = async () => {
 
 const editModalVisible = ref(false)
 const editFormRef = ref(null)
+const configStore = useConfigStore()
+const embeddingModels = ref([])
+const chatModels = ref([])
+const modelsLoading = ref(false)
+const ragSettingsLoading = ref(false)
 const editForm = reactive({
   name: '',
   description: '',
   auto_generate_questions: false,
-  chunk_preset_id: DEFAULT_CHUNK_PRESET_ID
+  chunk_preset_id: DEFAULT_CHUNK_PRESET_ID,
+  chat_model_id: undefined
 })
 
 const rules = {
@@ -663,9 +703,44 @@ const rules = {
 }
 
 const editPresetDescription = computed(() => getChunkPresetDescription(editForm.chunk_preset_id))
+const chatModelOptions = computed(() => buildModelSelectOptions(chatModels.value))
 const fileList = computed(() => {
   return (store.documentFiles || []).map((f) => f.filename).filter(Boolean)
 })
+
+const embeddingModelName = computed(() => {
+  const model = embeddingModels.value.find((m) => m.id === database.value.embedding_model_id)
+  return model?.name || database.value.embedding_model_spec || ''
+})
+
+const rerankModelName = computed(() => configStore.ragSettings.rerankModelName || '')
+
+const loadModels = async () => {
+  modelsLoading.value = true
+  try {
+    const [embedding, chat] = await Promise.all([
+      modelApi.list('embedding'),
+      modelApi.list('chat')
+    ])
+    embeddingModels.value = embedding.filter((model) => model.enabled !== false)
+    chatModels.value = chat.filter((model) => model.enabled !== false)
+  } catch (error) {
+    console.error('加载模型列表失败:', error)
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
+const loadRagSettings = async () => {
+  ragSettingsLoading.value = true
+  try {
+    await configStore.refreshRagSettings()
+  } catch (error) {
+    console.error('加载全局 Rerank 设置失败:', error)
+  } finally {
+    ragSettingsLoading.value = false
+  }
+}
 
 const showEditModal = () => {
   editForm.name = database.value.name || ''
@@ -674,6 +749,7 @@ const showEditModal = () => {
     database.value.additional_params?.auto_generate_questions || false
   editForm.chunk_preset_id =
     database.value.additional_params?.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
+  editForm.chat_model_id = database.value.chat_model_id || undefined
   editModalVisible.value = true
 }
 
@@ -694,6 +770,7 @@ const handleEditSubmit = () => {
       const updateData = {
         name: editForm.name,
         description: editForm.description,
+        chat_model_id: editForm.chat_model_id,
         additional_params: {}
       }
 
@@ -716,6 +793,8 @@ const deleteDatabase = () => {
 
 onMounted(() => {
   loadChunkPresetOptions()
+  loadModels()
+  loadRagSettings()
 })
 
 onUnmounted(() => {
@@ -1108,6 +1187,14 @@ onUnmounted(() => {
   color: var(--gray-500);
   cursor: help;
   font-size: 14px;
+}
+
+.edit-model-hint {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--gray-500);
+  line-height: 1.6;
 }
 
 @media (max-width: 1024px) {
