@@ -11,13 +11,13 @@ import (
 
 // 错误分类常量。
 const (
-	CategoryTimeout          = "timeout"
-	CategoryConnectFailed    = "connect_failed"
+	CategoryTimeout           = "timeout"
+	CategoryConnectFailed     = "connection_failed"
 	CategoryInsufficientQuota = "insufficient_quota"
-	CategoryAuthFailed       = "auth_failed"
-	CategoryModelNotFound    = "model_not_found"
-	CategoryRateLimited      = "rate_limited"
-	CategoryUnknown          = "unknown"
+	CategoryAuthFailed        = "auth_failed"
+	CategoryModelNotFound     = "model_not_found"
+	CategoryRateLimited       = "rate_limited"
+	CategoryUnknown           = "unknown"
 )
 
 // ClassifiedError 携带分类与友好提示的 LLM 调用错误。
