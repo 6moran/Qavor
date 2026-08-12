@@ -47,9 +47,9 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { modelApi } from '@/apis/model_api'
+import { getEnabledModels } from '@/apis/model_api'
 
 const props = defineProps({
   model_spec: { type: String, default: '' },
@@ -85,19 +85,22 @@ const displayModelText = computed(() => {
   return model?.name || props.model_spec
 })
 
-const handleOpenChange = async (open) => {
-  dropdownOpen.value = open
-  if (!open || loaded) return
+const loadModels = async () => {
   loading.value = true
   try {
-    const response = await modelApi.list({ model_type: 'chat', page: 1, page_size: 100 })
-    models.value = (response?.data?.items || []).filter((model) => model.enabled)
+    models.value = await getEnabledModels('chat')
     loaded = true
   } catch (error) {
     console.error('获取 chat 模型失败:', error)
   } finally {
     loading.value = false
   }
+}
+
+const handleOpenChange = async (open) => {
+  dropdownOpen.value = open
+  if (!open || loaded) return
+  await loadModels()
 }
 
 const handleSelectModel = (id) => {
@@ -110,6 +113,12 @@ const handleClear = () => {
   emit('select-model', '')
   emit('update:model_spec', '')
 }
+
+// 挂载时若有已选模型则预加载模型列表，让选中值直接显示模型名而非数字 id；
+// 列表为空时仍保持展开下拉才加载的懒加载行为
+onMounted(() => {
+  if (props.model_spec) loadModels()
+})
 </script>
 
 <style lang="less" scoped>

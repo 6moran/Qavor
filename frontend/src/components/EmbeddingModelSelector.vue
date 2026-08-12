@@ -16,8 +16,8 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { modelApi } from '@/apis/model_api'
+import { onMounted, ref } from 'vue'
+import { getEnabledModels } from '@/apis/model_api'
 
 const props = defineProps({
   value: { type: [String, Number], default: '' },
@@ -32,12 +32,10 @@ const models = ref([])
 const loading = ref(false)
 let loaded = false
 
-const handleOpenChange = async (open) => {
-  if (!open || loaded) return
+const loadModels = async () => {
   loading.value = true
   try {
-    const response = await modelApi.list({ model_type: 'embedding', page: 1, page_size: 100 })
-    models.value = (response?.data?.items || []).filter((model) => model.enabled)
+    models.value = await getEnabledModels('embedding')
     loaded = true
   } catch (error) {
     console.error('获取 embedding 模型失败:', error)
@@ -46,8 +44,18 @@ const handleOpenChange = async (open) => {
   }
 }
 
+const handleOpenChange = async (open) => {
+  if (!open || loaded) return
+  await loadModels()
+}
+
 const handleSelect = (value) => {
   emit('update:value', value)
   emit('change', value)
 }
+
+// 挂载时若有已选模型则预加载，避免选中值直接显示数字 id
+onMounted(() => {
+  if (props.value) loadModels()
+})
 </script>
