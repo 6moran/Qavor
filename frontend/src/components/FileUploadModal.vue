@@ -343,7 +343,6 @@ import {
   FolderOpen,
   ArrowLeft,
   RotateCw,
-  CircleHelp,
   Info,
   Download,
   Trash2,
@@ -414,7 +413,9 @@ watch(
       applyDefaultOcrEngine()
       selectedFolderId.value = props.currentFolderId
       isFolderUpload.value = props.isFolderMode
-      uploadMode.value = props.mode || (props.isFolderMode ? 'folder' : 'file')
+      // 仅暴露已可用的模式；后端接口未就绪的 url / workspace 一律回退到 file，避免 segmented 无对应选项
+      const requestedMode = props.mode || (props.isFolderMode ? 'folder' : 'file')
+      uploadMode.value = ['file', 'folder'].includes(requestedMode) ? requestedMode : 'file'
       if (uploadMode.value === 'workspace') {
         loadWorkspaceFiles()
       }
@@ -576,20 +577,6 @@ const uploadModeOptions = computed(() => [
     label: h('div', { class: 'segmented-option' }, [
       h(FolderUp, { size: 16, class: 'option-icon' }),
       h('span', { class: 'option-text' }, '上传文件夹')
-    ])
-  },
-  {
-    value: 'url',
-    label: h('div', { class: 'segmented-option' }, [
-      h(Link, { size: 16, class: 'option-icon' }),
-      h('span', { class: 'option-text' }, '解析 URL')
-    ])
-  },
-  {
-    value: 'workspace',
-    label: h('div', { class: 'segmented-option' }, [
-      h(FolderOpen, { size: 16, class: 'option-icon' }),
-      h('span', { class: 'option-text' }, '工作区')
     ])
   }
 ])

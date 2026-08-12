@@ -32,7 +32,6 @@
             class="sider-item"
             :class="{ activesec: activeTab === 'base' }"
             @click="activeTab = 'base'"
-            v-if="userStore.isAdmin"
           >
             <Settings class="icon" :size="18" />
             <span>基本设置</span>
@@ -41,7 +40,6 @@
             class="sider-item"
             :class="{ activesec: activeTab === 'ocr' }"
             @click="activeTab = 'ocr'"
-            v-if="userStore.isAdmin"
           >
             <ScanText class="icon" :size="18" />
             <span>OCR 配置</span>
@@ -71,7 +69,6 @@
           class="nav-item"
           :class="{ active: activeTab === 'base' }"
           @click="activeTab = 'base'"
-          v-if="userStore.isAdmin"
         >
           基本设置
         </div>
@@ -79,7 +76,6 @@
           class="nav-item"
           :class="{ active: activeTab === 'ocr' }"
           @click="activeTab = 'ocr'"
-          v-if="userStore.isAdmin"
         >
           OCR 配置
         </div>
@@ -94,11 +90,11 @@
 
           
 
-          <div v-show="activeTab === 'base'" v-if="userStore.isAdmin">
+          <div v-show="activeTab === 'base'">
             <BasicSettingsSection />
           </div>
 
-          <div v-show="activeTab === 'ocr'" v-if="userStore.isAdmin">
+          <div v-show="activeTab === 'ocr'">
             <OCRSettingsSection />
           </div>
 
@@ -154,8 +150,7 @@ const visible = computed({
 const availableTabs = computed(() => {
   const tabs = []
   if (userStore.isLoggedIn) tabs.push('apiKeys')
-  if (userStore.isAdmin) tabs.push('base', 'ocr')
-  if (userStore.isSuperAdmin) tabs.push('department')
+  tabs.push('base', 'ocr')
   return tabs
 })
 
@@ -164,7 +159,7 @@ const setActiveTab = (preferredTab) => {
     activeTab.value = preferredTab
     return
   }
-  activeTab.value = userStore.isAdmin ? 'base' : availableTabs.value[0]
+  activeTab.value = 'base'
 }
 
 const handleClose = () => {
@@ -403,8 +398,6 @@ watch(
     flex: 1;
     min-height: 0;
 
-    .user-management,
-    .department-management,
     .apikey-management {
       min-height: auto;
     }
