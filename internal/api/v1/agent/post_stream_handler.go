@@ -282,15 +282,28 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 		return nil, fmt.Errorf("中断 Run 缺少 checkpoint_id: %s", req.CreatedByRunID)
 	}
 
-	// 3. 构建 resume targets（中断地址 → 审批决定）
-	//    中断地址来自 ApprovalMiddleware 的 InterruptCtx.ID，
-	//    存在 ApprovalInfo.action_requests 里的 tool_name 可用于构建默认 target。
+	// 3. 构建 resume targets（中断地址 → 审批/回答决定）
+	//    中断地址来自 ApprovalMiddleware 的 InterruptCtx.ID（中断 UUID），
+	//    存在 ApprovalInfo.interrupt_ids 中。使用 UUID 作为 target key，
+	//    与 eino 的 id2Addr → interrupt UUID → id2ResumeData 查找链匹配。
+	//    降级：若 interrupt_ids 不存在，使用旧的中间件名 "qavor_approval" 保持兼容。
 	decision := req.ApprovalDecision
-	targets := map[string]any{
-		// 用默认中间件地址键（审批中间件的稳定地址格式）；
-		// 实际地址由 eino framework 生成，这里用占位符，后续可从 InterruptContexts 提取。
-		"qavor_approval": decision,
+	var targets map[string]any
+
+	if parent.ApprovalInfo != nil {
+		if idsRaw, ok := parent.ApprovalInfo["interrupt_ids"]; ok {
+			if ids, ok := idsRaw.([]any); ok && len(ids) > 0 {
+				targets = make(map[string]any, len(ids))
+				for _, id := range ids {
+					if s, ok := id.(string); ok {
+						targets[s] = decision
+					}
+				}
+			}
+		}
 	}
+
+	h.logger.Info("approvalResume: targets after build", zap.Any("targets", targets), zap.String("decision", decision))
 
 	// 4. 创建 resume Run
 	runID := uuid.New().String()
@@ -373,6 +386,13 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 		}
 	}
 	return r, nil
+}
+
+// isAskUserResume 判断 approval_decision 是否为 ask_user 问答回复（JSON 对象）。
+// ask_user 提交前的前端将 answers（map[string]string）序列化为 JSON 字符串；
+// 工具审批的 decision 为 "approve"/"reject" 纯字符串。
+func isAskUserResume(decision string) bool {
+	return len(decision) > 0 && decision[0] == '{'
 }
 
 func (h *PostStreamHandler) setSSEHeaders(c *gin.Context) {

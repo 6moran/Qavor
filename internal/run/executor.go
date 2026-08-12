@@ -36,6 +36,12 @@ type InterruptedError struct {
 	CheckpointID string
 	// Requests 待审批的工具调用列表（action_requests）。
 	Requests []ApprovalRequest
+	// InterruptIDs 各中断上下文的 UUID（用于构建 resume targets key，与 eino id2Addr 的 key 匹配）。
+	InterruptIDs []string
+	// IsQuestion 是否为 ask_user 提问中断。
+	IsQuestion bool
+	// Questions 提问中断携带的问题列表（IsQuestion=true 时有效）。
+	Questions []agent.AskUserQuestion
 }
 
 // Error 实现 error 接口。
@@ -181,23 +187,82 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 
 // interruptedError 从中断事件提取审批信息。
 // CheckPointID 在顶层 InterruptInfo；审批的工具名/参数在根因 InterruptCtx 的 Info 中
-// （由 ApprovalMiddleware 以 *agent.ApprovalRequest 塞入）。
+// （由 ApprovalMiddleware 以 *agent.ApprovalRequest 或 *agent.AskUserRequest 塞入）。
 func (e *agentExecutor) interruptedError(in *adk.InterruptInfo) *InterruptedError {
 	ie := &InterruptedError{CheckpointID: in.CheckPointID}
+
+	if logger.Initialized() {
+		logger.GetLogger().Info("interruptedError 收到中断信号",
+			zap.String("checkpoint_id", in.CheckPointID),
+			zap.Int("context_count", len(in.InterruptContexts)),
+		)
+	}
+
 	// 遍历中断上下文链，收集根因及所有层级的工具审批请求
 	var walk func(ictx *adk.InterruptCtx)
 	walk = func(ictx *adk.InterruptCtx) {
 		if ictx == nil {
 			return
 		}
-		if req, ok := ictx.Info.(*agent.ApprovalRequest); ok {
-			ie.Requests = append(ie.Requests, ApprovalRequest{ToolName: req.ToolName, Args: req.Args})
+
+		infoType := "nil"
+		if ictx.Info != nil {
+			infoType = fmt.Sprintf("%T", ictx.Info)
+		}
+		if logger.Initialized() {
+			logger.GetLogger().Info("interruptedError 遍历 InterruptCtx",
+				zap.String("id", ictx.ID),
+				zap.Bool("is_root_cause", ictx.IsRootCause),
+				zap.String("info_type", infoType),
+				zap.Any("info_value", ictx.Info),
+			)
+		}
+
+		// 只收集根因（工具级）的中断 UUID，避免 agent 层级的节点收到
+		// string resume data 导致 ChatModelAgent panic。
+		if ictx.ID != "" && ictx.IsRootCause {
+			ie.InterruptIDs = append(ie.InterruptIDs, ictx.ID)
+		}
+		switch info := ictx.Info.(type) {
+		case *agent.ApprovalRequest:
+			if logger.Initialized() {
+				logger.GetLogger().Info("interruptedError 匹配到 ApprovalRequest",
+					zap.String("tool_name", info.ToolName),
+					zap.String("args", info.Args),
+				)
+			}
+			ie.Requests = append(ie.Requests, ApprovalRequest{ToolName: info.ToolName, Args: info.Args})
+		case *agent.AskUserRequest:
+			if logger.Initialized() {
+				logger.GetLogger().Info("interruptedError 匹配到 AskUserRequest",
+					zap.Int("question_count", len(info.Questions)),
+				)
+			}
+			ie.IsQuestion = true
+			ie.Questions = info.Questions
+		default:
+			if logger.Initialized() {
+				logger.GetLogger().Info("interruptedError 未匹配的类型",
+					zap.String("info_type", infoType),
+				)
+			}
 		}
 		walk(ictx.Parent)
 	}
 	for _, c := range in.InterruptContexts {
 		walk(c)
 	}
+
+	if logger.Initialized() {
+		logger.GetLogger().Info("interruptedError 结果",
+			zap.String("checkpoint_id", ie.CheckpointID),
+			zap.Bool("is_question", ie.IsQuestion),
+			zap.Int("question_count", len(ie.Questions)),
+			zap.Int("request_count", len(ie.Requests)),
+			zap.Int("interrupt_ids_count", len(ie.InterruptIDs)),
+		)
+	}
+
 	return ie
 }
 

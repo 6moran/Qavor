@@ -228,6 +228,11 @@ export const agentApi = {
       tool_approval_mode: data.tool_approval_mode ?? null,
       resume: data.resume ?? null,
       created_by_run_id: data.created_by_run_id || null,
+      approval_decision: data.approval_decision != null
+        ? (typeof data.approval_decision === 'object'
+            ? JSON.stringify(data.approval_decision)
+            : data.approval_decision)
+        : null,
       queue_policy: data.queue_policy || 'enqueue'
     }),
 
@@ -259,6 +264,11 @@ export const agentApi = {
         tool_approval_mode: data.tool_approval_mode ?? null,
         resume: data.resume ?? null,
         created_by_run_id: data.created_by_run_id || null,
+        approval_decision: data.approval_decision != null
+          ? (typeof data.approval_decision === 'object'
+              ? JSON.stringify(data.approval_decision)
+              : data.approval_decision)
+          : null,
         queue_policy: data.queue_policy || 'enqueue'
       }),
       signal
