@@ -188,6 +188,22 @@ func (ctrl *Controller) GenerateSampleQuestions(c *gin.Context) {
 	response.Success(c, result)
 }
 
+// GenerateDescription 用 AI 生成或润色知识库描述（新建/编辑知识库表单的润色按钮）。
+// 响应直接返回 {status, description}，与前端 AiTextarea 组件的解析约定保持一致。
+func (ctrl *Controller) GenerateDescription(c *gin.Context) {
+	var req request.GenerateDescriptionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	description, err := ctrl.querySvc.GenerateDescription(c.Request.Context(), &req)
+	if err != nil {
+		ctrl.handleQueryServiceError(c, err, "生成知识库描述失败")
+		return
+	}
+	c.JSON(200, gin.H{"status": "success", "description": description})
+}
+
 // handleQueryServiceError 统一处理查询服务的业务错误与内部错误。
 func (ctrl *Controller) handleQueryServiceError(c *gin.Context, err error, action string) {
 	if errors.IsBizError(err) {
