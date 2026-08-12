@@ -61,8 +61,3 @@ export const uploadWorkspaceFiles = async (parentPath, files) => {
   const response = await apiPost('/api/workspace/upload', formData)
   return unwrap(response)
 }
-
-export const downloadWorkspaceFile = (path) => {
-  const query = buildQuery({ path })
-  return apiGet(`/api/workspace/download?${query}`, {}, true, 'blob')
-}

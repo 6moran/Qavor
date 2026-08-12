@@ -1,4 +1,4 @@
-// Package workspace 提供工作区文件浏览/读写/上传/下载的 HTTP API。
+// Package workspace 提供工作区文件浏览/读写/上传的 HTTP API。
 package workspace
 
 import (
@@ -153,23 +153,6 @@ func (ctrl *Controller) Upload(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"entries": entries})
-}
-
-// Download 下载文件。
-// GET /api/v1/workspace/download?path=agent-1/a.txt
-func (ctrl *Controller) Download(c *gin.Context) {
-	path := c.Query("path")
-	if path == "" {
-		response.BadRequest(c, "缺少 path 参数")
-		return
-	}
-	data, filename, err := ctrl.service.Download(c.Request.Context(), path)
-	if err != nil {
-		ctrl.handleError(c, err)
-		return
-	}
-	c.Header("Content-Disposition", "attachment; filename=\""+filename+"\"")
-	c.Data(http.StatusOK, contentTypeFor(path), data)
 }
 
 // handleError 统一错误处理：业务错误 → BizError；不存在 → 404；其余 → 400。

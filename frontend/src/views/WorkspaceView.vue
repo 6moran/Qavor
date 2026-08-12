@@ -79,7 +79,6 @@
             @update:selection-mode="handleSelectionModeChange"
             @delete-selected="confirmDeleteEntries(selectedEntries)"
             @delete-entry="(entry) => confirmDeleteEntries([entry])"
-            @download-entry="downloadEntry"
           />
           <div
             v-if="showInlinePreview"
@@ -190,7 +189,6 @@ import WorkspaceSidebar from '@/components/workspace/WorkspaceSidebar.vue'
 import {
   createWorkspaceDirectory,
   deleteWorkspacePath,
-  downloadWorkspaceFile,
   getWorkspaceFileContent,
   getWorkspaceTree,
   saveWorkspaceFileContent,
@@ -555,51 +553,6 @@ const deleteEntries = async (targetEntries) => {
     deletingPaths.value = []
   }
 }
-
-const parseDownloadFilename = (contentDisposition) => {
-  if (!contentDisposition) return ''
-
-  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
-  if (utf8Match && utf8Match[1]) {
-    try {
-      return decodeURIComponent(utf8Match[1])
-    } catch (error) {
-      console.warn('解析 UTF-8 文件名失败:', error)
-    }
-  }
-
-  const asciiMatch = contentDisposition.match(/filename="?([^";]+)"?/i)
-  if (asciiMatch && asciiMatch[1]) {
-    return asciiMatch[1]
-  }
-
-  return ''
-}
-
-const downloadEntry = async (entry) => {
-  if (!entry || entry.is_dir) return
-
-  try {
-    const response = await downloadWorkspaceFile(entry.path)
-    const blob = await response.blob()
-    const contentDisposition =
-      response.headers.get('Content-Disposition') || response.headers.get('content-disposition')
-    const filename = parseDownloadFilename(contentDisposition) || entry.name || 'download'
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    window.URL.revokeObjectURL(url)
-  } catch (error) {
-    console.warn('下载文件失败:', error)
-    message.error(error?.message || '下载文件失败')
-  }
-}
-
-let resizePointerId = null
 
 const stopPreviewResize = () => {
   resizePointerId = null

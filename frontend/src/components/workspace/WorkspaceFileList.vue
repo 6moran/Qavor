@@ -69,12 +69,6 @@
         </button>
         <template #overlay>
           <a-menu>
-            <a-menu-item v-if="!row.is_dir" key="download" @click="$emit('download-entry', row)">
-              <span class="menu-item-content">
-                <Download :size="14" />
-                <span>下载</span>
-              </span>
-            </a-menu-item>
             <a-menu-item v-if="!readonly" key="delete" danger @click="$emit('delete-entry', row)">
               <span class="menu-item-content">
                 <Trash2 :size="14" />
@@ -90,7 +84,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { Download, ListChecks, MoreHorizontal, Trash2 } from 'lucide-vue-next'
+import { ListChecks, MoreHorizontal, Trash2 } from 'lucide-vue-next'
 import FileBrowserTable from '@/components/common/FileBrowserTable.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { formatFileSize, formatRelativeTime } from '@/utils/file_utils'
@@ -117,7 +111,6 @@ const emit = defineEmits([
   'update:selectionMode',
   'delete-selected',
   'delete-entry',
-  'download-entry',
   'page-change'
 ])
 

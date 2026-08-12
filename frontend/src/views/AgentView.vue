@@ -111,6 +111,7 @@ import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 
 import { storeToRefs } from 'pinia'
+import { onBeforeRouteLeave } from 'vue-router'
 
 // 组件引用
 const chatComponentRef = ref(null)
@@ -123,6 +124,14 @@ const router = useRouter()
 
 // 从 agentStore 中获取响应式状态
 const { agents, selectedAgentId, isLoadingConfig } = storeToRefs(agentStore)
+
+// 离开对话页（切到其它路由）时，把当前选中智能体重置回默认，
+// 使「去对话」/「手动选择」仅在该次驻留对话页时生效，下次进入对话页新建会话默认用默认智能体。
+onBeforeRouteLeave(() => {
+  if (agentStore.agents?.length) {
+    void agentStore.selectDefaultAgent()
+  }
+})
 
 const syncingRouteThread = ref(false)
 

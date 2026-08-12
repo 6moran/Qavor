@@ -80,6 +80,7 @@
                   v-if="row.artifacts.length"
                   :artifacts="row.artifacts"
                   :thread-id="currentChatId"
+                  :agent-slug="currentAgentId"
                   @saved="handleArtifactSaved"
                   @open-preview="openPanelPreview"
                 />
@@ -1113,9 +1114,12 @@ const currentApprovalModalVisible = computed(
 const currentApprovalQuestions = computed(() =>
   currentApprovalModalVisible.value ? approvalState.questions : []
 )
-const currentToolApprovalVisible = computed(
-  () => currentApprovalModalVisible.value && approvalState.kind === 'tool_approval'
-)
+// 只要"等用户决策"的弹窗可见就让输入区让位（触发 `.has-tool-approval` grid 重叠，
+// 让弹窗覆盖输入对话框，并把输入框置 inert/disabled），不区分 kind：
+// - tool_approval：执行命令/写文件前的人工审批
+// - question：Agent 中途向用户提问（AskUserQuestion）
+// 历史上仅限 tool_approval，会导致提问弹窗夹在进度条和输入框之间。
+const currentToolApprovalVisible = computed(() => currentApprovalModalVisible.value)
 
 const shouldSuppressRefsForApproval = () =>
   currentApprovalModalVisible.value ||

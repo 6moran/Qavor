@@ -38,7 +38,6 @@
         </template>
         <template v-else>
           <a-button size="small" type="link" @click="handleBatchSelectAll">全选</a-button>
-          <a-button size="small" type="link" @click="handleBatchSelectInvert">反选</a-button>
           <a-button size="small" type="link" @click="handleBatchSelectNone">清空</a-button>
           <a-button
             type="primary"
@@ -55,7 +54,7 @@
     </PageShoulder>
 
     <div
-      v-if="visibleSkillGroups.length === 0"
+      v-if="filteredInstalledSkills.length === 0"
       class="extension-card-grid-empty-state skill-empty-state"
     >
       <div class="skill-empty-card">
@@ -76,13 +75,11 @@
     </div>
 
     <template v-else>
-      <template v-for="group in visibleSkillGroups" :key="group.key">
-        <div class="extension-section-header">{{ group.title }}</div>
-        <ExtensionCardGrid :min-width="280">
-          <div
-            v-for="skill in group.skills"
-            :key="`${group.key}:${skill.slug}`"
-            class="card-wrapper"
+      <ExtensionCardGrid :min-width="280">
+        <div
+          v-for="skill in filteredInstalledSkills"
+          :key="skill.slug"
+          class="card-wrapper"
             :class="{
               selected: selectedCardSlugs.includes(skill.slug),
               'batch-mode': isBatchDeleteMode
@@ -120,7 +117,6 @@
             </InfoCard>
           </div>
         </ExtensionCardGrid>
-      </template>
     </template>
 
     <a-modal
@@ -216,7 +212,7 @@
                     <div class="repo-input-field">
                       <a-input
                         v-model:value="remoteInstallForm.source"
-                        placeholder="来源仓库，如 anthropics/skills 或 GitHub URL"
+                        placeholder="GitHub 仓库地址，如 https://github.com/anthropics/skills"
                         :disabled="installingRemoteSkill"
                       >
                         <template #suffix>
@@ -280,17 +276,11 @@
                     </a-button>
                   </div>
                   <div class="repo-hint-text">
-                    支持 `owner/repo` 或 GitHub URL。可前往
+                    当前仅支持 GitHub 仓库拉取。可前往
                     <a href="https://skills.sh/" target="_blank" rel="noopener noreferrer"
                       >skills.sh</a
                     >
-                    查询开源 skills。 也支持 ModelScope 单个 Skill
-                    地址，每次仅限安装一个：`https://modelscope.cn/skills/&lt;skill-id&gt;`。 Skill
-                    ID 可在
-                    <a href="https://modelscope.cn/skills" target="_blank" rel="noopener noreferrer"
-                      >ModelScope Skill 市场</a
-                    >
-                    进入详情后从地址栏获取。
+                    查询开源 skills。
                   </div>
 
                   <!-- 仓库技能分页多选列表 -->
@@ -308,9 +298,6 @@
                         <div class="op-buttons">
                           <a-button size="small" type="link" @click="handleRepoSelectAll"
                             >全选</a-button
-                          >
-                          <a-button size="small" type="link" @click="handleRepoSelectInvert"
-                            >反选</a-button
                           >
                           <a-button size="small" type="link" @click="handleRepoSelectNone"
                             >清空</a-button
@@ -461,19 +448,7 @@ const installedSkillCards = computed(() =>
 )
 
 const filteredInstalledSkills = computed(() => installedSkillCards.value.filter(matchesSearch))
-const skillGroups = computed(() => [
-  {
-    key: 'builtin',
-    title: '内置',
-    skills: filteredInstalledSkills.value.filter((skill) => skill.sourceType === 'builtin')
-  },
-  {
-    key: 'uploaded',
-    title: '上传的',
-    skills: filteredInstalledSkills.value.filter((skill) => skill.sourceType !== 'builtin')
-  }
-])
-const visibleSkillGroups = computed(() => skillGroups.value.filter((group) => group.skills.length))
+
 const filteredDeletableSkills = computed(() =>
   filteredInstalledSkills.value.filter(
     (skill) => skill.sourceType !== 'builtin'
@@ -496,25 +471,13 @@ const filteredRepoSkills = computed(() => {
   )
 })
 
-// 批量选择/反选/清空管理
+// 批量选择/清空管理
 const handleRepoSelectAll = () => {
   selectedRepoSkills.value = filteredRepoSkills.value.map((item) => item.name)
 }
 const handleRepoSelectNone = () => {
   selectedRepoSkills.value = []
 }
-const handleRepoSelectInvert = () => {
-  const currentSelected = new Set(selectedRepoSkills.value)
-  const newSelected = []
-  filteredRepoSkills.value.forEach((item) => {
-    if (!currentSelected.has(item.name)) {
-      newSelected.push(item.name)
-    }
-  })
-  selectedRepoSkills.value = newSelected
-}
-
-
 const handleToggleRepoSkill = (name, checked) => {
   if (checked) {
     if (!selectedRepoSkills.value.includes(name)) {
@@ -653,17 +616,6 @@ const handleBatchSelectAll = () => {
 
 const handleBatchSelectNone = () => {
   selectedCardSlugs.value = []
-}
-
-const handleBatchSelectInvert = () => {
-  const currentSet = new Set(selectedCardSlugs.value)
-  const nextSelected = []
-  filteredInstalledSkills.value.forEach((skill) => {
-    if (skill.sourceType !== 'builtin' && !currentSet.has(skill.slug)) {
-      nextSelected.push(skill.slug)
-    }
-  })
-  selectedCardSlugs.value = nextSelected
 }
 
 const exitBatchDeleteMode = () => {
