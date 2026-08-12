@@ -63,17 +63,6 @@ export const getViewerFileContent = (agentSlug, path) => {
 }
 
 /**
- * 下载文件
- * @param {string} agentSlug - agent slug
- * @param {string} path - 文件路径（相对于 agent 工作区根）
- * @returns {Promise<Response>} - 返回原始 Response（blob 类型）
- */
-export const downloadViewerFile = (agentSlug, path) => {
-  const agentPath = buildAgentPath(agentSlug, path)
-  return apiGet(`/api/workspace/download?${buildQuery({ path: agentPath })}`, {}, true, 'blob')
-}
-
-/**
  * 删除文件或目录
  * @param {string} agentSlug - agent slug
  * @param {string} path - 路径（相对于 agent 工作区根）
@@ -116,3 +105,11 @@ export const uploadViewerFiles = async (agentSlug, parentPath, files) => {
   const response = await apiPost('/api/workspace/upload', formData)
   return unwrap(response)
 }
+
+/**
+ * 下载工作区文件（基于 agent slug 寻址，返回原始 blob Response）
+ * @param {string} agentSlug - agent slug
+ * @param {string} path - 文件路径（相对于 agent 工作区根）
+ * @returns {Promise<Response>} - 原始 Response（blob 类型）
+ */
+export const downloadViewerFile = (agentSlug, path) => getViewerFileContent(agentSlug, path)
