@@ -243,8 +243,10 @@ func isStatusMismatch(agentStatus, businessStatus string) bool {
 	expected := map[string][]string{
 		trace.SpanStatusOK:          {entity.StatusCompleted},
 		trace.SpanStatusError:       {entity.StatusFailed},
-		trace.SpanStatusCancelled:   {entity.StatusCancelled},
-		trace.SpanStatusInterrupted: {entity.StatusInterrupted},
+		// 用户手动中断：ctx 取消会把 span 落成 cancelled，而业务 run 是 interrupted。
+		// cancelled / interrupted 都是"非错误终态"，互认避免把正常中断误报为状态不一致。
+		trace.SpanStatusCancelled:   {entity.StatusCancelled, entity.StatusInterrupted},
+		trace.SpanStatusInterrupted: {entity.StatusInterrupted, entity.StatusCancelled},
 		trace.SpanStatusRunning:     {entity.StatusPending, entity.StatusRunning},
 		trace.SpanStatusTimeout:     {entity.StatusFailed, entity.StatusCancelled},
 	}
