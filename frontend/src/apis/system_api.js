@@ -27,26 +27,33 @@ export const healthApi = {
 export const configApi = {
   /**
    * 获取系统配置
-   * @returns {Promise} - 系统配置
+   * @returns {Promise} - 系统配置（已解包 response.Success 的 data）
    */
   getConfig: async () => {
-    return apiGet('/api/system/config')
+    const data = await apiGet('/api/system/config')
+    return data?.data ?? data
   },
 
   /**
    * 更新单个配置项
    * @param {string} key - 配置键
    * @param {any} value - 配置值
-   * @returns {Promise} - 更新结果
+   * @returns {Promise} - 更新结果（已解包 data）
    */
-  updateConfig: async (key, value) => apiPost('/api/system/config', { key, value }),
+  updateConfig: async (key, value) => {
+    const data = await apiPost('/api/system/config', { key, value })
+    return data?.data ?? data
+  },
 
   /**
    * 批量更新配置项
    * @param {Object} items - 配置项对象
-   * @returns {Promise} - 更新结果
+   * @returns {Promise} - 更新结果（已解包 data）
    */
-  updateConfigBatch: async (items) => apiPost('/api/system/config/update', items),
+  updateConfigBatch: async (items) => {
+    const data = await apiPost('/api/system/config/update', items)
+    return data?.data ?? data
+  },
 
   /**
    * 获取系统日志
@@ -62,10 +69,15 @@ export const configApi = {
 }
 
 export const configOptionsApi = {
-  getOptions: async () => apiGet('/api/system/config/options'),
+  getOptions: async () => {
+    const data = await apiGet('/api/system/config/options')
+    return data?.data ?? data
+  },
 
-  updateOption: async (key, value) =>
-    apiPut(`/api/system/config/options/${encodeURIComponent(key)}`, { value })
+  updateOption: async (key, value) => {
+    const data = await apiPut(`/api/system/config/options/${encodeURIComponent(key)}`, { value })
+    return data?.data ?? data
+  }
 }
 
 export const ragSettingsApi = {

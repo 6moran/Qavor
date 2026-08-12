@@ -9,6 +9,8 @@ import (
 	chatctrl "Qavor/internal/api/v1/chat"
 	evaluationctrl "Qavor/internal/api/v1/evaluation"
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
+	mindmapctrl "Qavor/internal/api/v1/mindmap"
+	ocrctrl "Qavor/internal/api/v1/ocr"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
 	systemctrl "Qavor/internal/api/v1/system"
@@ -363,12 +365,16 @@ func (a *App) initDependencies() error {
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
 	ragSettingsSvc := service.NewRAGSettingsService(systemSettingRepo, modelRepo)
-	systemCtrl := systemctrl.NewController(ragSettingsSvc)
+	systemConfigSvc := service.NewSystemConfigService(systemSettingRepo, modelRepo)
+	systemCtrl := systemctrl.NewController(ragSettingsSvc, systemConfigSvc)
+	ocrCtrl := ocrctrl.NewController(systemConfigSvc)
 	storage := service.NewMinIOObjectStorage()
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage, agentRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo, a.cfg.Agent.WorkspaceRoot)
+	mindmapSvc := service.NewMindmapService(knowledgeBaseRepo, knowledgeFileRepo, knowledgeChunkRepo, modelSvc)
+	mindmapCtrl := mindmapctrl.NewController(mindmapSvc)
 
 	// 构造按知识库绑定模型解析的 RAG 依赖,由于需要依赖其他模块,所以在这里初始化
 	// 模型连接信息来自模型管理表；RAG 配置文件只提供分块、TopK、超时等算法默认值。
@@ -418,8 +424,10 @@ func (a *App) initDependencies() error {
 		a.workerStop = cancelWorker
 		a.workerDone = make(chan struct{})
 		imgUploader := imageUploader{storage: storage}
+		ocrEngine, ocrAPIBaseURL, ocrAPIKey, ocrAPIModel := ocrEngineForParser(workerCtx, systemSettingRepo, systemConfigSvc)
 		parser := ingestion.NewParser(
-			ingestion.NewPythonParser(a.cfg.DocumentParser.PythonPath, "pkg/documentparser/python/parse_document.py", imgUploader),
+			ingestion.NewPythonParser(a.cfg.DocumentParser.PythonPath, "pkg/documentparser/python/parse_document.py", imgUploader).
+				WithOCR(ocrEngine, ocrAPIBaseURL, ocrAPIKey, ocrAPIModel),
 			imgUploader,
 		)
 		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser, indexer)
@@ -671,7 +679,7 @@ func (a *App) initDependencies() error {
 	a.evaluationSvc = evaluationSvc
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl, mindmapCtrl, ocrCtrl)
 
 	return nil
 }
@@ -856,4 +864,23 @@ func (a *llmClientAdapter) Generate(ctx context.Context, input []*schema.Message
 		return nil, fmt.Errorf("LLM client not initialized")
 	}
 	return a.client.Generate(ctx, input)
+}
+
+// ocrEngineForParser 读取默认 OCR 引擎与通用 OCR API 配置，供文档解析执行分派。
+// 返回 (引擎标识, API 地址, API Key, 模型名)；引擎标识取值 "rapidocr"（本地，默认）或 "api"。
+func ocrEngineForParser(ctx context.Context, settings repository.SystemSettingRepository, configSvc service.SystemConfigService) (engine, apiBaseURL, apiKey, apiModel string) {
+	defaultEngine, _, err := settings.Get(ctx, service.SettingKeyDefaultOCREngine)
+	if err != nil || defaultEngine != "api_ocr" {
+		return "rapidocr", "", "", ""
+	}
+	cfg, err := configSvc.GetOCRAPIConfig(ctx)
+	if err != nil {
+		logger.Warn("读取 OCR API 配置失败，回退本地 RapidOCR", zap.Error(err))
+		return "rapidocr", "", "", ""
+	}
+	if cfg.BaseURL == "" {
+		logger.Warn("默认 OCR 引擎为 api_ocr 但未配置服务地址，回退本地 RapidOCR")
+		return "rapidocr", "", "", ""
+	}
+	return "api", cfg.BaseURL, cfg.APIKey, cfg.Model
 }

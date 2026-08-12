@@ -105,3 +105,15 @@ CREATE TABLE IF NOT EXISTS evaluation_run_results (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_evaluation_run_results_run ON evaluation_run_results(run_id);
+
+-- ============================================================
+-- 全局系统设置（system_settings）：RAG 设置等键值配置
+-- 对应 entity: SystemSetting
+-- ============================================================
+CREATE TABLE IF NOT EXISTS system_settings (
+    id         BIGSERIAL PRIMARY KEY,
+    key        VARCHAR(128) NOT NULL UNIQUE,
+    value      TEXT         NOT NULL,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ  NOT NULL DEFAULT now()
+);

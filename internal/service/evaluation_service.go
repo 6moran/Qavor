@@ -530,7 +530,9 @@ func validateGenerateRequest(req *GenerateDatasetRequest) error {
 	switch req.GenerationMode {
 	case "vector":
 	case "graph_enhanced":
-		return apperrors.New(CodeEvaluationGraphUnsupported, "图增强构建暂未支持，请使用向量构建")
+		if req.GraphExpandTopK < 1 || req.GraphExpandTopK > 10 {
+			return apperrors.New(apperrors.CodeInvalidParam, "图增强扩展数量需在 1-10 之间")
+		}
 	default:
 		return apperrors.New(apperrors.CodeInvalidParam, "构建方式无效")
 	}

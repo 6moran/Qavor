@@ -1,6 +1,10 @@
 package service
 
-import "context"
+import (
+	"context"
+
+	"Qavor/internal/model/dto/request"
+)
 
 // KnowledgeQueryService 知识库检索测试与示例问题服务。
 type KnowledgeQueryService interface {
@@ -14,6 +18,10 @@ type KnowledgeQueryService interface {
 	GetSampleQuestions(kbID string) (*SampleQuestionsPayload, error)
 	// GenerateSampleQuestions 基于知识库名称/描述与文件标题生成示例问题并持久化。
 	GenerateSampleQuestions(ctx context.Context, kbID string, count int) (*SampleQuestionsPayload, error)
+	// GenerateDescription 生成或润色知识库描述（新建/编辑表单的 AI 润色）。
+	// 请求必须携带 ChatModelID（由前端表单预填/选择传入）；缺失时返回明确提示。
+	// current_description 为空时生成新描述，非空时在保留原意基础上润色；返回结果不持久化。
+	GenerateDescription(ctx context.Context, req *request.GenerateDescriptionRequest) (string, error)
 }
 
 // QueryParamChoice select 型参数的可选值。

@@ -9,6 +9,7 @@ import {
   buildModelPayload,
   buildModelTestPayload,
   createDefaultModelForm,
+  formatModelTestError,
   formatModelTestSuccess,
   isModelConnectionTestSupported,
   modelToForm,
@@ -174,7 +175,8 @@ const testConnection = async () => {
     if (response?.code !== 0) {
       testResult.value = {
         success: false,
-        message: response?.message || '连接测试失败'
+        message: response?.message || '连接测试失败',
+        detail: response?.detail || ''
       }
       return
     }
@@ -185,9 +187,11 @@ const testConnection = async () => {
       dimension: data.dimension || 0
     }
   } catch (error) {
+    const { message: friendly, detail } = formatModelTestError(error)
     testResult.value = {
       success: false,
-      message: error.message || '连接测试失败'
+      message: friendly,
+      detail
     }
   } finally {
     testing.value = false
@@ -377,6 +381,9 @@ onMounted(loadModels)
       >
         <template #description>
           <span class="model-test-result-desc">{{ testResultDescription }}</span>
+          <div v-if="!testResult.success && testResult.detail" class="model-test-result-detail">
+            {{ testResult.detail }}
+          </div>
         </template>
       </a-alert>
 
@@ -524,6 +531,15 @@ onMounted(loadModels)
 }
 
 .model-test-result-desc {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.model-test-result-detail {
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 12px;
+  line-height: 1.5;
   word-break: break-word;
   overflow-wrap: anywhere;
 }

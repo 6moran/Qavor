@@ -22,4 +22,6 @@ func (ctrl *Controller) RegisterRoutes(v1 *gin.RouterGroup) {
 	group.PUT("/databases/:kb_id/query-params", ctrl.UpdateQueryParams)
 	group.GET("/databases/:kb_id/sample-questions", ctrl.GetSampleQuestions)
 	group.POST("/databases/:kb_id/sample-questions", ctrl.GenerateSampleQuestions)
+	// AI 生成/润色知识库描述（新建与编辑表单共用）
+	group.POST("/generate-description", ctrl.GenerateDescription)
 }

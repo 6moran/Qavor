@@ -22,7 +22,6 @@ import { useChatUIStore } from '@/stores/chatUI'
 import { useDatabaseStore } from '@/stores/database'
 import { useInfoStore } from '@/stores/info'
 import { useTaskerStore } from '@/stores/tasker'
-import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
 
 import TaskCenterDrawer from '@/components/TaskCenterDrawer.vue'
@@ -37,7 +36,6 @@ const chatUIStore = useChatUIStore()
 const databaseStore = useDatabaseStore()
 const infoStore = useInfoStore()
 const taskerStore = useTaskerStore()
-const userStore = useUserStore()
 const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads, unreadThreadIds } = storeToRefs(chatThreadsStore)
 
 // Add state for settings modal
@@ -49,7 +47,7 @@ const conversationSearchOpen = ref(false)
 
 // Provide settings modal methods to child components
 const openSettingsModal = (tab) => {
-  settingsInitialTab.value = tab || (userStore.isAdmin ? 'base' : 'account')
+  settingsInitialTab.value = tab || 'base'
   showSettingsModal.value = true
 }
 
@@ -74,10 +72,7 @@ onMounted(async () => {
   await Promise.all([infoStore.loadInfoConfig(), getRemoteDatabase()])
   await initAgentNavigation()
   await getRemoteConfig()
-  // 仅管理员加载任务中心数据
-  if (userStore.isAdmin) {
-    taskerStore.loadTasks()
-  }
+  taskerStore.loadTasks()
 })
 
 const route = useRoute()
@@ -140,14 +135,12 @@ const mainList = computed(() => {
     activeIcon: GitBranch
   })
 
-  if (userStore.isSuperAdmin) {
-    items.push({
-      name: '数据总览',
-      path: '/dashboard',
-      icon: BarChart3,
-      activeIcon: BarChart3
-    })
-  }
+  items.push({
+    name: '数据总览',
+    path: '/dashboard',
+    icon: BarChart3,
+    activeIcon: BarChart3
+  })
 
   return items
 })
@@ -385,7 +378,7 @@ provide('settingsModal', {
     />
 
     
-    <TaskCenterDrawer v-if="userStore.isAdmin" />
+    <TaskCenterDrawer />
     <SettingsModal
       v-model:visible="showSettingsModal"
       :initial-tab="settingsInitialTab"

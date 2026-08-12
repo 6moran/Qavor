@@ -25,6 +25,11 @@ type PythonParser struct {
 	extraEnv   []string
 	args       []string
 	images     ImageUploader
+	// OCR 分派参数（可选）：engine 为 "rapidocr"（默认）或 "api"。
+	ocrEngine     string
+	ocrAPIBaseURL string
+	ocrAPIKey     string
+	ocrAPIModel   string
 }
 
 // NewPythonParser 创建解析器。images 可选，提供后解析产出的图片会上传并回填 Markdown 链接，仅首个生效。
@@ -34,6 +39,16 @@ func NewPythonParser(pythonPath, scriptPath string, images ...ImageUploader) *Py
 		img = images[0]
 	}
 	return &PythonParser{pythonPath: pythonPath, scriptPath: scriptPath, images: img}
+}
+
+// WithOCR 设置图片/PDF 的 OCR 引擎与通用 OCR API 配置。
+// engine 取值 "rapidocr"（本地）或 "api"（通用 OCR API）；apiBaseURL/apiKey/apiModel 仅在 engine 为 "api" 时生效。
+func (p *PythonParser) WithOCR(engine, apiBaseURL, apiKey, apiModel string) *PythonParser {
+	p.ocrEngine = engine
+	p.ocrAPIBaseURL = apiBaseURL
+	p.ocrAPIKey = apiKey
+	p.ocrAPIModel = apiModel
+	return p
 }
 
 // Parse 将输入内容写入临时目录（文件名保留原扩展名）后执行 Python 脚本解析。
@@ -56,6 +71,18 @@ func (p *PythonParser) Parse(ctx context.Context, input ParseInput) (ParseResult
 	args := p.args
 	if len(args) == 0 {
 		args = []string{p.scriptPath, "--input", localPath}
+		if p.ocrEngine == "api" {
+			args = append(args, "--ocr-engine", "api")
+			if p.ocrAPIBaseURL != "" {
+				args = append(args, "--ocr-api-url", p.ocrAPIBaseURL)
+			}
+			if p.ocrAPIKey != "" {
+				args = append(args, "--ocr-api-key", p.ocrAPIKey)
+			}
+			if p.ocrAPIModel != "" {
+				args = append(args, "--ocr-api-model", p.ocrAPIModel)
+			}
+		}
 	}
 	cmd := exec.CommandContext(ctx, p.pythonPath, args...)
 	cmd.Env = append(os.Environ(), p.extraEnv...)
