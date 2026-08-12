@@ -9,6 +9,7 @@ import {
   buildModelPayload,
   buildModelTestPayload,
   createDefaultModelForm,
+  formatModelTestError,
   formatModelTestSuccess,
   isModelConnectionTestSupported,
   modelToForm,
@@ -63,7 +64,11 @@ const loadStats = async () => {
 
 const testResultDescription = computed(() => {
   if (!testResult.value) return ''
-  if (!testResult.value.success) return testResult.value.message
+  if (!testResult.value.success) {
+    const { message, detail } = testResult.value
+    // detail 为脱敏后的原始错误，换行展示便于排查
+    return detail ? `${message}\n${detail}` : message
+  }
   let desc = testResult.value.message
   if (form.model_type === 'embedding' && testResult.value.dimension) {
     desc += ` · 向量维度：${testResult.value.dimension}`
@@ -188,7 +193,8 @@ const testConnection = async () => {
     if (response?.code !== 0) {
       testResult.value = {
         success: false,
-        message: response?.message || '连接测试失败'
+        message: response?.message || '连接测试失败',
+        detail: response?.detail || ''
       }
       return
     }
@@ -199,10 +205,8 @@ const testConnection = async () => {
       dimension: data.dimension || 0
     }
   } catch (error) {
-    testResult.value = {
-      success: false,
-      message: error.message || '连接测试失败'
-    }
+    const { message, detail } = formatModelTestError(error)
+    testResult.value = { success: false, message, detail }
   } finally {
     testing.value = false
   }
@@ -544,6 +548,7 @@ onMounted(() => {
 .model-test-result-desc {
   word-break: break-word;
   overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
 @media (max-width: 760px) {

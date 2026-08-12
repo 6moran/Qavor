@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"Qavor/pkg/logger"
+	pkgllm "Qavor/pkg/llm"
 
 	"github.com/cloudwego/eino/schema"
 	"go.uber.org/zap"
@@ -50,15 +51,12 @@ func (l *evalLLM) generateQAPair(ctx context.Context, modelID uint, chunks []chu
 		schema.SystemMessage("你是一个严谨的评测数据集生成器。"),
 		schema.UserMessage(b.String()),
 	}
-	resp, err := chat.Generate(ctx, messages)
+	content, err := pkgllm.ChatMessages(ctx, chat, messages, llmTimeout)
 	if err != nil {
 		return "", "", fmt.Errorf("生成问答对失败: %w", err)
 	}
-	if resp == nil {
-		return "", "", fmt.Errorf("生成问答对失败: 模型返回空响应")
-	}
 
-	payload, err := parseQAJSON(resp.Content)
+	payload, err := parseQAJSON(content)
 	if err != nil {
 		return "", "", fmt.Errorf("解析问答对失败: %w", err)
 	}
@@ -88,14 +86,11 @@ func (l *evalLLM) generateAnswer(ctx context.Context, modelID uint, query string
 		schema.SystemMessage("你是严谨的知识库问答助手，只依据给定资料作答。"),
 		schema.UserMessage(b.String()),
 	}
-	resp, err := chat.Generate(ctx, messages)
+	content, err := pkgllm.ChatMessages(ctx, chat, messages, llmTimeout)
 	if err != nil {
 		return "", fmt.Errorf("生成答案失败: %w", err)
 	}
-	if resp == nil {
-		return "", fmt.Errorf("生成答案失败: 模型返回空响应")
-	}
-	return strings.TrimSpace(resp.Content), nil
+	return strings.TrimSpace(content), nil
 }
 
 // judgeAnswer 评判生成答案相对标准答案的质量，返回 0-1 分数。
@@ -113,15 +108,12 @@ func (l *evalLLM) judgeAnswer(ctx context.Context, modelID uint, query, goldAnsw
 		schema.SystemMessage("你是严格的答案质量评估员。"),
 		schema.UserMessage(prompt),
 	}
-	resp, err := chat.Generate(ctx, messages)
+	content, err := pkgllm.ChatMessages(ctx, chat, messages, llmTimeout)
 	if err != nil {
 		return 0, fmt.Errorf("评判答案失败: %w", err)
 	}
-	if resp == nil {
-		return 0, fmt.Errorf("评判答案失败: 模型返回空响应")
-	}
 
-	payload, err := parseScoreJSON(resp.Content)
+	payload, err := parseScoreJSON(content)
 	if err != nil {
 		return 0, fmt.Errorf("解析评判结果失败: %w", err)
 	}
