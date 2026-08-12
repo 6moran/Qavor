@@ -567,6 +567,15 @@ onMounted(() => {
   overflow-wrap: anywhere;
 }
 
+.model-test-result-detail {
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 760px) {
   .model-manage-panel { padding: 14px; }
   .model-row { align-items: flex-start; flex-wrap: wrap; }
