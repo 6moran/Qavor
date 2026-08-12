@@ -44,9 +44,19 @@ func (c *Controller) GetToolOptions(ctx *gin.Context) {
 		{"name": "platform", "label": "平台工具"},
 	}
 
+	// ask_user 和 report_need_input 由运行时根据智能体类型自动强制注册，
+	// 用户无法在配置页干预，因此从配置选项中排除，避免混淆。
+	hiddenTools := map[string]bool{
+		tool.AskUserToolName:         true,
+		tool.ReportNeedInputToolName: true,
+	}
+
 	// 构建工具列表（带选中状态）
 	toolOptions := make([]gin.H, 0, len(tools))
 	for _, t := range tools {
+		if hiddenTools[t.Name] {
+			continue
+		}
 		toolOptions = append(toolOptions, gin.H{
 			"name":        t.Name,
 			"description": t.Description,

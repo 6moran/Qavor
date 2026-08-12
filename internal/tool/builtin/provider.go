@@ -26,6 +26,8 @@ func (p *BuiltinToolProvider) GetTools() []tool.BuiltinTool {
 	tools := []tool.BuiltinTool{
 		&CalculatorTool{},
 		&CurrentTimeTool{},
+		&AskUserTool{},
+		&ReportNeedInputTool{},
 	}
 	if p.webSearchTool != nil {
 		tools = append(tools, p.webSearchTool)

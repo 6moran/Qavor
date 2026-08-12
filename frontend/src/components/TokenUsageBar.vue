@@ -78,15 +78,15 @@
           <ReloadOutlined :size="13" />
           刷新
         </button>
-        <button type="button" class="token-usage-bar__btn token-usage-bar__btn--danger" @click="$emit('clear-context')">
+        <button type="button" class="token-usage-bar__btn" @click="$emit('clear-context')">
           <DeleteOutlined :size="13" />
-          重置对话
+          清空上下文
         </button>
       </div>
       
       <!-- 操作提示 -->
       <div class="token-usage-bar__hint">
-        点击「重置对话」可选择<span class="token-usage-bar__hint-light">清空上下文</span>（保留会话）或<span class="token-usage-bar__hint-danger">彻底销毁</span>（删除会话）
+        点击「清空上下文」可清除当前对话的上下文窗口（保留会话记录）
       </div>
     </div>
   </div>

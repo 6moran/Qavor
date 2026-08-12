@@ -25,13 +25,14 @@ import (
 // PostStreamHandler POST /api/v1/agent/runs 处理器
 // 承担「新建 Run + 流式推送」与「resume 重连续传」两种语义
 type PostStreamHandler struct {
-	sub             *eventbus.Subscriber
-	runRepo         repository.AgentRunRepository
-	queue           *run.RequestQueue
-	heartbeatPeriod time.Duration
-	logger          *zap.Logger
-	tracer          *trace.Tracer
-	traceLookup     RunTraceLookup
+	sub              *eventbus.Subscriber
+	runRepo          repository.AgentRunRepository
+	conversationRepo repository.ConversationRepository
+	queue            *run.RequestQueue
+	heartbeatPeriod  time.Duration
+	logger           *zap.Logger
+	tracer           *trace.Tracer
+	traceLookup      RunTraceLookup
 }
 
 // RunTraceLookup 查询业务 Run 对应的 agent.run Span，用于恢复/重试延续原 Trace。
@@ -41,19 +42,21 @@ type RunTraceLookup interface {
 
 // NewPostStreamHandler 创建 POST 流式处理器。
 func NewPostStreamHandler(sub *eventbus.Subscriber, runRepo repository.AgentRunRepository,
-	queue *run.RequestQueue, heartbeatPeriod time.Duration, logger *zap.Logger,
+	conversationRepo repository.ConversationRepository, queue *run.RequestQueue,
+	heartbeatPeriod time.Duration, logger *zap.Logger,
 	tracer *trace.Tracer, traceLookup RunTraceLookup) *PostStreamHandler {
 	if heartbeatPeriod <= 0 {
 		heartbeatPeriod = 15 * time.Second
 	}
 	return &PostStreamHandler{
-		sub:             sub,
-		runRepo:         runRepo,
-		queue:           queue,
-		heartbeatPeriod: heartbeatPeriod,
-		logger:          logger,
-		tracer:          tracer,
-		traceLookup:     traceLookup,
+		sub:              sub,
+		runRepo:          runRepo,
+		conversationRepo: conversationRepo,
+		queue:            queue,
+		heartbeatPeriod:  heartbeatPeriod,
+		logger:           logger,
+		tracer:           tracer,
+		traceLookup:      traceLookup,
 	}
 }
 
@@ -96,15 +99,6 @@ type ResumeParam struct {
 	LastSeq    string `json:"last_seq"`
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	Decision   string `json:"decision,omitempty"`
-}
-
-// approvalResumeData 审批恢复流程中从中断 run 提取的信息。
-type approvalResumeData struct {
-	ParentRunID  string
-	CheckpointID string
-	Targets      map[string]any // 中断地址 → 审批决定
-	AgentSlug    string
-	ThreadID     string
 }
 
 // CreateRunAndStream POST /api/v1/agent/runs
@@ -194,10 +188,21 @@ func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRun
 		_ = json.Unmarshal(req.Meta, &inputPayload)
 	}
 
+	// 解析 conversation_id（用于关联 Run 和 Conversation）
+	var conversationID *uint
+	if conv, err := h.conversationRepo.FindByThreadID(ctx, req.ThreadID); err == nil && conv != nil {
+		conversationID = &conv.ID
+	} else if numID, parseErr := strconv.ParseUint(req.ThreadID, 10, 32); parseErr == nil {
+		if conv, err := h.conversationRepo.FindByID(ctx, uint(numID)); err == nil && conv != nil {
+			conversationID = &conv.ID
+		}
+	}
+
 	now := time.Now()
 	r := &entity.AgentRun{
 		ID:                   runID,
 		ConversationThreadID: req.ThreadID,
+		ConversationID:       conversationID,
 		AgentSlug:            req.AgentSlug,
 		Status:               entity.StatusPending,
 		RequestID:            requestID,
@@ -242,14 +247,14 @@ func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRun
 				ErrorType:    "queue_enqueue",
 				ErrorMessage: err.Error(),
 			})
-			_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+			_ = h.runRepo.UpdateStatus(ctx, runID, entity.StatusFailed, "")
 			return nil, fmt.Errorf("入队失败: %w", err)
 		}
 		queueSpan.End(trace.SpanEnd{Status: trace.SpanStatusOK})
 	} else {
 		// tracer 未装配（迁移期）：直接入队
 		if err := h.queue.Enqueue(ctx, item); err != nil {
-			_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+			_ = h.runRepo.UpdateStatus(ctx, runID, entity.StatusFailed, "")
 			return nil, fmt.Errorf("入队失败: %w", err)
 		}
 	}
@@ -277,15 +282,28 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 		return nil, fmt.Errorf("中断 Run 缺少 checkpoint_id: %s", req.CreatedByRunID)
 	}
 
-	// 3. 构建 resume targets（中断地址 → 审批决定）
-	//    中断地址来自 ApprovalMiddleware 的 InterruptCtx.ID，
-	//    存在 ApprovalInfo.action_requests 里的 tool_name 可用于构建默认 target。
+	// 3. 构建 resume targets（中断地址 → 审批/回答决定）
+	//    中断地址来自 ApprovalMiddleware 的 InterruptCtx.ID（中断 UUID），
+	//    存在 ApprovalInfo.interrupt_ids 中。使用 UUID 作为 target key，
+	//    与 eino 的 id2Addr → interrupt UUID → id2ResumeData 查找链匹配。
+	//    降级：若 interrupt_ids 不存在，使用旧的中间件名 "qavor_approval" 保持兼容。
 	decision := req.ApprovalDecision
-	targets := map[string]any{
-		// 用默认中间件地址键（审批中间件的稳定地址格式）；
-		// 实际地址由 eino framework 生成，这里用占位符，后续可从 InterruptContexts 提取。
-		"qavor_approval": decision,
+	var targets map[string]any
+
+	if parent.ApprovalInfo != nil {
+		if idsRaw, ok := parent.ApprovalInfo["interrupt_ids"]; ok {
+			if ids, ok := idsRaw.([]any); ok && len(ids) > 0 {
+				targets = make(map[string]any, len(ids))
+				for _, id := range ids {
+					if s, ok := id.(string); ok {
+						targets[s] = decision
+					}
+				}
+			}
+		}
 	}
+
+	h.logger.Info("approvalResume: targets after build", zap.Any("targets", targets), zap.String("decision", decision))
 
 	// 4. 创建 resume Run
 	runID := uuid.New().String()
@@ -357,17 +375,24 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 				ErrorType:    "queue_enqueue",
 				ErrorMessage: err.Error(),
 			})
-			_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+			_ = h.runRepo.UpdateStatus(ctx, runID, entity.StatusFailed, "")
 			return nil, fmt.Errorf("resume 入队失败: %w", err)
 		}
 		queueSpan.End(trace.SpanEnd{Status: trace.SpanStatusOK})
 	} else {
 		if err := h.queue.Enqueue(resumeCtx, item); err != nil {
-			_ = h.runRepo.UpdateStatus(runID, entity.StatusFailed, "")
+			_ = h.runRepo.UpdateStatus(ctx, runID, entity.StatusFailed, "")
 			return nil, fmt.Errorf("resume 入队失败: %w", err)
 		}
 	}
 	return r, nil
+}
+
+// isAskUserResume 判断 approval_decision 是否为 ask_user 问答回复（JSON 对象）。
+// ask_user 提交前的前端将 answers（map[string]string）序列化为 JSON 字符串；
+// 工具审批的 decision 为 "approve"/"reject" 纯字符串。
+func isAskUserResume(decision string) bool {
+	return len(decision) > 0 && decision[0] == '{'
 }
 
 func (h *PostStreamHandler) setSSEHeaders(c *gin.Context) {

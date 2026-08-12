@@ -104,14 +104,13 @@
         :tool-calls="validToolCalls"
       />
 
-      <div v-if="message.isStoppedByUser" class="retry-hint">
-        你停止生成了本次回答
-        <span class="retry-link" @click="emit('retryStoppedMessage', message.id)"
-          >重新编辑问题</span
-        >
-      </div>
-
-      <div v-if="showRefs">
+      <div
+        v-if="
+          (message.role == 'received' || message.role == 'assistant') &&
+          message.status == 'finished' &&
+          showRefs
+        "
+      >
         <RefsComponent
           :message="message"
           :show-refs="showRefs"
@@ -228,7 +227,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['retry', 'retryStoppedMessage', 'openRefs', 'edit', 'delete', 'share'])
+const emit = defineEmits(['retry', 'openRefs', 'edit', 'delete', 'share'])
 
 // 图片全屏预览
 const imagePreview = ref({ visible: false, src: '', alt: '' })
@@ -657,24 +656,6 @@ const parsedData = computed(() => {
   color: var(--gray-500);
   font-size: 0.75rem;
   line-height: 1rem;
-}
-
-.retry-hint {
-  margin-top: 8px;
-  padding: 8px 16px;
-  color: var(--gray-600);
-  font-size: 14px;
-  text-align: left;
-}
-
-.retry-link {
-  color: var(--color-info-500);
-  cursor: pointer;
-  margin-left: 4px;
-
-  &:hover {
-    text-decoration: underline;
-  }
 }
 
 .ant-btn-icon-only {

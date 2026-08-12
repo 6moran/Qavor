@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -15,7 +16,7 @@ type AgentRunRepository interface {
 	GetByID(id string) (*entity.AgentRun, error)
 	GetByRequestID(requestID string) (*entity.AgentRun, error)
 	Update(run *entity.AgentRun) error
-	UpdateStatus(runID, status string, lastEventID string) error
+	UpdateStatus(ctx context.Context, runID, status string, lastEventID string) error
 	ListByThread(threadID string, offset, limit int) ([]entity.AgentRun, int64, error)
 	ListByStatus(status string, offset, limit int) ([]entity.AgentRun, int64, error)
 	ListSubagentThreadsByParent(parentConversationID uint) ([]entity.SubagentThread, error)
@@ -63,7 +64,7 @@ func (r *agentRunRepository) Update(run *entity.AgentRun) error {
 }
 
 // UpdateStatus 更新状态与最后事件 ID，终态时写入 finished_at
-func (r *agentRunRepository) UpdateStatus(runID, status, lastEventID string) error {
+func (r *agentRunRepository) UpdateStatus(ctx context.Context, runID, status, lastEventID string) error {
 	updates := map[string]any{
 		"status":        status,
 		"last_event_id": lastEventID,
@@ -75,7 +76,7 @@ func (r *agentRunRepository) UpdateStatus(runID, status, lastEventID string) err
 	case entity.StatusCompleted, entity.StatusFailed, entity.StatusCancelled, entity.StatusInterrupted:
 		updates["finished_at"] = time.Now()
 	}
-	return r.db.Model(&entity.AgentRun{}).Where("id = ?", runID).Updates(updates).Error
+	return r.db.WithContext(ctx).Model(&entity.AgentRun{}).Where("id = ?", runID).Updates(updates).Error
 }
 
 func (r *agentRunRepository) ListByThread(threadID string, offset, limit int) ([]entity.AgentRun, int64, error) {

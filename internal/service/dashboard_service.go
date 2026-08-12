@@ -55,6 +55,45 @@ func timeRangeSQL(timeRange string, tablePrefix ...string) (where string, groupF
 	}
 }
 
+// generateDateBuckets 生成指定时间范围内的所有日期桶，确保图表始终显示完整时间范围
+func generateDateBuckets(timeRange string) []string {
+	now := time.Now()
+	var buckets []string
+
+	switch timeRange {
+	case "today":
+		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		// 今天按小时分桶：00, 01, ..., 23
+		for i := 0; i < 24; i++ {
+			bucket := time.Date(start.Year(), start.Month(), start.Day(), i, 0, 0, 0, now.Location())
+			buckets = append(buckets, bucket.Format("2006-01-02 15:04"))
+		}
+	case "7days":
+		start := now.AddDate(0, 0, -6)
+		start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+		for i := 0; i < 7; i++ {
+			bucket := start.AddDate(0, 0, i)
+			buckets = append(buckets, bucket.Format("2006-01-02"))
+		}
+	case "thisMonth":
+		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		daysInMonth := now.Day()
+		for i := 0; i < daysInMonth; i++ {
+			bucket := start.AddDate(0, 0, i)
+			buckets = append(buckets, bucket.Format("2006-01-02"))
+		}
+	default:
+		start := now.AddDate(0, 0, -6)
+		start = time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, start.Location())
+		for i := 0; i < 7; i++ {
+			bucket := start.AddDate(0, 0, i)
+			buckets = append(buckets, bucket.Format("2006-01-02"))
+		}
+	}
+
+	return buckets
+}
+
 // GetCallTimeseries 获取调用统计时间序列
 func (s *dashboardService) GetCallTimeseries(ctx context.Context, dataType, timeRange string) (*TimeseriesResult, error) {
 	switch dataType {
@@ -81,7 +120,7 @@ func (s *dashboardService) getModelStats(ctx context.Context, timeRange string) 
 	var rows []modelRow
 	err := s.db.WithContext(ctx).Model(&entity.TraceSpan{}).
 		Select(fmt.Sprintf("%s AS time_bucket, COALESCE(NULLIF(display_name, ''), 'unknown') AS model_name, SUM(tokens_in + tokens_out + COALESCE(reasoning_tokens, 0)) AS tokens", groupFmt)).
-		Where("kind = ? AND status = ?", "llm", "success").
+		Where("kind = ? AND status = ?", "llm", "ok").
 		Where(timeWhere).
 		Group("time_bucket, model_name").
 		Order("time_bucket ASC").
@@ -93,12 +132,10 @@ func (s *dashboardService) getModelStats(ctx context.Context, timeRange string) 
 
 	categories := make(map[string]bool)
 	bucketMap := make(map[string]map[string]int)
-	bucketOrder := make([]string, 0)
 
 	for _, row := range rows {
 		if _, ok := bucketMap[row.TimeBucket]; !ok {
 			bucketMap[row.TimeBucket] = make(map[string]int)
-			bucketOrder = append(bucketOrder, row.TimeBucket)
 		}
 		bucketMap[row.TimeBucket][row.ModelName] += row.Tokens
 		categories[row.ModelName] = true
@@ -109,13 +146,17 @@ func (s *dashboardService) getModelStats(ctx context.Context, timeRange string) 
 		catList = append(catList, cat)
 	}
 
-	data := make([]TimeseriesPoint, 0, len(bucketOrder))
-	for _, bucket := range bucketOrder {
-		point := TimeseriesPoint{
+	// 填充完整时间范围，确保图表始终显示所有日期
+	allBuckets := generateDateBuckets(timeRange)
+	data := make([]TimeseriesPoint, 0, len(allBuckets))
+	for _, bucket := range allBuckets {
+		if _, ok := bucketMap[bucket]; !ok {
+			bucketMap[bucket] = make(map[string]int)
+		}
+		data = append(data, TimeseriesPoint{
 			Date: bucket,
 			Data: bucketMap[bucket],
-		}
-		data = append(data, point)
+		})
 	}
 
 	return &TimeseriesResult{
@@ -139,7 +180,7 @@ func (s *dashboardService) getAgentStats(ctx context.Context, timeRange string) 
 	// 使用 agent_runs.created_at 作为时间基准，LEFT JOIN trace_spans 获取 token 数
 	err := s.db.WithContext(ctx).Table("agent_runs").
 		Select(fmt.Sprintf("%s AS time_bucket, agent_runs.agent_slug, COALESCE(SUM(COALESCE(ts.tokens_in, 0) + COALESCE(ts.tokens_out, 0) + COALESCE(ts.reasoning_tokens, 0)), 0) AS total_tokens", groupFmt)).
-		Joins("LEFT JOIN trace_spans ts ON ts.run_id = agent_runs.id AND ts.kind = 'llm' AND ts.status = 'success'").
+		Joins("LEFT JOIN trace_spans ts ON ts.run_id = agent_runs.id AND ts.kind = 'llm' AND ts.status = 'ok'").
 		Where(timeWhere).
 		Group("time_bucket, agent_runs.agent_slug").
 		Order("time_bucket ASC").
@@ -151,12 +192,10 @@ func (s *dashboardService) getAgentStats(ctx context.Context, timeRange string) 
 
 	categories := make(map[string]bool)
 	bucketMap := make(map[string]map[string]int)
-	bucketOrder := make([]string, 0)
 
 	for _, row := range rows {
 		if _, ok := bucketMap[row.TimeBucket]; !ok {
 			bucketMap[row.TimeBucket] = make(map[string]int)
-			bucketOrder = append(bucketOrder, row.TimeBucket)
 		}
 		bucketMap[row.TimeBucket][row.AgentSlug] += row.TotalTokens
 		categories[row.AgentSlug] = true
@@ -167,13 +206,17 @@ func (s *dashboardService) getAgentStats(ctx context.Context, timeRange string) 
 		catList = append(catList, cat)
 	}
 
-	data := make([]TimeseriesPoint, 0, len(bucketOrder))
-	for _, bucket := range bucketOrder {
-		point := TimeseriesPoint{
+	// 填充完整时间范围，确保图表始终显示所有日期
+	allBuckets := generateDateBuckets(timeRange)
+	data := make([]TimeseriesPoint, 0, len(allBuckets))
+	for _, bucket := range allBuckets {
+		if _, ok := bucketMap[bucket]; !ok {
+			bucketMap[bucket] = make(map[string]int)
+		}
+		data = append(data, TimeseriesPoint{
 			Date: bucket,
 			Data: bucketMap[bucket],
-		}
-		data = append(data, point)
+		})
 	}
 
 	// 获取 agent slug → name 映射
@@ -217,7 +260,7 @@ func (s *dashboardService) getTokenStats(ctx context.Context, timeRange string) 
 	var rows []tokenRow
 	err := s.db.WithContext(ctx).Model(&entity.TraceSpan{}).
 		Select(fmt.Sprintf("%s AS time_bucket, SUM(tokens_in + tokens_out + COALESCE(reasoning_tokens, 0)) AS tokens", groupFmt)).
-		Where("kind = ? AND status = ?", "llm", "success").
+		Where("kind = ? AND status = ?", "llm", "ok").
 		Where(timeWhere).
 		Group("time_bucket").
 		Order("time_bucket ASC").
@@ -227,13 +270,21 @@ func (s *dashboardService) getTokenStats(ctx context.Context, timeRange string) 
 		return nil, err
 	}
 
-	data := make([]TimeseriesPoint, 0, len(rows))
+	// 构建已有数据的 map
+	tokenMap := make(map[string]int)
 	for _, row := range rows {
-		point := TimeseriesPoint{
-			Date: row.TimeBucket,
-			Data: map[string]int{"total_tokens": row.Tokens},
-		}
-		data = append(data, point)
+		tokenMap[row.TimeBucket] = row.Tokens
+	}
+
+	// 填充完整时间范围，确保图表始终显示所有日期
+	allBuckets := generateDateBuckets(timeRange)
+	data := make([]TimeseriesPoint, 0, len(allBuckets))
+	for _, bucket := range allBuckets {
+		tokens := tokenMap[bucket]
+		data = append(data, TimeseriesPoint{
+			Date: bucket,
+			Data: map[string]int{"total_tokens": tokens},
+		})
 	}
 
 	return &TimeseriesResult{
@@ -241,4 +292,3 @@ func (s *dashboardService) getTokenStats(ctx context.Context, timeRange string) 
 		Categories: []string{"total_tokens"},
 	}, nil
 }
-

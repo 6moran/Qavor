@@ -36,6 +36,12 @@ type InterruptedError struct {
 	CheckpointID string
 	// Requests 待审批的工具调用列表（action_requests）。
 	Requests []ApprovalRequest
+	// InterruptIDs 各中断上下文的 UUID（用于构建 resume targets key，与 eino id2Addr 的 key 匹配）。
+	InterruptIDs []string
+	// IsQuestion 是否为 ask_user 提问中断。
+	IsQuestion bool
+	// Questions 提问中断携带的问题列表（IsQuestion=true 时有效）。
+	Questions []agent.AskUserQuestion
 }
 
 // Error 实现 error 接口。
@@ -147,6 +153,9 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 		iter = a.ExecuteIter(ctx, query, history...)
 	}
 	for {
+		if ctx.Err() != nil {
+			return assistantMsgs, nil
+		}
 		event, ok := iter.Next()
 		if !ok {
 			break
@@ -178,23 +187,82 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 
 // interruptedError 从中断事件提取审批信息。
 // CheckPointID 在顶层 InterruptInfo；审批的工具名/参数在根因 InterruptCtx 的 Info 中
-// （由 ApprovalMiddleware 以 *agent.ApprovalRequest 塞入）。
+// （由 ApprovalMiddleware 以 *agent.ApprovalRequest 或 *agent.AskUserRequest 塞入）。
 func (e *agentExecutor) interruptedError(in *adk.InterruptInfo) *InterruptedError {
 	ie := &InterruptedError{CheckpointID: in.CheckPointID}
+
+	if logger.Initialized() {
+		logger.GetLogger().Info("interruptedError 收到中断信号",
+			zap.String("checkpoint_id", in.CheckPointID),
+			zap.Int("context_count", len(in.InterruptContexts)),
+		)
+	}
+
 	// 遍历中断上下文链，收集根因及所有层级的工具审批请求
 	var walk func(ictx *adk.InterruptCtx)
 	walk = func(ictx *adk.InterruptCtx) {
 		if ictx == nil {
 			return
 		}
-		if req, ok := ictx.Info.(*agent.ApprovalRequest); ok {
-			ie.Requests = append(ie.Requests, ApprovalRequest{ToolName: req.ToolName, Args: req.Args})
+
+		infoType := "nil"
+		if ictx.Info != nil {
+			infoType = fmt.Sprintf("%T", ictx.Info)
+		}
+		if logger.Initialized() {
+			logger.GetLogger().Info("interruptedError 遍历 InterruptCtx",
+				zap.String("id", ictx.ID),
+				zap.Bool("is_root_cause", ictx.IsRootCause),
+				zap.String("info_type", infoType),
+				zap.Any("info_value", ictx.Info),
+			)
+		}
+
+		// 只收集根因（工具级）的中断 UUID，避免 agent 层级的节点收到
+		// string resume data 导致 ChatModelAgent panic。
+		if ictx.ID != "" && ictx.IsRootCause {
+			ie.InterruptIDs = append(ie.InterruptIDs, ictx.ID)
+		}
+		switch info := ictx.Info.(type) {
+		case *agent.ApprovalRequest:
+			if logger.Initialized() {
+				logger.GetLogger().Info("interruptedError 匹配到 ApprovalRequest",
+					zap.String("tool_name", info.ToolName),
+					zap.String("args", info.Args),
+				)
+			}
+			ie.Requests = append(ie.Requests, ApprovalRequest{ToolName: info.ToolName, Args: info.Args})
+		case *agent.AskUserRequest:
+			if logger.Initialized() {
+				logger.GetLogger().Info("interruptedError 匹配到 AskUserRequest",
+					zap.Int("question_count", len(info.Questions)),
+				)
+			}
+			ie.IsQuestion = true
+			ie.Questions = info.Questions
+		default:
+			if logger.Initialized() {
+				logger.GetLogger().Info("interruptedError 未匹配的类型",
+					zap.String("info_type", infoType),
+				)
+			}
 		}
 		walk(ictx.Parent)
 	}
 	for _, c := range in.InterruptContexts {
 		walk(c)
 	}
+
+	if logger.Initialized() {
+		logger.GetLogger().Info("interruptedError 结果",
+			zap.String("checkpoint_id", ie.CheckpointID),
+			zap.Bool("is_question", ie.IsQuestion),
+			zap.Int("question_count", len(ie.Questions)),
+			zap.Int("request_count", len(ie.Requests)),
+			zap.Int("interrupt_ids_count", len(ie.InterruptIDs)),
+		)
+	}
+
 	return ie
 }
 
@@ -210,24 +278,27 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 	// 流式工具调用（chunk.ToolCalls）在流结束后统一补发，避免事件丢失
 	if mv.IsStreaming && mv.MessageStream != nil {
 		content, reasoningContent, toolCalls := e.emitStream(ctx, mv.MessageStream, msgID, emit)
-		for _, tc := range toolCalls {
-			idx := 0
-			if tc.Index != nil {
-				idx = *tc.Index
+		// ctx 取消时跳过后续 emit，但仍返回已累积的内容用于持久化
+		if ctx.Err() == nil {
+			for _, tc := range toolCalls {
+				idx := 0
+				if tc.Index != nil {
+					idx = *tc.Index
+				}
+				emit(StreamEvent{
+					Type:      "tool_call",
+					MessageID: msgID,
+					Role:      "assistant",
+					ToolCall: &eventbus.ToolCallInfo{
+						ID:    tc.ID,
+						Name:  tc.Function.Name,
+						Args:  tc.Function.Arguments,
+						Index: idx,
+					},
+				})
 			}
-			emit(StreamEvent{
-				Type:      "tool_call",
-				MessageID: msgID,
-				Role:      "assistant",
-				ToolCall: &eventbus.ToolCallInfo{
-					ID:    tc.ID,
-					Name:  tc.Function.Name,
-					Args:  tc.Function.Arguments,
-					Index: idx,
-				},
-			})
+			emit(StreamEvent{Type: "message_end", MessageID: msgID, Role: "assistant"})
 		}
-		emit(StreamEvent{Type: "message_end", MessageID: msgID, Role: "assistant"})
 		return &schema.Message{
 			Role:             schema.Assistant,
 			Content:          content,
@@ -238,43 +309,46 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 
 	// 非流式完整消息
 	if mv.Message != nil {
-		if mv.Message.Content != "" {
-			emit(StreamEvent{
-				Type:      "text_delta",
-				MessageID: msgID,
-				Role:      "assistant",
-				Content:   mv.Message.Content,
-			})
-		}
-		// 工具调用
-		for _, tc := range mv.Message.ToolCalls {
-			idx := 0
-			if tc.Index != nil {
-				idx = *tc.Index
+		// ctx 取消时跳过所有 emit，避免继续推送事件
+		if ctx.Err() == nil {
+			if mv.Message.Content != "" {
+				emit(StreamEvent{
+					Type:      "text_delta",
+					MessageID: msgID,
+					Role:      "assistant",
+					Content:   mv.Message.Content,
+				})
 			}
-			emit(StreamEvent{
-				Type:      "tool_call",
-				MessageID: msgID,
-				Role:      "assistant",
-				ToolCall: &eventbus.ToolCallInfo{
-					ID:    tc.ID,
-					Name:  tc.Function.Name,
-					Args:  tc.Function.Arguments,
-					Index: idx,
-				},
-			})
-			// 拦截 write_todos 工具调用，提取 TODO 列表
-			if tc.Function.Name == "write_todos" {
-				if todos := parseWriteTodosArgs(tc.Function.Arguments); todos != nil {
-					emit(StreamEvent{
-						Type:  "todo_update",
-						Role:  "assistant",
-						Todos: todos,
-					})
+			// 工具调用
+			for _, tc := range mv.Message.ToolCalls {
+				idx := 0
+				if tc.Index != nil {
+					idx = *tc.Index
+				}
+				emit(StreamEvent{
+					Type:      "tool_call",
+					MessageID: msgID,
+					Role:      "assistant",
+					ToolCall: &eventbus.ToolCallInfo{
+						ID:    tc.ID,
+						Name:  tc.Function.Name,
+						Args:  tc.Function.Arguments,
+						Index: idx,
+					},
+				})
+				// 拦截 write_todos 工具调用，提取 TODO 列表
+				if tc.Function.Name == "write_todos" {
+					if todos := parseWriteTodosArgs(tc.Function.Arguments); todos != nil {
+						emit(StreamEvent{
+							Type:  "todo_update",
+							Role:  "assistant",
+							Todos: todos,
+						})
+					}
 				}
 			}
+			emit(StreamEvent{Type: "message_end", MessageID: msgID, Role: "assistant"})
 		}
-		emit(StreamEvent{Type: "message_end", MessageID: msgID, Role: "assistant"})
 		return mv.Message
 	}
 	return nil
@@ -307,14 +381,25 @@ func toolResultEvent(mv *adk.MessageVariant) StreamEvent {
 
 // emitStream 读取流式输出，逐 chunk 发出 text_delta 事件，返回累积的完整内容与推理内容。
 // 同时收集流式工具调用：chunk.ToolCalls 中每个 index 的 ID/name 相同、args 为增量片段，
-// 按 index 拼接为完整的 ToolCall，供调用方在流结束后补发 tool_call 事件
+// 按 index 拼接为完整的 ToolCall，供调用方在流结束后补发 tool_call 事件。
+//
+// 使用 goroutine + select 模式读取 stream.Recv()，确保 ctx 取消时能立即返回，
+// 不会阻塞在 LLM 流式 API 的 HTTP 响应体读取上。
+// ctx 取消时 stream.Close() 在独立 goroutine 中执行，避免同步关闭阻塞。
 func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamReader[*schema.Message], msgID string, emit func(StreamEvent)) (string, string, []schema.ToolCall) {
-	defer stream.Close()
 	var sb strings.Builder
 	var reasoningSb strings.Builder
 	startTime := time.Now()
 	chunkCount := 0
 	firstChunkAt := time.Time{}
+	// ctx 取消时 stream.Close() 在 goroutine 中执行，避免同步关闭阻塞
+	defer func() {
+		if ctx.Err() != nil {
+			go stream.Close()
+		} else {
+			stream.Close()
+		}
+	}()
 	defer func() {
 		if chunkCount > 0 {
 			logger.GetLogger().Debug("流式输出统计",
@@ -349,53 +434,73 @@ func (e *agentExecutor) emitStream(ctx context.Context, stream *schema.StreamRea
 		toolCallIdx[idx] = len(toolCalls)
 		toolCalls = append(toolCalls, clone)
 	}
-	for {
-		if ctx.Err() != nil {
-			return sb.String(), reasoningSb.String(), toolCalls
-		}
+
+	// recvResult 封装 stream.Recv() 的返回值，配合 select 响应 ctx 取消
+	type recvResult struct {
+		chunk *schema.Message
+		err   error
+	}
+	recvCh := make(chan recvResult, 1)
+	// 启动首次 recv
+	go func() {
 		chunk, err := stream.Recv()
-		if err != nil {
+		recvCh <- recvResult{chunk, err}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
 			return sb.String(), reasoningSb.String(), toolCalls
-		}
-		if chunk == nil {
-			continue
-		}
-		if chunk.Content != "" {
-			if chunkCount == 0 {
-				firstChunkAt = time.Now()
+		case res := <-recvCh:
+			if res.err != nil {
+				return sb.String(), reasoningSb.String(), toolCalls
 			}
-			chunkCount++
-			sb.WriteString(chunk.Content)
-			emit(StreamEvent{
-				Type:      "text_delta",
-				MessageID: msgID,
-				Role:      "assistant",
-				Content:   chunk.Content,
-			})
-		}
-		// 提取推理内容：
-		// 1. 优先读 Message.ReasoningContent 字段（eino v0.10.0+ 原生支持，stream chunk 直接携带）
-		// 2. 兜底从 AssistantGenMultiContent 的 reasoning part 提取
-		reasoningContent := chunk.ReasoningContent
-		if reasoningContent == "" {
-			reasoningContent = extractReasoning(chunk)
-		}
-		if reasoningContent != "" {
-			reasoningSb.WriteString(reasoningContent)
-			if logger.Initialized() {
-				logger.GetLogger().Debug("emitStream 提取到推理内容",
-					zap.Int("reasoning_chars", len(reasoningContent)),
-					zap.String("reasoning_preview", truncateStr(reasoningContent, 120)))
+			chunk := res.chunk
+			// 启动下一次 recv（无论 chunk 是否为 nil 都继续）
+			go func() {
+				c, err := stream.Recv()
+				recvCh <- recvResult{c, err}
+			}()
+			if chunk == nil {
+				continue
 			}
-			emit(StreamEvent{
-				Type:      "text_delta",
-				MessageID: msgID,
-				Role:      "assistant",
-				Reasoning: reasoningContent,
-			})
-		}
-		for i := range chunk.ToolCalls {
-			mergeToolCall(&chunk.ToolCalls[i])
+			if chunk.Content != "" {
+				if chunkCount == 0 {
+					firstChunkAt = time.Now()
+				}
+				chunkCount++
+				sb.WriteString(chunk.Content)
+				emit(StreamEvent{
+					Type:      "text_delta",
+					MessageID: msgID,
+					Role:      "assistant",
+					Content:   chunk.Content,
+				})
+			}
+			// 提取推理内容：
+			// 1. 优先读 Message.ReasoningContent 字段（eino v0.10.0+ 原生支持，stream chunk 直接携带）
+			// 2. 兜底从 AssistantGenMultiContent 的 reasoning part 提取
+			reasoningContent := chunk.ReasoningContent
+			if reasoningContent == "" {
+				reasoningContent = extractReasoning(chunk)
+			}
+			if reasoningContent != "" {
+				reasoningSb.WriteString(reasoningContent)
+				if logger.Initialized() {
+					logger.GetLogger().Debug("emitStream 提取到推理内容",
+						zap.Int("reasoning_chars", len(reasoningContent)),
+						zap.String("reasoning_preview", truncateStr(reasoningContent, 120)))
+				}
+				emit(StreamEvent{
+					Type:      "text_delta",
+					MessageID: msgID,
+					Role:      "assistant",
+					Reasoning: reasoningContent,
+				})
+			}
+			for i := range chunk.ToolCalls {
+				mergeToolCall(&chunk.ToolCalls[i])
+			}
 		}
 	}
 }

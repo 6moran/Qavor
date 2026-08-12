@@ -58,6 +58,7 @@ type SpanSpec struct {
 type RequestMeta struct {
 	TraceID        string
 	RequestID      string
+	RunID          string
 	ConversationID uint
 	QuerySummary   string
 	EntryType      string

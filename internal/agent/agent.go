@@ -41,10 +41,44 @@ type AgentResponse struct {
 	Content string
 }
 
+// removeTool 从字符串切片中移除指定名称（如不存在则返回原切片）。
+func removeTool(names []string, target string) []string {
+	for i, name := range names {
+		if name == target {
+			return append(names[:i], names[i+1:]...)
+		}
+	}
+	return names
+}
+
+// containsTool 检查字符串切片中是否包含指定名称。
+func containsTool(names []string, target string) bool {
+	for _, name := range names {
+		if name == target {
+			return true
+		}
+	}
+	return false
+}
+
 // configuredBuiltinToolNames 返回实际启用的内置工具名：
 // 配置了知识库时自动追加 query_kb，且不修改 cfg.Tools。
+// 主智能体独有 ask_user，子智能体独有 report_need_input。
 func configuredBuiltinToolNames(cfg *AgentConfig) []string {
 	names := append([]string(nil), cfg.Tools...)
+	if cfg.IsSubagent {
+		// 子智能体：排除 ask_user，自动追加 report_need_input
+		names = removeTool(names, tool.AskUserToolName)
+		if !containsTool(names, tool.ReportNeedInputToolName) {
+			names = append(names, tool.ReportNeedInputToolName)
+		}
+	} else {
+		// 主智能体：排除 report_need_input，确保 ask_user 存在
+		names = removeTool(names, tool.ReportNeedInputToolName)
+		if !containsTool(names, tool.AskUserToolName) {
+			names = append(names, tool.AskUserToolName)
+		}
+	}
 	if len(cfg.Knowledges) > 0 {
 		found := false
 		for _, name := range names {
@@ -62,14 +96,17 @@ func configuredBuiltinToolNames(cfg *AgentConfig) []string {
 
 // resolveAgentTools 解析指定配置的内置工具与 MCP 工具。
 // 主智能体与子智能体共用：按各自配置独立解析，互不污染。
+// toolRegistry 为 nil 时跳过内置工具解析（测试/工具不可用场景）。
 func resolveAgentTools(cfg *AgentConfig, mcpManager *mcp.MCPManager, toolRegistry *tool.Registry) ([]einotool.BaseTool, []einotool.BaseTool) {
 	var mcpTools []einotool.BaseTool
-	if len(cfg.MCPServers) > 0 {
+	if len(cfg.MCPServers) > 0 && mcpManager != nil {
 		mcpTools = mcpManager.GetToolsByServers(cfg.MCPServers)
 	}
 	var builtinTools []einotool.BaseTool
-	if names := configuredBuiltinToolNames(cfg); len(names) > 0 {
-		builtinTools = toolRegistry.ToEinoToolsByNames(names)
+	if toolRegistry != nil {
+		if names := configuredBuiltinToolNames(cfg); len(names) > 0 {
+			builtinTools = toolRegistry.ToEinoToolsByNames(names)
+		}
 	}
 	return builtinTools, mcpTools
 }
@@ -94,6 +131,10 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 	if cfg.Instruction == "" {
 		cfg.Instruction = "你是一个智能助手，可以根据用户的问题调用可用的工具来提供帮助。请用中文回答用户的问题。"
 	}
+	// 告知主智能体：子智能体可以通过 report_need_input 工具向用户提问，
+	// 需要用户交互的任务（如询问、确认、收集信息）可以完整委托给子智能体，
+	// 主智能体无需在派发前代为提问。
+	cfg.Instruction += "\n\n子智能体具备向用户提问的能力（通过 report_need_input 工具，而非 ask_user）。当你需要让子智能体执行包含用户交互的任务时（例如询问用户信息、确认问题等），子智能体会自动通过 report_need_input 工具向用户提问并等待回答。注意：子智能体使用的是 report_need_input 工具而不是 ask_user，两者功能完全相同只是名称不同。你无需在派发前代为提问，直接在派发给子智能体的任务描述中写明「请使用 report_need_input 工具向用户提问」即可。"
 
 	// 获取工具（主智能体）
 	builtinTools, mcpTools := resolveAgentTools(cfg, mcpManager, toolRegistry)
@@ -170,7 +211,6 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 	// 本地文件系统与 Shell（安全管控内聚于 localfs）。
 	// filesystem 中间件手动构造（newFilesystemMiddleware），以注入自定义 execute 描述；
 	// deepConfig 的 Backend/StreamingShell 保持 nil，避免 builtin 二次注册。
-	var backgroundCfg *deep.BackgroundConfig
 	var deepSubagents []adk.TypedAgent[*schema.Message]
 	if runtime != nil {
 		// 工作目录按 slug 隔离：data/workspaces/<slug>
@@ -182,12 +222,8 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 			return nil, fmt.Errorf("创建 agent 工作目录失败: %w", err)
 		}
 		// Skills 路径已由文件系统后端 resolveSkillPath 直接放行
-		if runtime.Background != nil {
-			backgroundCfg = &deep.BackgroundConfig{
-				Manager:   runtime.Background,
-				OutputDir: filepath.Join(workDir, "background_output"),
-			}
-		}
+		// backgroundtask.Manager 仅在 newFilesystemMiddleware 中使用（shell 后台执行），
+		// 不传给 deep.Config.Background，避免子代理中断被 Manager 扁平化。
 		fsMW, err := newFilesystemMiddleware(workDir, runtime.SkillsDir, runtime.Policies,
 			runtime.Background, time.Duration(runtime.ShellTimeoutSeconds)*time.Second)
 		if err != nil {
@@ -215,9 +251,15 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		ToolsConfig:            adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil, ToolCallMiddlewares: toolErrorMW}},
 		MaxIteration:           maxIteration,
 		WithoutGeneralSubAgent: !enableGeneralSubAgent,
-		Background:             backgroundCfg,
-		SubAgents:              deepSubagents,
-		Handlers:               handlers,
+		// Background 保持 nil：Qavor 已通过 newFilesystemMiddleware 独立注入自己的
+		// backgroundtask.Manager（绑定到文件系统的 backend/shell），Deep Agent 的
+		// Background 会让子 agent 通过 newManagedAgentTool 包装 → backgroundtask.Manager
+		// 把中断信号（InterruptSignal）扁平化为 StatusFailed 错误文本。
+		// 子 agent 的中断传播依赖 eino 原生中断树（不经过 Manager 包装），
+		// 因此 Background 必须为 nil，才能让子 agent 的 ask_user/report_need_input
+		// 中断通过 agent_tool.go 的 CompositeInterrupt 正常向上传播。
+		SubAgents: deepSubagents,
+		Handlers:  handlers,
 	}
 
 	a, err := deep.New(context.Background(), deepConfig)
