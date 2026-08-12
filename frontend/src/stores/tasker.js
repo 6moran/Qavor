@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { processingJobApi } from '@/apis/knowledge_api'
-import { useUserStore } from '@/stores/user'
+import { taskerApi } from '@/apis/tasker'
 import { parseToShanghai } from '@/utils/time'
 import {
   mergeTaskSources,
@@ -39,7 +39,6 @@ const toTask = (raw = {}) => ({
 })
 
 export const useTaskerStore = defineStore('tasker', () => {
-  const userStore = useUserStore()
   const tasks = ref([])
   const loading = ref(false)
   const lastError = ref(null)
@@ -91,15 +90,7 @@ export const useTaskerStore = defineStore('tasker', () => {
     }
   }
 
-  async function loadTasks(params = {}) {
-    if (!userStore.isAdmin) {
-      tasks.value = []
-      summary.value = createDefaultSummary()
-      lastError.value = null
-      syncPolling()
-      return
-    }
-
+  async function loadTasks() {
     loading.value = true
     lastError.value = null
     try {
@@ -222,7 +213,7 @@ export const useTaskerStore = defineStore('tasker', () => {
   // 轮询所有权收敛到 store：抽屉打开或存在活跃任务时持续轮询，否则停止，
   // 修复抽屉关闭后任务角标（activeCount）不再更新的问题。
   function syncPolling() {
-    if (userStore.isAdmin && (isDrawerOpen.value || hasActiveTasks.value)) {
+    if (isDrawerOpen.value || hasActiveTasks.value) {
       startPolling()
     } else {
       stopPolling()

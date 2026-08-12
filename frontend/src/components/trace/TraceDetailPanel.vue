@@ -60,7 +60,7 @@
               :class="{ 'is-selected': selectedSpanId === row.span_id, 'is-error': row.status === 'error' }"
               @click="selectSpan(row.span_id)"
             >
-              <span class="timeline-name" :style="{ paddingLeft: rowDepth(row) * 14 + 'px' }">
+              <span class="timeline-name" :style="{ paddingLeft: compressedIndent(rowDepth(row), 14, 6, 10) + 'px' }">
                 <span class="wf-kind-badge" :class="`wf-kind-${row.kind}`">{{ kindLabel(row.kind) }}</span>
                 <span class="timeline-name-text">{{ spanName(row) }}</span>
               </span>
@@ -88,21 +88,22 @@
             </div>
 
             <aside class="trace-span-detail">
-              <template v-if="selectedSpan">
+              <template v-if="activeSpan">
+                <a-spin v-if="spanDetailLoading" size="small" />
                 <div class="span-detail-heading">
                   <div>
-                    <span class="wf-kind-badge" :class="`wf-kind-${selectedSpan.kind}`">{{ kindLabel(selectedSpan.kind) }}</span>
-                    <strong>{{ spanName(selectedSpan) }}</strong>
+                    <span class="wf-kind-badge" :class="`wf-kind-${activeSpan.kind}`">{{ kindLabel(activeSpan.kind) }}</span>
+                    <strong>{{ spanName(activeSpan) }}</strong>
                   </div>
-                  <a-tag :color="spanStatusColor(selectedSpan.status)">{{ spanStatusText(selectedSpan) }}</a-tag>
+                  <a-tag :color="spanStatusColor(activeSpan.status)">{{ spanStatusText(activeSpan) }}</a-tag>
                 </div>
                 <div class="span-metrics">
-                  <div><span>耗时</span><strong>{{ formatDuration(selectedSpan.duration_ms) }}</strong></div>
-                  <div><span>输入 Token</span><strong>{{ selectedSpan.tokens_in ?? 0 }}</strong></div>
-                  <div><span>输出 Token</span><strong>{{ selectedSpan.tokens_out ?? 0 }}</strong></div>
-                  <div><span>推理 Token</span><strong>{{ selectedSpan.reasoning_tokens ?? 0 }}</strong></div>
+                  <div><span>耗时</span><strong>{{ formatDuration(activeSpan.duration_ms) }}</strong></div>
+                  <div><span>输入 Token</span><strong>{{ activeSpan.tokens_in ?? 0 }}</strong></div>
+                  <div><span>输出 Token</span><strong>{{ activeSpan.tokens_out ?? 0 }}</strong></div>
+                  <div><span>推理 Token</span><strong>{{ activeSpan.reasoning_tokens ?? 0 }}</strong></div>
                 </div>
-                <SpanDetail :span="selectedSpan" />
+                <SpanDetail :span="activeSpan" />
               </template>
               <a-empty v-else :image="false" description="选择一个 Span 查看详情" />
             </aside>
@@ -119,11 +120,11 @@ import { message } from 'ant-design-vue'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { traceApi } from '@/apis'
 import {
-  buildDefaultExpandedSpanIds,
   buildTraceTree,
   buildTimelineRows,
   collectDiagnostics,
   collectTreeSpanIds,
+  compressedIndent,
   normalizeDiagnostics
 } from '@/utils/traceViewModel.js'
 
@@ -161,6 +162,28 @@ const treeRoots = computed(() => buildTraceTree(spans.value))
 const diagnostics = computed(() => backendDiagnostics.value.length ? backendDiagnostics.value : collectDiagnostics(spans.value, run.value))
 const spanById = computed(() => new Map(spans.value.map(span => [span.span_id, span])))
 const selectedSpan = computed(() => spanById.value.get(selectedSpanId.value) || null)
+
+// 详情列表已剥离 attributes 大字段，选中 span 时按需拉取完整详情
+const spanDetailLoading = ref(false)
+const spanDetailFull = ref(null)
+const activeSpan = computed(() => spanDetailFull.value || selectedSpan.value)
+watch(selectedSpanId, async (id) => {
+  spanDetailFull.value = null
+  if (!id) return
+  const listSpan = spanById.value.get(id)
+  // 列表 span 不含 attributes（undefined），需要调接口补齐
+  if (!listSpan || listSpan.attributes === undefined) {
+    spanDetailLoading.value = true
+    try {
+      const full = await traceApi.getSpan(props.traceId, id)
+      if (full && full.span_id === id) spanDetailFull.value = full
+    } catch {
+      // 拉取失败则回退到列表 span（无 attributes）
+    } finally {
+      spanDetailLoading.value = false
+    }
+  }
+})
 
 const addAncestors = (ids, span) => {
   let current = span
@@ -243,7 +266,8 @@ const loadDetail = async () => {
     run.value = data.run || null
     spans.value = data.spans || []
     backendDiagnostics.value = normalizeDiagnostics(data.diagnostics)
-    buildDefaultExpandedSpanIds(buildTraceTree(spans.value)).forEach(id => expandedBranches.add(id))
+    // 调用树默认全部展开（与时间轴全量展示保持一致）；深层缩进由 compressedIndent 压缩防止显示不全
+    collectTreeSpanIds(treeRoots.value).forEach(id => expandedBranches.add(id))
     selectedSpanId.value = spans.value.find(span => span.status === 'error')?.span_id || spans.value[0]?.span_id || ''
   } catch (error) {
     loadError.value = error.message || '加载 Trace 详情失败'
@@ -292,7 +316,7 @@ const TraceTreeNode = defineComponent({
       return h('div', { class: 'tree-node' }, [
         h('div', {
           class: ['tree-node-row', { 'tree-node-row--selected': treeProps.selectedSpanId === treeProps.node.span_id, 'tree-node-row--error': treeProps.node.status === 'error' }],
-          style: { paddingLeft: `${treeProps.depth * 18 + 8}px` },
+          style: { paddingLeft: `${compressedIndent(treeProps.depth, 18, 6, 8) + 8}px` },
           role: 'button', tabindex: 0,
           onClick: () => emit('select-span', treeProps.node.span_id),
           onKeydown: event => { if (event.key === 'Enter') emit('select-span', treeProps.node.span_id) }
@@ -321,8 +345,8 @@ const TraceTreeNode = defineComponent({
 <style>
 .trace-detail-panel { display:flex; flex-direction:column; height:100%; min-height:0; color:#172033; background:#f4f6fa; }
 .load-error { margin:0 0 12px; }
-.detail-card { flex:1; min-height:0; overflow:auto; border-radius:10px; box-shadow:0 4px 18px rgba(32,55,100,.06); }
-.detail-card .ant-card-body { min-height:100%; padding:0; }
+.detail-card { flex:1; min-height:0; display:flex; flex-direction:column; overflow:auto; border-radius:10px; box-shadow:0 4px 18px rgba(32,55,100,.06); }
+.detail-card .ant-card-body { flex:1 0 auto; min-height:0; display:flex; flex-direction:column; padding:0; }
 .mono { font-family:'JetBrains Mono',Consolas,monospace; word-break:break-all; }
 .error-text { color:#cf1322; white-space:pre-wrap; }
 .run-status { margin-left:8px; }
@@ -338,24 +362,24 @@ const TraceTreeNode = defineComponent({
 .diag-orphan_span { border-color:#ffa39e; background:#fff1f0; }.diag-dropped_data { border-color:#d3adf7; background:#f9f0ff; }.diag-slow_queue { border-color:#87e8de; background:#e6fffb; }
 .diag-badge { font-weight:700; }.diag-msg { color:#59647a; }
 .trace-summary { margin:16px; }
-.trace-explorer { margin:0 16px 16px; overflow:hidden; border:1px solid #dfe3eb; border-radius:10px; background:#fff; }
+.trace-explorer { flex:1 0 auto; min-height:0; display:flex; flex-direction:column; margin:0 16px 16px; overflow:hidden; border:1px solid #dfe3eb; border-radius:10px; background:#fff; }
 .section-heading { display:flex; align-items:center; justify-content:space-between; min-height:40px; padding:8px 12px; border-bottom:1px solid #e7eaf0; background:#fbfcfe; font-size:12px; }
 .section-heading div { display:flex; align-items:center; gap:9px; }.section-heading strong { color:#283247; font-size:13px; }.section-heading span { color:#8b94a8; }
-.trace-timeline { max-height:310px; overflow:auto; border-bottom:1px solid #dfe3eb; }
+.trace-timeline { flex:none; max-height:310px; overflow:auto; border-bottom:1px solid #dfe3eb; }
 .timeline-row { display:grid; grid-template-columns:minmax(180px,34%) 1fr 74px; align-items:center; width:100%; min-height:34px; padding:4px 12px; border:0; border-bottom:1px solid #f0f2f5; color:#3e485e; background:#fff; text-align:left; cursor:pointer; }
 .timeline-row:hover,.timeline-row.is-selected { background:#edf5ff; }.timeline-row.is-error { color:#8f1d1d; }.timeline-row:last-child { border-bottom:0; }
 .timeline-name { display:flex; align-items:center; gap:6px; min-width:0; }.timeline-name-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .timeline-track { position:relative; height:12px; overflow:hidden; border-radius:6px; background:#f0f2f5; }.timeline-duration { color:#8b94a8; text-align:right; font-size:12px; }
 .wf-bar { position:absolute; top:0; bottom:0; min-width:3px; border-radius:6px; }.wf-bar-llm { background:#1677ff; }.wf-bar-tool { background:#52c41a; }.wf-bar-retriever { background:#722ed1; }.wf-bar-agent { background:#fa8c16; }.wf-bar-http { background:#7b8496; }.wf-bar-queue { background:#13c2c2; }.wf-bar-event { background:#eb2f96; }.wf-bar-persistence { background:#2f54eb; }.wf-bar-error { background:#cf1322; }
 .wf-kind-badge { flex:none; min-width:36px; padding:1px 6px; border-radius:4px; color:#fff; font-size:10px; text-align:center; }.wf-kind-llm { background:#1677ff; }.wf-kind-tool { background:#52c41a; }.wf-kind-retriever { background:#722ed1; }.wf-kind-agent { background:#fa8c16; }.wf-kind-http { background:#7b8496; }.wf-kind-queue { background:#13c2c2; }.wf-kind-event { background:#eb2f96; }.wf-kind-persistence { background:#2f54eb; }.wf-kind-context { background:#722ed1; }
-.trace-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(330px,40%); min-height:390px; }
-.trace-tree-pane { min-width:0; border-right:1px solid #e7eaf0; }.tree-body { overflow:auto; }.tree-node { border-bottom:1px solid #eef0f3; }.tree-node:last-child { border-bottom:0; }
-.tree-node-row { display:flex; align-items:center; gap:6px; min-height:38px; padding:6px 12px 6px 8px; color:#1f2937; cursor:pointer; transition:background .15s ease,box-shadow .15s ease,color .15s ease; }.tree-node-row:hover { background:#edf5ff; }.tree-node-row--error { color:#8f1d1d; background:#fff8f7; }.tree-node-row--selected { color:#0958d9; background:#dbeafe; outline:1px solid #91caff; outline-offset:-1px; box-shadow:inset 3px 0 #1677ff,0 2px 8px rgba(22,119,255,.14); font-weight:600; }
+.trace-workspace { position:relative; flex:1; min-height:790px; }
+.trace-tree-pane { position:absolute; top:0; bottom:0; left:0; width:60%; display:flex; flex-direction:column; min-width:0; border-right:1px solid #e7eaf0; }.tree-body { flex:1; min-height:0; overflow:auto; }.tree-node { border-bottom:1px solid #eef0f3; }.tree-node:last-child { border-bottom:0; }
+.tree-node-row { display:flex; min-width:max-content; align-items:center; gap:6px; min-height:38px; padding:6px 12px 6px 8px; color:#1f2937; cursor:pointer; transition:background .15s ease,box-shadow .15s ease,color .15s ease; }.tree-node-row:hover { background:#edf5ff; }.tree-node-row--error { color:#8f1d1d; background:#fff8f7; }.tree-node-row--selected { color:#0958d9; background:#dbeafe; outline:1px solid #91caff; outline-offset:-1px; box-shadow:inset 3px 0 #1677ff,0 2px 8px rgba(22,119,255,.14); font-weight:600; }
 .tree-branch-toggle,.tree-branch-placeholder { display:inline-flex; flex:0 0 20px; align-items:center; justify-content:center; width:20px; height:20px; }.tree-branch-toggle { padding:0; border:1px solid #c9ced8; border-radius:3px; color:#59647a; background:#fff; cursor:pointer; }
 .tree-node-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.tree-node-kind { flex:none; color:#4b5563; font-size:12px; font-weight:600; }.tree-node-kind::before { display:inline-block; width:7px; height:7px; margin-right:5px; border-radius:50%; background:currentColor; content:''; }.tree-node-kind-llm { color:#1677ff; }.tree-node-kind-tool { color:#52c41a; }.tree-node-kind-retriever { color:#722ed1; }.tree-node-kind-agent { color:#fa8c16; }.tree-node-kind-http { color:#595959; }.tree-node-kind-queue { color:#08979c; }.tree-node-kind-event { color:#c41d7f; }.tree-node-kind-persistence { color:#2f54eb; }
-.tree-orphan-badge { padding:0 4px; border:1px solid #ffa39e; border-radius:3px; color:#cf1322; background:#fff1f0; font-size:10px; }.tree-children { margin-left:18px; border-left:1px solid #dbe2ea; background:#fbfcfe; }.wf-error-mark { color:#cf1322; font-weight:800; }.wf-duration-text { margin-left:auto; color:#9aa2b1; font-size:12px; }
-.trace-span-detail { min-width:0; padding:14px; overflow:auto; background:#fbfcfe; }.span-detail-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }.span-detail-heading>div { display:flex; align-items:center; gap:8px; min-width:0; }.span-detail-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tree-orphan-badge { padding:0 4px; border:1px solid #ffa39e; border-radius:3px; color:#cf1322; background:#fff1f0; font-size:10px; }.tree-children { border-left:1px solid #dbe2ea; background:#fbfcfe; }.wf-error-mark { color:#cf1322; font-weight:800; }.wf-duration-text { margin-left:auto; color:#9aa2b1; font-size:12px; }
+.trace-span-detail { min-width:0; min-height:0; margin-left:60%; padding:14px; overflow:visible; background:#fbfcfe; }.span-detail-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }.span-detail-heading>div { display:flex; align-items:center; gap:8px; min-width:0; }.span-detail-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .span-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:14px; }.span-metrics>div { padding:9px 10px; border:1px solid #e7eaf0; border-radius:6px; background:#fff; }.span-metrics span { display:block; color:#8b94a8; font-size:11px; }.span-metrics strong { display:block; margin-top:3px; color:#273147; font-size:13px; }
 .span-fields { display:grid; gap:7px; margin:0; }.span-fields>div { display:grid; grid-template-columns:82px minmax(0,1fr); gap:8px; font-size:12px; }.span-fields dt { color:#8b94a8; }.span-fields dd { min-width:0; margin:0; color:#3e485e; word-break:break-all; }.wf-detail-block { margin-top:12px; }.wf-detail-title { margin-bottom:5px; color:#59647a; font-size:12px; font-weight:700; }.wf-detail-pre { max-height:220px; margin:0; padding:9px; overflow:auto; border:1px solid #e5e8ee; border-radius:6px; color:#5a6478; background:#fff; font:12px/1.55 Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
-@media (max-width:1000px) { .trace-toolbar { flex-wrap:wrap; }.trace-toolbar-spacer { display:none; }.trace-workspace { grid-template-columns:1fr; }.trace-tree-pane { border-right:0; border-bottom:1px solid #e7eaf0; }.trace-span-detail { max-height:none; }.timeline-row { grid-template-columns:minmax(150px,42%) 1fr 64px; } }
+@media (max-width:1000px) { .trace-toolbar { flex-wrap:wrap; }.trace-toolbar-spacer { display:none; }.trace-workspace { position:static; min-height:0; }.trace-tree-pane { position:static; width:auto; border-right:0; border-bottom:1px solid #e7eaf0; }.trace-span-detail { margin-left:0; max-height:none; }.timeline-row { grid-template-columns:minmax(150px,42%) 1fr 64px; } }
 </style>

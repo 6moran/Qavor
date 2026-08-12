@@ -18,6 +18,7 @@ import (
 type ModelResolver interface {
 	ResolveEmbedding(ctx context.Context, modelID uint) (embedding.Embedder, error)
 	ResolveChatModel(ctx context.Context, modelID uint) (model.ToolCallingChatModel, error)
+	ResolveReranker(ctx context.Context, modelID uint) (Reranker, error)
 }
 
 // DynamicDocumentIndexer 在每次文档索引时根据 KBID 解析知识库绑定的 Embedding 模型。

@@ -21,18 +21,8 @@
         <div class="settings-sider-nav">
           <div
             class="sider-item"
-            :class="{ activesec: activeTab === 'apiKeys' }"
-            @click="activeTab = 'apiKeys'"
-            v-if="userStore.isLoggedIn"
-          >
-            <Key class="icon" :size="18" />
-            <span>API Keys</span>
-          </div>
-          <div
-            class="sider-item"
             :class="{ activesec: activeTab === 'base' }"
             @click="activeTab = 'base'"
-            v-if="userStore.isAdmin"
           >
             <Settings class="icon" :size="18" />
             <span>基本设置</span>
@@ -41,7 +31,6 @@
             class="sider-item"
             :class="{ activesec: activeTab === 'ocr' }"
             @click="activeTab = 'ocr'"
-            v-if="userStore.isAdmin"
           >
             <ScanText class="icon" :size="18" />
             <span>OCR 配置</span>
@@ -60,27 +49,16 @@
       <div class="settings-mobile-nav">
         <div
           class="nav-item"
-          :class="{ active: activeTab === 'apiKeys' }"
-          @click="activeTab = 'apiKeys'"
-          v-if="userStore.isLoggedIn"
-        >
-          API Keys
-        </div>
-        
-        <div
-          class="nav-item"
           :class="{ active: activeTab === 'base' }"
           @click="activeTab = 'base'"
-          v-if="userStore.isAdmin"
-        >
+          >
           基本设置
         </div>
         <div
           class="nav-item"
           :class="{ active: activeTab === 'ocr' }"
           @click="activeTab = 'ocr'"
-          v-if="userStore.isAdmin"
-        >
+          >
           OCR 配置
         </div>
         </div>
@@ -88,17 +66,11 @@
       <!-- 内容区域 -->
       <div class="settings-content-wrapper">
         <div class="settings-content">
-          <div v-if="activeTab === 'apiKeys' && userStore.isLoggedIn">
-            <ApiKeyManagementComponent />
-          </div>
-
-          
-
-          <div v-show="activeTab === 'base'" v-if="userStore.isAdmin">
+          <div v-show="activeTab === 'base'">
             <BasicSettingsSection />
           </div>
 
-          <div v-show="activeTab === 'ocr'" v-if="userStore.isAdmin">
+          <div v-show="activeTab === 'ocr'">
             <OCRSettingsSection />
           </div>
 
@@ -114,14 +86,12 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import {
   Settings,
-  Key,
   ScanText,
   X,
   LogOut
 } from 'lucide-vue-next'
 import BasicSettingsSection from '@/components/BasicSettingsSection.vue'
 import OCRSettingsSection from '@/components/OCRSettingsSection.vue'
-import ApiKeyManagementComponent from '@/components/ApiKeyManagementComponent.vue'
 
 const props = defineProps({
   visible: {
@@ -138,7 +108,7 @@ const emit = defineEmits(['update:visible', 'close'])
 
 const userStore = useUserStore()
 const router = useRouter()
-const activeTab = ref('apiKeys')
+const activeTab = ref('base')
 
 const handleLogout = async () => {
   await userStore.logout()
@@ -152,9 +122,7 @@ const visible = computed({
 })
 
 const availableTabs = computed(() => {
-  const tabs = []
-  if (userStore.isLoggedIn) tabs.push('apiKeys')
-  if (userStore.isAdmin) tabs.push('base', 'ocr')
+  const tabs = ['base', 'ocr']
   if (userStore.isSuperAdmin) tabs.push('department')
   return tabs
 })
@@ -164,7 +132,7 @@ const setActiveTab = (preferredTab) => {
     activeTab.value = preferredTab
     return
   }
-  activeTab.value = userStore.isAdmin ? 'base' : availableTabs.value[0]
+  activeTab.value = 'base'
 }
 
 const handleClose = () => {
@@ -404,8 +372,7 @@ watch(
     min-height: 0;
 
     .user-management,
-    .department-management,
-    .apikey-management {
+    .department-management {
       min-height: auto;
     }
 

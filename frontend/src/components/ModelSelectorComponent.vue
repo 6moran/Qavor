@@ -30,12 +30,12 @@
             @click="handleSelectModel(String(model.id))"
           >
             <div class="model-option">
-              <span>{{ model.name }}</span>
+              <span>{{ model.remark || model.name }}</span>
               <span class="model-type">{{ model.model_type }}</span>
             </div>
           </a-menu-item>
         </a-menu>
-        <div v-if="userStore.isAdmin" class="model-config-link">
+        <div class="model-config-link">
           没有合适的模型？
           <RouterLink :to="{ path: '/agent-manage', query: { tab: 'providers' } }" @click.stop>
             配置模型
@@ -47,10 +47,9 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { modelApi } from '@/apis/model_api'
-import { useUserStore } from '@/stores/user'
 
 const props = defineProps({
   model_spec: { type: String, default: '' },
@@ -62,7 +61,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select-model', 'update:model_spec'])
-const userStore = useUserStore()
 const models = ref([])
 const keyword = ref('')
 const loading = ref(false)
@@ -72,7 +70,7 @@ let loaded = false
 const filteredModels = computed(() => {
   const value = keyword.value.trim().toLowerCase()
   if (!value) return models.value
-  return models.value.filter((model) => `${model.name} ${model.protocol}`.toLowerCase().includes(value))
+  return models.value.filter((model) => `${model.name} ${model.remark || ''} ${model.protocol}`.toLowerCase().includes(value))
 })
 
 const modelSelectClasses = computed(() => ({
@@ -84,12 +82,11 @@ const modelSelectClasses = computed(() => ({
 const displayModelText = computed(() => {
   if (!props.model_spec) return props.placeholder
   const model = models.value.find((item) => String(item.id) === props.model_spec)
-  return model?.name || props.model_spec
+  return model?.remark || model?.name || props.model_spec
 })
 
-const handleOpenChange = async (open) => {
-  dropdownOpen.value = open
-  if (!open || loaded) return
+const loadModels = async () => {
+  if (loaded) return
   loading.value = true
   try {
     const response = await modelApi.list({ model_type: 'chat', page: 1, page_size: 100 })
@@ -101,6 +98,25 @@ const handleOpenChange = async (open) => {
     loading.value = false
   }
 }
+
+const handleOpenChange = async (open) => {
+  dropdownOpen.value = open
+  if (open) {
+    await loadModels()
+  }
+}
+
+onMounted(() => {
+  if (props.model_spec) {
+    loadModels()
+  }
+})
+
+watch(() => props.model_spec, (newVal) => {
+  if (newVal && !loaded) {
+    loadModels()
+  }
+})
 
 const handleSelectModel = (id) => {
   emit('select-model', id)

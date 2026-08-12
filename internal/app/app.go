@@ -7,9 +7,13 @@ import (
 	"Qavor/internal/api"
 	agentctrl "Qavor/internal/api/v1/agent"
 	chatctrl "Qavor/internal/api/v1/chat"
+	evaluationctrl "Qavor/internal/api/v1/evaluation"
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
+	mindmapctrl "Qavor/internal/api/v1/mindmap"
+	ocrctrl "Qavor/internal/api/v1/ocr"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
+	systemctrl "Qavor/internal/api/v1/system"
 	workspaceapi "Qavor/internal/api/v1/workspace"
 	contextmgr "Qavor/internal/context"
 	"Qavor/internal/eventbus"
@@ -57,7 +61,6 @@ import (
 
 	"github.com/cloudwego/eino/adk/backgroundtask"
 	"github.com/cloudwego/eino/callbacks"
-	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -171,9 +174,11 @@ type App struct {
 	workerDone       chan struct{}
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
+	evaluationStop   context.CancelFunc
 	traceWriter      *trace.Writer
 	mcpManager       *mcp.MCPManager
 	bgManager        *backgroundtask.Manager
+	evaluationSvc    service.EvaluationService
 }
 
 // NewApp 创建应用实例
@@ -274,12 +279,12 @@ func (a *App) initDatabase() error {
 			&entity.Message{},
 			&entity.MessageFeedback{},
 			&entity.ToolCall{},
-			&entity.APIKey{},
 			&entity.OperationLog{},
 			&entity.AgentRun{},
 			&entity.SubagentThread{},
 			&entity.TaskRecord{},
 			&entity.Model{},
+			&entity.SystemSetting{},
 			&entity.Skill{},
 			&entity.KnowledgeBase{},
 			&entity.KnowledgeFile{},
@@ -290,6 +295,10 @@ func (a *App) initDatabase() error {
 			&entity.TraceRecord{},
 			&entity.TraceSpan{},
 			&entity.LongTermMemory{},
+			&entity.EvaluationDataset{},
+			&entity.EvaluationDatasetItem{},
+			&entity.EvaluationRun{},
+			&entity.EvaluationRunResult{},
 		); err != nil {
 			logger.Warn("数据库迁移警告", zap.Error(err))
 		} else {
@@ -325,6 +334,7 @@ func (a *App) initDependencies() error {
 	knowledgeChunkRepo := repository.NewKnowledgeChunkRepository(a.postgresDB)
 	processingJobRepo := repository.NewDocumentProcessingJobRepository(a.postgresDB)
 	modelRepo := repository.NewModelRepository(a.postgresDB)
+	systemSettingRepo := repository.NewSystemSettingRepository(a.postgresDB)
 	conversationRepo := repository.NewConversationRepository(a.postgresDB)
 	messageRepo := repository.NewMessageRepository(a.postgresDB)
 	agentRepo := repository.NewAgentRepository(a.postgresDB)
@@ -353,11 +363,17 @@ func (a *App) initDependencies() error {
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
+	ragSettingsSvc := service.NewRAGSettingsService(systemSettingRepo, modelRepo)
+	systemConfigSvc := service.NewSystemConfigService(systemSettingRepo, modelRepo)
+	systemCtrl := systemctrl.NewController(ragSettingsSvc, systemConfigSvc)
+	ocrCtrl := ocrctrl.NewController(systemConfigSvc)
 	storage := service.NewMinIOObjectStorage()
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage, agentRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
 	processingJobSvc := service.NewProcessingJobService(processingJobRepo, knowledgeFileRepo, queue)
 	agentSvc := service.NewAgentService(agentRepo, a.cfg.Agent.WorkspaceRoot)
+	mindmapSvc := service.NewMindmapService(knowledgeBaseRepo, knowledgeFileRepo, knowledgeChunkRepo, modelSvc)
+	mindmapCtrl := mindmapctrl.NewController(mindmapSvc)
 
 	// 构造按知识库绑定模型解析的 RAG 依赖,由于需要依赖其他模块,所以在这里初始化
 	// 模型连接信息来自模型管理表；RAG 配置文件只提供分块、TopK、超时等算法默认值。
@@ -371,30 +387,46 @@ func (a *App) initDependencies() error {
 			a.cfg.RAG.Embedding.BatchSize,
 			a.cfg.RAG.Embedding.Dimension,
 		)
-		// 快速回答与独立检索共享同一个按知识库解析 Embedding 模型的检索器。
-		dynamicRetriever retriever.Retriever = rag.NewDynamicRetriever(
+		// 向量召回按知识库绑定的 Embedding 模型分组并保留独立排名。
+		dynamicVectorRetriever = rag.NewDynamicRetriever(
 			knowledgeBaseRepo,
 			modelSvc,
 			knowledgeChunkRepo,
 			a.cfg.RAG.VectorTopK,
 		)
+		keywordRetriever = rag.NewKeywordRetriever(knowledgeChunkRepo, a.cfg.RAG.KeywordTopK)
+		dynamicReranker  = rag.NewDynamicReranker(ragSettingsSvc, modelSvc)
+		hybridRetriever  = rag.NewHybridRetriever(
+			dynamicVectorRetriever,
+			keywordRetriever,
+			dynamicReranker,
+			rag.HybridConfig{
+				VectorTopK: a.cfg.RAG.VectorTopK, KeywordTopK: a.cfg.RAG.KeywordTopK,
+				FusedTopK: a.cfg.RAG.FusedTopK, RerankTopK: a.cfg.RAG.RerankTopK, RRFK: a.cfg.RAG.RRFK,
+			},
+		)
+		// 快速回答与独立检索共享同一个混合检索器实例。
 		answerer rag.AnswerChain = rag.NewDynamicAnswerEngine(
 			knowledgeBaseRepo,
 			modelSvc,
-			dynamicRetriever,
+			hybridRetriever,
 		)
 		ragCtrl *ragctrl.Controller
 	)
-	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, dynamicRetriever, answerer)
+	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, hybridRetriever, answerer)
 	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
+	// 检索测试与示例问题服务：复用 RAG 检索链路与模型解析能力。
+	knowledgeQuerySvc := service.NewKnowledgeQueryService(a.cfg.RAG, knowledgeBaseRepo, knowledgeFileRepo, ragSvc, modelSvc)
 
 	if queue != nil {
 		workerCtx, cancelWorker := context.WithCancel(context.Background())
 		a.workerStop = cancelWorker
 		a.workerDone = make(chan struct{})
 		imgUploader := imageUploader{storage: storage}
+		ocrEngine, ocrAPIBaseURL, ocrAPIKey, ocrAPIModel := ocrEngineForParser(workerCtx, systemSettingRepo, systemConfigSvc)
 		parser := ingestion.NewParser(
-			ingestion.NewPythonParser(a.cfg.DocumentParser.PythonPath, "pkg/documentparser/python/parse_document.py", imgUploader),
+			ingestion.NewPythonParser(a.cfg.DocumentParser.PythonPath, "pkg/documentparser/python/parse_document.py", imgUploader).
+				WithOCR(ocrEngine, ocrAPIBaseURL, ocrAPIKey, ocrAPIModel),
 			imgUploader,
 		)
 		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser, indexer)
@@ -549,7 +581,7 @@ func (a *App) initDependencies() error {
 	contextConfig := &contextmgr.ContextConfig{
 		MaxTokens:     32768, // 上下文窗口（对话历史保留上限），中文每字约2-3 Token
 		ReserveTokens: 4096,  // 预留给模型回复的 Token
-		SystemPrompt:  "You are a helpful assistant.",
+		SystemPrompt:  "你是 Qavor AI 助手，请始终使用中文回答用户的问题。",
 	}
 	// 模型解析器适配器，用于根据 modelID 动态创建 LLM 客户端
 	contextModelResolver := &contextModelResolverAdapter{modelSvc: modelSvc}
@@ -634,8 +666,19 @@ func (a *App) initDependencies() error {
 	// 创建 Dashboard Service（只读统计查询）
 	dashboardSvc := service.NewDashboardService(a.postgresDB)
 
+	// —— RAG 评估服务（基准管理 + 评估运行，后台执行器随应用启动）——
+	evaluationSvc := service.NewEvaluationService(
+		repository.NewEvaluationRepository(a.postgresDB),
+		knowledgeBaseRepo,
+		knowledgeChunkRepo,
+		ragSvc,
+		modelSvc,
+	)
+	evaluationCtrl := evaluationctrl.NewController(evaluationSvc)
+	a.evaluationSvc = evaluationSvc
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, tracer)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl, mindmapCtrl, ocrCtrl)
 
 	return nil
 }
@@ -696,6 +739,14 @@ func (a *App) buildMCPWhitelist(agentRepo repository.AgentRepository) []string {
 
 // Run 运行应用
 func (a *App) Run() {
+	// 启动 RAG 评估后台执行器（处理基准生成与评估运行任务）
+	if a.evaluationSvc != nil {
+		evalCtx, cancelEval := context.WithCancel(context.Background())
+		a.evaluationStop = cancelEval
+		a.evaluationSvc.Start(evalCtx)
+		logger.Info("RAG 评估执行器已启动")
+	}
+
 	// 启动 HTTP 服务器
 	go func() {
 		logger.Info("HTTP 服务器启动",
@@ -743,6 +794,12 @@ func (a *App) gracefulShutdown() {
 	if a.traceJanitorStop != nil {
 		a.traceJanitorStop()
 		logger.Info("Trace Janitor 已关闭")
+	}
+
+	// 停止 RAG 评估执行器
+	if a.evaluationStop != nil {
+		a.evaluationStop()
+		logger.Info("RAG 评估执行器已关闭")
 	}
 
 	// Flush 并关闭 Trace Writer（最多 3 秒）
@@ -806,6 +863,25 @@ func (a *llmClientAdapter) Generate(ctx context.Context, input []*schema.Message
 		return nil, fmt.Errorf("LLM client not initialized")
 	}
 	return a.client.Generate(ctx, input)
+}
+
+// ocrEngineForParser 读取默认 OCR 引擎与通用 OCR API 配置，供文档解析执行分派。
+// 返回 (引擎标识, API 地址, API Key, 模型名)；引擎标识取值 "rapidocr"（本地，默认）或 "api"。
+func ocrEngineForParser(ctx context.Context, settings repository.SystemSettingRepository, configSvc service.SystemConfigService) (engine, apiBaseURL, apiKey, apiModel string) {
+	defaultEngine, _, err := settings.Get(ctx, service.SettingKeyDefaultOCREngine)
+	if err != nil || defaultEngine != "api_ocr" {
+		return "rapidocr", "", "", ""
+	}
+	cfg, err := configSvc.GetOCRAPIConfig(ctx)
+	if err != nil {
+		logger.Warn("读取 OCR API 配置失败，回退本地 RapidOCR", zap.Error(err))
+		return "rapidocr", "", "", ""
+	}
+	if cfg.BaseURL == "" {
+		logger.Warn("默认 OCR 引擎为 api_ocr 但未配置服务地址，回退本地 RapidOCR")
+		return "rapidocr", "", "", ""
+	}
+	return "api", cfg.BaseURL, cfg.APIKey, cfg.Model
 }
 
 // contextModelResolverAdapter 将 service.ModelService 适配为 context.ModelResolver

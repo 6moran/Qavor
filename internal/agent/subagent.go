@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"Qavor/internal/agent/localfs/security"
 	"Qavor/internal/mcp"
@@ -47,6 +49,7 @@ func buildSubagentHandlers(
 	}
 	handlers := []adk.TypedChatModelAgentMiddleware[*schema.Message]{
 		NewToolFilterMiddleware(ownBuiltin, ownMCP, vectorizer, vectorCfg),
+		NewApprovalMiddleware(), // 子智能体也需要审批能力（敏感工具如 execute 触发中断）
 	}
 	if parentFSMW != nil {
 		handlers = append(handlers, parentFSMW)
@@ -95,10 +98,20 @@ func buildSubagentInstance(
 		newToolErrorRecoveryMiddleware(),
 	}
 
+	// 子智能体没有 ask_user 工具（被替换为 report_need_input），告知模型可以用它向用户提问。
+	instruction := spec.cfg.Instruction
+	if spec.cfg.Instruction == "" {
+		instruction = "你是一个智能助手，可以根据用户的问题调用可用的工具来提供帮助。请用中文回答用户的问题。"
+	}
+	// 注入当前日期时间，解决模型训练数据截止日期导致的年份错误
+	now := time.Now()
+	instruction += fmt.Sprintf("\n\n当前日期时间：%s（时区：%s）", now.Format("2006-01-02 15:04:05"), now.Location().String())
+	instruction += "\n\n你可以使用 report_need_input 工具来向用户提出问题或请求决策。当你遇到信息不足、需要用户选择或确认时，请使用 report_need_input 工具。它等同于 ask_user 工具，但名称不同。\n\n重要：当你使用 report_need_input 向用户提问并收到回答后，请在最终输出中明确声明你已经向用户提问并获得了回答。例如在回复开头写「我已向用户提问，以下是基于用户回答的…」之类的说明，这样父智能体才能清楚整个交互过程。"
+
 	return adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{
 		Name:        spec.cfg.Name,
 		Description: spec.cfg.Description,
-		Instruction: spec.cfg.Instruction,
+		Instruction: instruction,
 		Model:       spec.llm,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{

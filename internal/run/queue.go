@@ -2,6 +2,7 @@ package run
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -78,6 +79,20 @@ func (q *RequestQueue) Enqueue(ctx context.Context, item QueueItem) error {
 		"trace_id":   item.TraceID,
 		"created_at": item.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
+	// 审批/恢复相关字段
+	if item.ApprovalMode != "" {
+		fields["approval_mode"] = item.ApprovalMode
+	}
+	if item.ResumeRunID != "" {
+		fields["resume_run_id"] = item.ResumeRunID
+	}
+	if item.CheckpointID != "" {
+		fields["checkpoint_id"] = item.CheckpointID
+	}
+	if len(item.Targets) > 0 {
+		targetsJSON, _ := json.Marshal(item.Targets)
+		fields["targets"] = string(targetsJSON)
+	}
 	// 新增 TraceCarrier 字段（非空时写入，兼容旧数据读取）
 	if item.Trace.TraceID != "" {
 		fields["trace_id_v2"] = item.Trace.TraceID
@@ -151,6 +166,16 @@ func (q *RequestQueue) GetQueued(ctx context.Context, runID string) (*QueueItem,
 		ResumeFromRunID:  val["resume_from_run_id"],
 		ResumeFromSpanID: val["resume_from_span_id"],
 		CreatedAt:        createdAt,
+		ApprovalMode:     val["approval_mode"],
+		ResumeRunID:      val["resume_run_id"],
+		CheckpointID:     val["checkpoint_id"],
+	}
+	// 恢复 Targets（JSON 字符串 → map[string]any）
+	if targetsStr := val["targets"]; targetsStr != "" {
+		var targets map[string]any
+		if err := json.Unmarshal([]byte(targetsStr), &targets); err == nil && len(targets) > 0 {
+			item.Targets = targets
+		}
 	}
 	// 恢复 TraceCarrier：优先读新字段（trace_id_v2），回退到旧 trace_id
 	carrier := trace.TraceCarrier{

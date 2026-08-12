@@ -7,6 +7,7 @@ import AgentRuntimeConfigForm from '@/components/AgentRuntimeConfigForm.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { useAgentStore } from '@/stores/agent'
+import { useConfigStore } from '@/stores/config'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
 
 const props = defineProps({
@@ -16,6 +17,7 @@ const props = defineProps({
 const emit = defineEmits(['saved'])
 
 const agentStore = useAgentStore()
+const configStore = useConfigStore()
 
 const DEFAULT_AGENT_BACKEND_ID = 'ChatbotAgent'
 const SUB_AGENT_BACKEND_ID = 'SubAgentBackend'
@@ -99,11 +101,20 @@ const handleAgentModalAfterOpenChange = (open) => {
   if (open && !editingAgentId.value) focusAgentNameInput()
 }
 
+// 编辑期间会临时把会话选中的智能体切到被编辑的 agent（为了加载/保存其配置），
+// 关闭或保存后需还原，避免"编辑智能体"意外改变新建会话默认选中的智能体。
+let isEditingAgent = false
+let preEditSelectedAgentId = null
+
 const openCreate = () => {
   editingAgentId.value = null
   agentModalActiveTab.value = 'basic'
   resetAgentForm()
+  // 用系统设置里的默认对话模型预填（可手动修改）
+  agentForm.model_id = configStore.config?.default_model || ''
   agentStore.resetAgentConfig()
+  isEditingAgent = false
+  preEditSelectedAgentId = null
   showAgentModal.value = true
 }
 
@@ -119,6 +130,8 @@ const openEdit = async (agent) => {
 
   editingAgentId.value = detail.id
   agentModalActiveTab.value = 'basic'
+  isEditingAgent = true
+  preEditSelectedAgentId = agentStore.selectedAgentId
   Object.assign(agentForm, {
     slug: detail.id || detail.slug || '',
     name: detail.name || '',
@@ -131,9 +144,14 @@ const openEdit = async (agent) => {
 }
 
 const restoreChatAgentSelectionIfNeeded = async () => {
-  if (!agentStore.selectedAgent?.is_subagent) return
-  const fallbackAgentId = (agentStore.agents || []).find((agent) => !agent.is_subagent)?.id
-  if (fallbackAgentId) await agentStore.selectAgent(fallbackAgentId)
+  if (!isEditingAgent) return
+  const fallbackAgentId =
+    preEditSelectedAgentId ||
+    (agentStore.agents || []).find((agent) => agent.is_default)?.id ||
+    (agentStore.agents || []).find((agent) => !agent.is_subagent)?.id
+  if (fallbackAgentId && fallbackAgentId !== agentStore.selectedAgentId) {
+    await agentStore.selectAgent(fallbackAgentId)
+  }
 }
 
 const closeAgentModal = async () => {

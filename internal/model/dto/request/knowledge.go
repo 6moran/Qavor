@@ -109,3 +109,29 @@ type OpenKnowledgeFileRequest struct {
 	Offset     *int   `json:"offset" binding:"omitempty,min=0"`
 	WindowSize int    `json:"window_size" binding:"omitempty,min=1,max=2000"`
 }
+
+// QueryTestRequest 检索测试请求
+// Meta 为可选的检索参数覆盖（白名单键由服务层解析），不修改知识库配置。
+type QueryTestRequest struct {
+	Query string         `json:"query" binding:"required,max=2000"` // 查询文本
+	Meta  map[string]any `json:"meta"`                              // 检索参数覆盖
+}
+
+// UpdateQueryParamsRequest 更新知识库检索参数请求（整包 meta，服务层白名单过滤）。
+type UpdateQueryParamsRequest map[string]any
+
+// GenerateSampleQuestionsRequest 生成示例问题请求
+type GenerateSampleQuestionsRequest struct {
+	Count int `json:"count" binding:"omitempty,min=1,max=50"` // 生成数量，默认 10
+}
+
+// GenerateDescriptionRequest 生成或润色知识库描述请求。
+// 新建知识库与编辑知识库信息两个表单场景共用：
+//   - 调用方必须携带 ChatModelID（表单已预填/选择的问答模型）；
+//   - current_description 为空时是"生成"，非空时是"润色"。
+type GenerateDescriptionRequest struct {
+	DatabaseName       string   `json:"name" binding:"required,max=255"`                  // 知识库名称
+	CurrentDescription string   `json:"current_description" binding:"omitempty,max=2000"` // 当前描述；空值表示生成，非空表示润色
+	FileList           []string `json:"file_list" binding:"omitempty,dive,max=512"`       // 参考文件列表（可选）
+	ChatModelID        uint     `json:"chat_model_id" binding:"omitempty,min=1"`          // 问答（Chat）模型 ID，必传；缺失时服务层返回明确提示
+}

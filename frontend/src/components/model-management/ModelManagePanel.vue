@@ -9,7 +9,9 @@ import {
   buildModelPayload,
   buildModelTestPayload,
   createDefaultModelForm,
+  formatModelTestError,
   formatModelTestSuccess,
+  isModelConnectionTestSupported,
   modelToForm,
   MODEL_PROTOCOL_OPTIONS,
   resetAdvancedFields
@@ -21,6 +23,8 @@ const testing = ref(false)
 const testResult = ref(null)
 const models = ref([])
 const total = ref(0)
+// statsModels 缓存全量模型（仅用于顶部统计），避免分页后按类型计数只统计当前页
+const statsModels = ref([])
 const keyword = ref('')
 const modelType = ref('')
 const page = ref(1)
@@ -41,15 +45,30 @@ const typeOptions = [
 
 const stats = computed(() => ({
   total: total.value,
-  enabled: models.value.filter((model) => model.enabled).length,
-  chat: models.value.filter((model) => model.model_type === 'chat').length,
-  embedding: models.value.filter((model) => model.model_type === 'embedding').length,
-  rerank: models.value.filter((model) => model.model_type === 'rerank').length
+  enabled: statsModels.value.filter((model) => model.enabled).length,
+  chat: statsModels.value.filter((model) => model.model_type === 'chat').length,
+  embedding: statsModels.value.filter((model) => model.model_type === 'embedding').length,
+  rerank: statsModels.value.filter((model) => model.model_type === 'rerank').length
 }))
+
+// 拉取全量模型用于顶部类型统计（不受分页影响）
+const loadStats = async () => {
+  try {
+    const response = await modelApi.list({ page: 1, page_size: 100 })
+    const data = response?.data || { total: 0, items: [] }
+    statsModels.value = data.items || []
+  } catch {
+    // 统计失败不影响列表展示
+  }
+}
 
 const testResultDescription = computed(() => {
   if (!testResult.value) return ''
-  if (!testResult.value.success) return testResult.value.message
+  if (!testResult.value.success) {
+    const { message, detail } = testResult.value
+    // detail 为脱敏后的原始错误，换行展示便于排查
+    return detail ? `${message}\n${detail}` : message
+  }
   let desc = testResult.value.message
   if (form.model_type === 'embedding' && testResult.value.dimension) {
     desc += ` · 向量维度：${testResult.value.dimension}`
@@ -138,6 +157,7 @@ const save = async () => {
     message.success(editingId.value ? '模型配置已保存' : '模型配置已创建')
     showModal.value = false
     await loadModels()
+    loadStats()
   } catch (error) {
     message.error(error.message || '保存模型配置失败')
   } finally {
@@ -146,8 +166,8 @@ const save = async () => {
 }
 
 const testConnection = async () => {
-  if (form.model_type === 'rerank') {
-    message.warning('暂不支持 rerank 模型连接测试')
+  if (!isModelConnectionTestSupported(form.model_type)) {
+    message.warning('暂不支持该模型类型的连接测试')
     return
   }
   if (!form.name.trim() || !form.protocol.trim() || !form.base_url.trim()) {
@@ -173,7 +193,8 @@ const testConnection = async () => {
     if (response?.code !== 0) {
       testResult.value = {
         success: false,
-        message: response?.message || '连接测试失败'
+        message: response?.message || '连接测试失败',
+        detail: response?.detail || ''
       }
       return
     }
@@ -184,9 +205,11 @@ const testConnection = async () => {
       dimension: data.dimension || 0
     }
   } catch (error) {
+    const { message: friendly, detail } = formatModelTestError(error)
     testResult.value = {
       success: false,
-      message: error.message || '连接测试失败'
+      message: friendly,
+      detail
     }
   } finally {
     testing.value = false
@@ -206,6 +229,7 @@ const remove = (model) => {
         message.success('模型配置已删除')
         if (models.value.length === 1 && page.value > 1) page.value -= 1
         await loadModels()
+        loadStats()
       } catch (error) {
         message.error(error.message || '删除模型配置失败')
       }
@@ -216,7 +240,10 @@ const remove = (model) => {
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-')
 
 defineExpose({ loading, stats, loadModels })
-onMounted(loadModels)
+onMounted(() => {
+  loadModels()
+  loadStats()
+})
 </script>
 
 <template>
@@ -254,7 +281,7 @@ onMounted(loadModels)
             <div class="model-url">{{ model.base_url }}</div>
           </div>
           <a-tag :color="model.model_type === 'chat' ? 'blue' : model.model_type === 'embedding' ? 'green' : 'orange'">
-            {{ model.model_type }}
+            {{ model.model_type === 'rerank' ? 'Rerank' : model.model_type }}
           </a-tag>
           <a-tag :color="model.enabled ? 'success' : 'default'">
             {{ model.enabled ? '已启用' : '已禁用' }}
@@ -297,13 +324,25 @@ onMounted(loadModels)
           备注
           <a-input v-model:value="form.remark" placeholder="便于识别此模型配置" />
         </label>
-        <label>
+        <label v-if="form.model_type !== 'rerank'">
           协议 *
           <a-select v-model:value="form.protocol" :options="MODEL_PROTOCOL_OPTIONS" />
         </label>
+        <label v-else>
+          协议
+          <div class="rerank-protocol">
+            <a-tag color="orange">Rerank 固定协议</a-tag>
+            <span class="rerank-protocol-hint">Cohere / Jina 风格 HTTP 重排,自动请求 {base_url}/v1/rerank,无需选择</span>
+          </div>
+        </label>
         <label class="full-width">
           Base URL *
-          <a-input v-model:value="form.base_url" placeholder="https://api.openai.com/v1" />
+          <a-input
+            v-model:value="form.base_url"
+            :placeholder="form.model_type === 'rerank'
+              ? 'https://api.jina.ai/v1(自动追加 /v1/rerank)或填完整 /rerank 端点'
+              : 'https://api.openai.com/v1'"
+          />
         </label>
         <label>
           API Key
@@ -331,7 +370,7 @@ onMounted(loadModels)
               <ChevronDown :size="15" :class="{ rotated: advancedOpen }" />
               高级选项
             </span>
-            <span class="advanced-hint">请求头与推理参数</span>
+            <span class="advanced-hint">{{ form.model_type === 'rerank' ? '请求头配置' : '请求头与推理参数' }}</span>
           </button>
           <div v-if="advancedOpen" class="advanced-content">
             <div class="advanced-toolbar">
@@ -345,16 +384,14 @@ onMounted(loadModels)
               <span>请求头 JSON</span>
             </div>
             <a-textarea v-model:value="form.headers" :rows="4" />
-            <div class="advanced-heading">
-              <span>默认推理参数 JSON</span>
-            </div>
-            <a-textarea v-model:value="form.params" :rows="8" />
+            <template v-if="form.model_type !== 'rerank'">
+              <div class="advanced-heading">
+                <span>默认推理参数 JSON</span>
+              </div>
+              <a-textarea v-model:value="form.params" :rows="8" />
+            </template>
           </div>
         </div>
-      </div>
-
-      <div v-if="form.model_type === 'rerank'" class="model-test-hint">
-        当前模型类型为 rerank，暂不支持连接测试。
       </div>
 
       <a-alert
@@ -366,6 +403,9 @@ onMounted(loadModels)
       >
         <template #description>
           <span class="model-test-result-desc">{{ testResultDescription }}</span>
+          <div v-if="!testResult.success && testResult.detail" class="model-test-result-detail">
+            {{ testResult.detail }}
+          </div>
         </template>
       </a-alert>
 
@@ -373,7 +413,7 @@ onMounted(loadModels)
         <a-button @click="showModal = false">取消</a-button>
         <a-button
           :loading="testing"
-          :disabled="form.model_type === 'rerank'"
+          :disabled="!isModelConnectionTestSupported(form.model_type)"
           @click="testConnection"
         >
           测试连接
@@ -453,6 +493,21 @@ onMounted(loadModels)
   font-weight: 500;
 }
 
+.rerank-protocol {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 32px;
+  justify-content: center;
+}
+
+.rerank-protocol-hint {
+  color: var(--gray-500);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 .advanced-section {
   border-top: 1px solid var(--gray-100);
   padding-top: 4px;
@@ -498,6 +553,34 @@ onMounted(loadModels)
 }
 
 .model-test-result-desc {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.model-test-result-detail {
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.model-test-result-detail {
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.model-test-result-detail {
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 12px;
+  line-height: 1.5;
   word-break: break-word;
   overflow-wrap: anywhere;
 }

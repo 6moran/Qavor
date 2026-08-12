@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 
 	"Qavor/internal/tool"
 
@@ -89,6 +92,34 @@ func (m *ApprovalMiddleware) sensitive(ctx context.Context, tCtx *adk.ToolContex
 	return tool.SensitiveTools[tCtx.Name]
 }
 
+// formatAskUserAnswers 将用户答案 JSON 格式化为 LLM 可读的自然语言文本。
+// data 是用户答案 JSON（如 {"q1":"PostgreSQL"}），state 是中断时保存的原始问题列表。
+// 返回格式化后的工具结果文本。
+func formatAskUserAnswers(data string, state askUserState) string {
+	var answers map[string]string
+	if err := json.Unmarshal([]byte(data), &answers); err != nil || len(answers) == 0 {
+		return data // 解析失败时回退原始 JSON
+	}
+
+	var sb strings.Builder
+	sb.WriteString("用户已回答你提出的问题，答案如下：\n")
+
+	// 有原始问题列表：输出含问题原文的答案
+	for _, q := range state.Questions {
+		if answer, ok := answers[q.QuestionID]; ok {
+			fmt.Fprintf(&sb, "- %s（%s）: %s\n", q.QuestionID, q.Question, answer)
+			delete(answers, q.QuestionID)
+		}
+	}
+
+	// 输出剩余未匹配的答案（问题 ID 未在原始列表中时退化为纯 ID）
+	for qid, answer := range answers {
+		fmt.Fprintf(&sb, "- %s: %s\n", qid, answer)
+	}
+
+	return sb.String()
+}
+
 // WrapInvokableToolCall 包装同步工具调用（内置工具等 InvokableTool）。
 // sensitive 判断在运行时基于请求 ctx 的审批模式进行（Agent 实例可缓存复用）。
 func (m *ApprovalMiddleware) WrapInvokableToolCall(
@@ -97,6 +128,32 @@ func (m *ApprovalMiddleware) WrapInvokableToolCall(
 	tCtx *adk.ToolContext,
 ) (adk.InvokableToolCallEndpoint, error) {
 	return func(ctx context.Context, argumentsInJSON string, opts ...einotool.Option) (string, error) {
+		// ⭐ ask_user 分支：始终中断（不依赖 SensitiveTools，always_trust 时也不放行）
+		if tCtx != nil && (tCtx.Name == tool.AskUserToolName || tCtx.Name == tool.ReportNeedInputToolName) {
+			isTarget, hasData, data := einotool.GetResumeContext[string](ctx)
+			if isTarget {
+				if hasData {
+					// 恢复时：将用户答案 JSON 格式化为 LLM 可读的自然语言文本，
+					// 配合原始问题原文一起输出，让 LLM 清楚这是用户对它所提问题的回答。
+					_, hasState, state := einotool.GetInterruptState[askUserState](ctx)
+					var qState askUserState
+					if hasState {
+						qState = state
+					}
+					return formatAskUserAnswers(data, qState), nil
+				}
+				return "", nil
+			}
+			// 首次调用：中断等待用户回答
+			var req AskUserRequest
+			if err := json.Unmarshal([]byte(argumentsInJSON), &req); err != nil {
+				return "", fmt.Errorf("%s: 参数解析失败: %w", tCtx.Name, err)
+			}
+			return "", einotool.StatefulInterrupt(ctx,
+				&req,
+				askUserState{Questions: req.Questions})
+		}
+
 		// 非敏感工具（或 always_trust 模式）直接放行
 		if !m.sensitive(ctx, tCtx) {
 			return endpoint(ctx, argumentsInJSON, opts...)

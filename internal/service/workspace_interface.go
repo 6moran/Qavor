@@ -29,7 +29,6 @@ type WorkspaceService interface {
 	Delete(ctx context.Context, path string) error
 	CreateDirectory(ctx context.Context, parentPath, name string) (*WorkspaceEntry, error)
 	Upload(ctx context.Context, parentPath string, files []FileUpload) ([]WorkspaceEntry, error)
-	Download(ctx context.Context, path string) ([]byte, string, error) // data, filename
 }
 
 // NewWorkspaceService 创建 workspace 服务。

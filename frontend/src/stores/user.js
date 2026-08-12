@@ -14,12 +14,8 @@ export const useUserStore = defineStore('user', () => {
   const phoneNumber = ref('')
   const avatar = ref('')
   const userRole = computed(() => (token.value ? 'admin' : ''))
-  const departmentId = ref(null)
-  const departmentName = ref('')
 
   const isLoggedIn = computed(() => Boolean(token.value))
-  const isAdmin = computed(() => Boolean(token.value))
-  const isSuperAdmin = computed(() => Boolean(token.value))
 
   async function login(credentials) {
     const nextToken = await loginWithPassword(fetch, credentials)
@@ -60,11 +56,7 @@ export const useUserStore = defineStore('user', () => {
     phoneNumber,
     avatar,
     userRole,
-    departmentId,
-    departmentName,
     isLoggedIn,
-    isAdmin,
-    isSuperAdmin,
     login,
     logout,
     getAuthHeaders,

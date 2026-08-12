@@ -22,14 +22,10 @@ func NewBuiltinToolAdapter(t BuiltinTool) einotool.BaseTool {
 func (a *builtinToolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 	meta := a.builtinTool.Meta()
 
-	// 构建参数 schema
+	// 构建参数 schema（支持嵌套结构：array 元素的类型、object 的子参数）
 	params := make(map[string]*schema.ParameterInfo)
 	for _, arg := range meta.Args {
-		params[arg.Name] = &schema.ParameterInfo{
-			Type:     schema.DataType(arg.Type),
-			Desc:     arg.Description,
-			Required: arg.Required,
-		}
+		params[arg.Name] = buildParameterInfo(&arg)
 	}
 
 	var paramsOneOf *schema.ParamsOneOf
@@ -42,6 +38,26 @@ func (a *builtinToolAdapter) Info(_ context.Context) (*schema.ToolInfo, error) {
 		Desc:        meta.Description,
 		ParamsOneOf: paramsOneOf,
 	}, nil
+}
+
+// buildParameterInfo 递归构建嵌套参数 schema（数组元素类型、对象子参数）。
+func buildParameterInfo(arg *ArgDef) *schema.ParameterInfo {
+	pi := &schema.ParameterInfo{
+		Type:     schema.DataType(arg.Type),
+		Desc:     arg.Description,
+		Required: arg.Required,
+		Enum:     arg.Enum,
+	}
+	if arg.Type == "array" && arg.ElemInfo != nil {
+		pi.ElemInfo = buildParameterInfo(arg.ElemInfo)
+	}
+	if arg.Type == "object" && len(arg.SubParams) > 0 {
+		pi.SubParams = make(map[string]*schema.ParameterInfo, len(arg.SubParams))
+		for name, sub := range arg.SubParams {
+			pi.SubParams[name] = buildParameterInfo(sub)
+		}
+	}
+	return pi
 }
 
 // InvokableRun 执行工具，实现 eino InvokableTool 接口

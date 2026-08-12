@@ -89,11 +89,67 @@ import OCRSelector from '@/components/OCRSelector.vue'
 
 const configStore = useConfigStore()
 const OCR_OPTION_KEYS = new Set([
+  'ocr_api_opts',
   'mineru_ocr_host_opts',
   'mineru_official_api_opts',
   'pp_structure_v3_ocr_host_opts',
   'paddleocr_api_opts'
 ])
+
+// 通用 OCR API 的内置配置定义：作为兜底入口，即使后端 options 接口暂不可用
+// （后端未重启/接口未实现），也保证「通用 OCR API」配置卡片可见可编辑。
+const FALLBACK_OCR_API_OPTION = {
+  key: 'ocr_api_opts',
+  name: '通用 OCR API',
+  description:
+    '通过 HTTP 接口调用外部 OCR 服务（如硅基流动等平台）。PDF 由系统逐页渲染后上传识别，图片直接上传。',
+  value: {},
+  sensitive_state: { api_key: { source: 'none' } },
+  params: {
+    fields: [
+      {
+        key: 'base_url',
+        label: '服务地址',
+        sensitive: false,
+        environment: 'QAVOR_OCR_API_BASE_URL',
+        placeholder: 'https://api.example.com/v1/ocr',
+        help: '接收图片上传的 OCR 接口地址，图片以 multipart 文件字段 image 提交。'
+      },
+      {
+        key: 'api_key',
+        label: 'API Key',
+        sensitive: true,
+        environment: 'QAVOR_OCR_API_KEY',
+        help: '接口访问凭证，随请求头 Authorization: Bearer <key> 发送。'
+      },
+      {
+        key: 'model',
+        label: '模型名称',
+        sensitive: false,
+        environment: 'QAVOR_OCR_MODEL',
+        placeholder: 'Qwen2.5-VL-72B-Instruct',
+        help: '使用哪个 OCR/视觉模型，随请求以表单字段 model 提交；部分服务可不填。'
+      }
+    ]
+  }
+}
+
+const normalizeOption = (option) => ({
+  ...option,
+  value: { ...(option.value || {}) },
+  sensitive_state: { ...(option.sensitive_state || {}) }
+})
+
+const cloneFallbackOption = () => ({
+  ...FALLBACK_OCR_API_OPTION,
+  value: { ...FALLBACK_OCR_API_OPTION.value },
+  sensitive_state: { ...FALLBACK_OCR_API_OPTION.sensitive_state },
+  params: {
+    ...FALLBACK_OCR_API_OPTION.params,
+    fields: FALLBACK_OCR_API_OPTION.params.fields.map((field) => ({ ...field }))
+  }
+})
+
 const items = computed(() => configStore.config?._config_items || {})
 const configOptions = ref([])
 const editingKey = ref('')
@@ -105,13 +161,14 @@ const loadConfigOptions = async () => {
     const data = await configOptionsApi.getOptions()
     configOptions.value = (data.options || [])
       .filter((option) => OCR_OPTION_KEYS.has(option.key))
-      .map((option) => ({
-        ...option,
-        value: { ...(option.value || {}) },
-        sensitive_state: { ...(option.sensitive_state || {}) }
-      }))
+      .map(normalizeOption)
   } catch (error) {
-    message.error(error.message || '加载 OCR 服务配置失败')
+    // 接口不可用时降级为内置入口，保证配置入口始终可见
+    console.warn('加载 OCR 服务配置失败，展示内置配置入口:', error)
+    message.warning('配置服务接口暂不可用，已展示内置配置入口')
+  }
+  if (!configOptions.value.some((option) => option.key === 'ocr_api_opts')) {
+    configOptions.value.unshift(cloneFallbackOption())
   }
 }
 

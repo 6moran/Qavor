@@ -48,10 +48,19 @@
               <span class="chunk-index">#{{ index + 1 }}</span>
               <div class="chunk-scores">
                 <span v-if="typeof chunk.score === 'number'" class="score-item"
-                  >相似度 {{ (chunk.score * 100).toFixed(0) }}%</span
+                  >最终分数 {{ (chunk.score * 100).toFixed(0) }}%</span
+                >
+                <span v-if="typeof chunk.vector_score === 'number'" class="score-item"
+                  >向量 {{ (chunk.vector_score * 100).toFixed(0) }}%</span
+                >
+                <span v-if="typeof chunk.keyword_score === 'number'" class="score-item"
+                  >关键词 {{ (chunk.keyword_score * 100).toFixed(0) }}%</span
+                >
+                <span v-if="typeof chunk.rrf_score === 'number'" class="score-item"
+                  >RRF {{ chunk.rrf_score.toFixed(4) }}</span
                 >
                 <span v-if="typeof chunk.rerank_score === 'number'" class="score-item"
-                  >重排序 {{ (chunk.rerank_score * 100).toFixed(0) }}%</span
+                  >重排 {{ (chunk.rerank_score * 100).toFixed(0) }}%</span
                 >
                 <span v-if="getLineRange(chunk)" class="score-item">{{ getLineRange(chunk) }}</span>
               </div>

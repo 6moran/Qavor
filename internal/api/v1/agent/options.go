@@ -34,14 +34,21 @@ func NewDefaultOptionsProvider(
 	}
 }
 
-// ToolOptions 返回内置工具选项
+// ToolOptions 返回内置工具选项（排除运行时自动强制注册的 ask_user/report_need_input）
 func (p *defaultOptionsProvider) ToolOptions() []map[string]interface{} {
 	if p.toolRegistry == nil {
 		return nil
 	}
 	metas := p.toolRegistry.ListAll()
+	hiddenTools := map[string]bool{
+		tool.AskUserToolName:         true,
+		tool.ReportNeedInputToolName: true,
+	}
 	out := make([]map[string]interface{}, 0, len(metas))
 	for _, meta := range metas {
+		if hiddenTools[meta.Name] {
+			continue
+		}
 		label := meta.Label
 		if label == "" {
 			label = meta.Name

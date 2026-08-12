@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,7 +24,7 @@ func (c *openAIClient) GetToolCallingModel() model.ToolCallingChatModel {
 }
 
 // openaiClientCache OpenAI 客户端缓存
-// key 格式: "modelName:apiKey:baseURL"
+// key 格式: "modelName:apiKey:baseURL:timeout"（timeout 不同视为不同客户端）
 var (
 	openaiClientCache sync.Map
 )
@@ -36,14 +37,24 @@ func ClearOpenAICache() {
 	})
 }
 
-// ClearOpenAICacheByKey 根据 key 清除特定的 OpenAI 客户端缓存
+// ClearOpenAICacheByKey 清除指定模型的所有客户端（不限 timeout）
 func ClearOpenAICacheByKey(modelName, apiKey, baseURL string) {
-	key := openaiCacheKey(modelName, apiKey, baseURL)
-	openaiClientCache.Delete(key)
+	prefix := openaiCacheKeyPrefix(modelName, apiKey, baseURL)
+	openaiClientCache.Range(func(key, value interface{}) bool {
+		if strings.HasPrefix(key.(string), prefix) {
+			openaiClientCache.Delete(key)
+		}
+		return true
+	})
 }
 
 // openaiCacheKey 生成缓存 key
-func openaiCacheKey(modelName, apiKey, baseURL string) string {
+func openaiCacheKey(modelName, apiKey, baseURL string, timeout int) string {
+	return fmt.Sprintf("%s:%d", openaiCacheKeyPrefix(modelName, apiKey, baseURL), timeout)
+}
+
+// openaiCacheKeyPrefix 生成缓存 key 前缀（不含 timeout），用于按模型批量清除。
+func openaiCacheKeyPrefix(modelName, apiKey, baseURL string) string {
 	return modelName + ":" + apiKey + ":" + baseURL
 }
 
@@ -79,7 +90,7 @@ func newOpenAIClient(ctx context.Context, provider, modelName, apiKey, baseURL s
 	}
 
 	// 检查缓存，命中则直接返回
-	key := openaiCacheKey(modelName, apiKey, baseURL)
+	key := openaiCacheKey(modelName, apiKey, baseURL, timeout)
 	if cached, ok := openaiClientCache.Load(key); ok {
 		return cached.(Client), nil
 	}

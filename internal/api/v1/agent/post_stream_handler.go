@@ -105,6 +105,12 @@ type ResumeParam struct {
 func (h *PostStreamHandler) CreateRunAndStream(c *gin.Context) {
 	var req CreateRunRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		// 诊断：400 的真实原因仅写在响应体 message，而访问日志不打印响应体。
+		// 这里补一条结构化日志，便于复现时直接定位（字段校验 / JSON 解析失败）。
+		h.logger.Warn("CreateRunAndStream 请求绑定失败",
+			zap.String("error", err.Error()),
+			zap.String("content_type", c.GetHeader("Content-Type")),
+		)
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -152,6 +158,11 @@ func (h *PostStreamHandler) CreateRunAndStream(c *gin.Context) {
 	} else {
 		// —— 新建 Run：创建记录并入队 ——
 		if req.Query == "" {
+			// 诊断：空消息（如仅发图片/附件但没打字）会触发此分支。
+			h.logger.Warn("CreateRunAndStream 新建 Run 被拒：query 为空",
+				zap.String("thread_id", req.ThreadID),
+				zap.String("agent_slug", req.AgentSlug),
+			)
 			response.BadRequest(c, "query 不能为空")
 			return
 		}
@@ -218,12 +229,13 @@ func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRun
 
 	// 入队：创建 queue.produce Span，QueueItem.Trace 提取该 Span 的 Context
 	item := run.QueueItem{
-		RunID:     runID,
-		ThreadID:  req.ThreadID,
-		AgentSlug: req.AgentSlug,
-		RequestID: requestID,
-		Query:     req.Query,
-		CreatedAt: now,
+		RunID:         runID,
+		ThreadID:      req.ThreadID,
+		AgentSlug:     req.AgentSlug,
+		RequestID:     requestID,
+		Query:         req.Query,
+		CreatedAt:     now,
+		ApprovalMode:  req.ToolApprovalMode, // 透传审批模式：空则 worker 回落 default（请求审批）
 	}
 	// 旧字段 TraceID 仍保留兼容（从 ctx 读取）
 	item.TraceID = trace.TraceIDFromContext(ctx)
@@ -282,15 +294,28 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 		return nil, fmt.Errorf("中断 Run 缺少 checkpoint_id: %s", req.CreatedByRunID)
 	}
 
-	// 3. 构建 resume targets（中断地址 → 审批决定）
-	//    中断地址来自 ApprovalMiddleware 的 InterruptCtx.ID，
-	//    存在 ApprovalInfo.action_requests 里的 tool_name 可用于构建默认 target。
+	// 3. 构建 resume targets（中断地址 → 审批/回答决定）
+	//    中断地址来自 ApprovalMiddleware 的 InterruptCtx.ID（中断 UUID），
+	//    存在 ApprovalInfo.interrupt_ids 中。使用 UUID 作为 target key，
+	//    与 eino 的 id2Addr → interrupt UUID → id2ResumeData 查找链匹配。
+	//    降级：若 interrupt_ids 不存在，使用旧的中间件名 "qavor_approval" 保持兼容。
 	decision := req.ApprovalDecision
-	targets := map[string]any{
-		// 用默认中间件地址键（审批中间件的稳定地址格式）；
-		// 实际地址由 eino framework 生成，这里用占位符，后续可从 InterruptContexts 提取。
-		"qavor_approval": decision,
+	var targets map[string]any
+
+	if parent.ApprovalInfo != nil {
+		if idsRaw, ok := parent.ApprovalInfo["interrupt_ids"]; ok {
+			if ids, ok := idsRaw.([]any); ok && len(ids) > 0 {
+				targets = make(map[string]any, len(ids))
+				for _, id := range ids {
+					if s, ok := id.(string); ok {
+						targets[s] = decision
+					}
+				}
+			}
+		}
 	}
+
+	h.logger.Info("approvalResume: targets after build", zap.Any("targets", targets), zap.String("decision", decision))
 
 	// 4. 创建 resume Run
 	runID := uuid.New().String()
@@ -373,6 +398,13 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 		}
 	}
 	return r, nil
+}
+
+// isAskUserResume 判断 approval_decision 是否为 ask_user 问答回复（JSON 对象）。
+// ask_user 提交前的前端将 answers（map[string]string）序列化为 JSON 字符串；
+// 工具审批的 decision 为 "approve"/"reject" 纯字符串。
+func isAskUserResume(decision string) bool {
+	return len(decision) > 0 && decision[0] == '{'
 }
 
 func (h *PostStreamHandler) setSSEHeaders(c *gin.Context) {

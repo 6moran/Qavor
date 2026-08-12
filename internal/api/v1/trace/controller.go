@@ -93,6 +93,27 @@ func (ctrl *Controller) GetTrace(c *gin.Context) {
 	response.Success(c, detail)
 }
 
+// GetSpan 获取单条 Span 完整详情（含 attributes），详情列表按需懒加载时调用。
+// GET /api/v1/traces/:trace_id/spans/:span_id
+func (ctrl *Controller) GetSpan(c *gin.Context) {
+	spanID := c.Param("span_id")
+	if spanID == "" {
+		response.BadRequest(c, "span_id 不能为空")
+		return
+	}
+	item, err := ctrl.traceService.GetSpanDetail(c.Request.Context(), spanID)
+	if err != nil {
+		if errors.IsBizError(err) {
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取 Span 详情失败", zap.String("span_id", spanID), zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, item)
+}
+
 // GetTraceByRunID 通过 run_id 反查 trace_id
 // GET /api/v1/runs/:run_id/trace
 func (ctrl *Controller) GetTraceByRunID(c *gin.Context) {

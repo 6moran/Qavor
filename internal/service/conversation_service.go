@@ -88,6 +88,14 @@ func (s *conversationService) UpdateConversation(ctx context.Context, id uint, r
 	if req.IsPinned != nil {
 		conversation.IsPinned = *req.IsPinned
 	}
+	if req.ToolApprovalMode != "" {
+		md := conversation.ExtraMetadata
+		if md == nil {
+			md = entity.JSON{}
+		}
+		md["tool_approval_mode"] = req.ToolApprovalMode
+		conversation.ExtraMetadata = md
+	}
 
 	if err := s.conversationRepo.Update(ctx, conversation); err != nil {
 		return nil, errors.New(errors.CodeInternalError, "更新会话失败")
@@ -248,6 +256,7 @@ func (s *conversationService) toResponse(conv *entity.Conversation) *dto.Convers
 		IsPinned:  conv.IsPinned,
 		CreatedAt: conv.CreatedAt,
 		UpdatedAt: conv.UpdatedAt,
+		Metadata:  conv.ExtraMetadata,
 	}
 }
 

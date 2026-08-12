@@ -548,9 +548,12 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	case errors.Is(execErr, ErrInterrupted):
 		// 提取审批信息并发布中断+审批事件
 		if ie, ok := execErr.(*InterruptedError); ok {
-			w.publishApproval(ctx, run, ie)
+			if ie.IsQuestion {
+				w.publishQuestion(ctx, run, ie)
+			} else {
+				w.publishApproval(ctx, run, ie)
+			}
 		}
-		// 保存中断信息到 run 记录
 		if ie, ok := execErr.(*InterruptedError); ok {
 			w.saveInterruptInfo(ctx, run, ie)
 		}
@@ -701,14 +704,51 @@ func (w *Worker) publishApproval(ctx context.Context, run *entity.AgentRun, ie *
 		})
 }
 
-// saveInterruptInfo 保存中断信息到 run 记录（checkpointID + approval info），
+// publishQuestion 发布 ask_user 提问事件。
+// 前端 SSE 流收到 status=ask_user_question_required 后弹窗展示问题列表，
+// 用户填写答案后提交 resume 请求。
+func (w *Worker) publishQuestion(ctx context.Context, run *entity.AgentRun, ie *InterruptedError) {
+	// 1. 先发 message 事件：items 中包含 questions，触发前端提问弹窗。
+	msgPayload := map[string]any{
+		"items": []map[string]any{
+			{
+				"status":        "ask_user_question_required",
+				"questions":     ie.Questions,
+				"run_id":        run.ID,
+				"thread_id":     run.ConversationThreadID,
+				"checkpoint_id": ie.CheckpointID,
+			},
+		},
+	}
+	_, _ = w.pub.PublishPayload(ctx, eventbus.EventMessage, run.ID, run.ConversationThreadID, run.RequestID, msgPayload)
+
+	// 2. 再发 end 事件标记中断终态。
+	_, _ = w.pub.PublishPayload(ctx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
+		eventbus.EndPayload{
+			Status: eventbus.StatusInterrupted,
+		})
+}
+
+// saveInterruptInfo 保存中断信息到 run 记录（checkpointID + approval/question info），
 // 供 resume 时读取。
 func (w *Worker) saveInterruptInfo(_ context.Context, run *entity.AgentRun, ie *InterruptedError) {
 	run.CheckpointID = ie.CheckpointID
-	// ApprovalInfo 与 EndPayload 的 approval 结构一致（前端解析用）
-	run.ApprovalInfo = entity.JSON{
-		"action_requests": ie.Requests,
-		"checkpoint_id":   ie.CheckpointID,
+
+	if ie.IsQuestion {
+		// ask_user 提问中断
+		run.ApprovalInfo = entity.JSON{
+			"type":          "ask_user",
+			"questions":     ie.Questions,
+			"checkpoint_id": ie.CheckpointID,
+			"interrupt_ids": ie.InterruptIDs,
+		}
+	} else {
+		// 工具审批中断
+		run.ApprovalInfo = entity.JSON{
+			"action_requests": ie.Requests,
+			"checkpoint_id":   ie.CheckpointID,
+			"interrupt_ids":   ie.InterruptIDs,
+		}
 	}
 	if err := w.runRepo.Update(run); err != nil {
 		w.logger.Warn("worker 保存中断信息失败", zap.String("run_id", run.ID), zap.Error(err))

@@ -8,6 +8,7 @@ test('builds a fixed knowledge base request without a type field', () => {
     description: '  产品说明  ',
     embedding_model_id: 1,
     chat_model_id: 2,
+    rerank_model_id: 7,
     chunk_preset_id: 'default'
   })
 
@@ -19,4 +20,5 @@ test('builds a fixed knowledge base request without a type field', () => {
     additional_params: { chunk_preset_id: 'default' }
   })
   assert.equal(Object.hasOwn(request, 'kb_type'), false)
+  assert.equal(Object.hasOwn(request, 'rerank_model_id'), false)
 })

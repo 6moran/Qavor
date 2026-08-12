@@ -8,7 +8,7 @@
   <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.25.5-00ADD8?logo=go&logoColor=white" alt="Go"></a>
   <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/Vue-3-4FC08D?logo=vuedotjs&logoColor=white" alt="Vue"></a>
   <a href="https://vite.dev/"><img src="https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white" alt="Vite"></a>
-  <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-pgvector-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL and pgvector"></a>
+  <a href="https://www.postgresql.org/"><img src="https://img.shields.io/badge/PostgreSQL-pgvector%20%2B%20pg__trgm-4169E1?logo=postgresql&logoColor=white" alt="PostgreSQL, pgvector and pg_trgm"></a>
   <a href="https://redis.io/"><img src="https://img.shields.io/badge/Redis-Streams-DC382D?logo=redis&logoColor=white" alt="Redis Streams"></a>
   <a href="https://github.com/6moran/Qavor"><img src="https://img.shields.io/github/stars/6moran/Qavor?style=flat&logo=github" alt="GitHub stars"></a>
 </p>
@@ -102,7 +102,7 @@ flowchart LR
 | Go | 1.25.5 | 构建和运行后端 |
 | Node.js | `^20.19.0` 或 `>=22.12.0` | 满足 Vite 8 的运行要求 |
 | pnpm | 10.11.0 | 安装和运行前端依赖 |
-| PostgreSQL | 已安装 pgvector 扩展 | 后端必需，保存业务数据与向量 |
+| PostgreSQL | 已安装 pgvector 与 pg_trgm 扩展 | 后端必需，保存业务数据并提供向量与关键词检索 |
 | Redis | 可连接实例 | 完整功能需要，承载 Run 与文档任务队列 |
 | MinIO | 可连接实例及 Bucket | 完整功能需要，保存文件与解析产物 |
 | Python | Python 3，可选 | 解析 Office、PDF 和图片文档 |
@@ -116,13 +116,14 @@ git clone git@github.com:6moran/Qavor.git
 cd Qavor
 ```
 
-### 2. 准备 PostgreSQL 与 pgvector
+### 2. 准备 PostgreSQL、pgvector 与 pg_trgm
 
-先在 PostgreSQL 实例上安装 pgvector，然后创建数据库并启用 `vector` 扩展：
+先在 PostgreSQL 实例上安装 pgvector，并确认 PostgreSQL 自带的 `pg_trgm` 可用，然后创建数据库并启用两个扩展：
 
 ```bash
 psql -U postgres -c "CREATE DATABASE qavor;"
 psql -U postgres -d qavor -c "CREATE EXTENSION IF NOT EXISTS vector;"
+psql -U postgres -d qavor -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
 ```
 
 如果 `qavor` 数据库已经存在，可以跳过第一条命令。全新数据库首次启动前，还需要在 `configs/config.yaml` 中临时设置：
@@ -204,7 +205,7 @@ go run ./cmd/server
 
 1. `configs/config.yaml` 和 `.env` 是否存在。
 2. PostgreSQL 是否可连接，`qavor` 数据库是否已创建。
-3. pgvector 是否已在 `qavor` 数据库中启用。
+3. pgvector 与 pg_trgm 是否已在 `qavor` 数据库中启用。
 4. 管理员账号和 JWT 密钥是否已配置。
 
 ### 6. 启动前端

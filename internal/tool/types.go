@@ -18,6 +18,14 @@ const (
 // QueryKBToolName 知识库检索工具名。
 const QueryKBToolName = "query_kb"
 
+// AskUserToolName 向用户提问工具名（仅主智能体使用）。
+const AskUserToolName = "ask_user"
+
+// ReportNeedInputToolName 子智能体上报需要用户输入的工具名（仅子智能体使用）。
+// 子智能体通过此工具触发中断，中断通过 eino 中断树传播到主智能体，
+// 主智能体的 ApprovalMiddleware 识别后发起 ask_user 中断。
+const ReportNeedInputToolName = "report_need_input"
+
 // ToolMeta 工具元数据
 type ToolMeta struct {
 	Name        string   `json:"name"`
@@ -30,12 +38,15 @@ type ToolMeta struct {
 	Sensitive   bool     `json:"sensitive,omitempty"`
 }
 
-// ArgDef 参数定义
+// ArgDef 参数定义，支持嵌套结构（数组元素类型、对象子参数）。
 type ArgDef struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-	Required    bool   `json:"required"`
+	Name        string              `json:"name"`
+	Type        string              `json:"type"`
+	Description string              `json:"description"`
+	Required    bool                `json:"required"`
+	Enum        []string            `json:"enum,omitempty"`       // 枚举值（仅 string 类型有效）
+	ElemInfo    *ArgDef             `json:"elem_info,omitempty"`  // 数组元素类型（仅 array 类型有效）
+	SubParams   map[string]*ArgDef  `json:"sub_params,omitempty"` // 对象子参数（仅 object 类型有效）
 }
 
 // BuiltinTool 内置工具接口

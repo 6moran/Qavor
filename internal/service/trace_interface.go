@@ -71,6 +71,7 @@ type TraceDetail struct {
 	Trace       entity.TraceRecord `json:"trace"`
 	Run         *TraceRunSummary   `json:"run,omitempty"`
 	Spans       []TraceSpanItem    `json:"spans"`
+	SpanTotal   int64              `json:"span_total"`
 	Diagnostics []TraceDiagnostic  `json:"diagnostics,omitempty"`
 }
 
@@ -78,6 +79,7 @@ type TraceDetail struct {
 type TraceService interface {
 	ListTraces(ctx context.Context, filter TraceListFilter) ([]TraceItem, int64, error)
 	GetTraceDetail(ctx context.Context, traceID string) (*TraceDetail, error)
+	GetSpanDetail(ctx context.Context, spanID string) (*TraceSpanItem, error)
 	GetTraceByRunID(ctx context.Context, runID string) (string, error)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,14 +37,24 @@ func ClearOllamaCache() {
 	})
 }
 
-// ClearOllamaCacheByKey 根据 key 清除特定的 Ollama 客户端缓存
+// ClearOllamaCacheByKey 清除指定模型的所有客户端（不限 timeout）
 func ClearOllamaCacheByKey(modelName, baseURL string) {
-	key := ollamaCacheKey(modelName, baseURL)
-	ollamaClientCache.Delete(key)
+	prefix := ollamaCacheKeyPrefix(modelName, baseURL)
+	ollamaClientCache.Range(func(key, value interface{}) bool {
+		if strings.HasPrefix(key.(string), prefix) {
+			ollamaClientCache.Delete(key)
+		}
+		return true
+	})
 }
 
-// ollamaCacheKey 生成缓存 key
-func ollamaCacheKey(modelName, baseURL string) string {
+// ollamaCacheKey 生成缓存 key（timeout 不同视为不同客户端）
+func ollamaCacheKey(modelName, baseURL string, timeout int) string {
+	return fmt.Sprintf("%s:%d", ollamaCacheKeyPrefix(modelName, baseURL), timeout)
+}
+
+// ollamaCacheKeyPrefix 生成缓存 key 前缀（不含 timeout），用于按模型批量清除。
+func ollamaCacheKeyPrefix(modelName, baseURL string) string {
 	return modelName + ":" + baseURL
 }
 
@@ -55,7 +66,7 @@ func newOllamaClient(ctx context.Context, _, modelName, _, baseURL string, timeo
 	}
 
 	// 检查缓存，命中则直接返回
-	key := ollamaCacheKey(modelName, baseURL)
+	key := ollamaCacheKey(modelName, baseURL, timeout)
 	if cached, ok := ollamaClientCache.Load(key); ok {
 		return cached.(Client), nil
 	}

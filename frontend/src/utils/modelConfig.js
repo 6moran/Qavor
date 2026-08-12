@@ -57,6 +57,7 @@ export const buildModelTestPayload = (form, modelId = null) => {
     protocol: payload.protocol,
     base_url: payload.base_url,
     api_key: payload.api_key,
+    headers: payload.headers,
     timeout: payload.timeout,
     model_type: payload.model_type
   }
@@ -64,8 +65,22 @@ export const buildModelTestPayload = (form, modelId = null) => {
   return result
 }
 
+export const isModelConnectionTestSupported = (modelType) =>
+  ['chat', 'embedding', 'rerank'].includes(modelType)
+
 export const formatModelTestSuccess = ({ latency_ms } = {}) =>
   `连接成功 · ${Number(latency_ms) || 0} ms`
+
+// formatModelTestError 从连接测试错误中提取友好 message 与 detail。
+// 后端业务错误响应为 { code, message, detail }（message 为分类后的友好提示，
+// detail 为脱敏后的原始错误）；网络/未知错误回退到 error.message。
+export const formatModelTestError = (error) => {
+  const data = error?.response?.data
+  return {
+    message: data?.message || error?.message || '连接测试失败',
+    detail: data?.detail || ''
+  }
+}
 
 export const modelToForm = (model) => ({
   name: model.name || '',
