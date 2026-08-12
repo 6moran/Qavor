@@ -71,6 +71,14 @@ export const isModelConnectionTestSupported = (modelType) =>
 export const formatModelTestSuccess = ({ latency_ms } = {}) =>
   `连接成功 · ${Number(latency_ms) || 0} ms`
 
+export const formatModelTestError = (error) => {
+  const data = error?.response?.data
+  return {
+    message: data?.message || error?.message || '连接测试失败',
+    detail: data?.detail || ''
+  }
+}
+
 export const modelToForm = (model) => ({
   name: model.name || '',
   remark: model.remark || '',

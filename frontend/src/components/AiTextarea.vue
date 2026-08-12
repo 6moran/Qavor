@@ -55,6 +55,14 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  /**
+   * 问答（Chat）模型 ID，来自表单已选择/预填的模型；
+   * 为空时点击按钮会提示先选择模型，不发起请求。
+   */
+  chatModelId: {
+    type: [Number, String],
+    default: null
+  },
   actionPlacement: {
     type: String,
     default: 'inside'
@@ -70,10 +78,19 @@ const generateDescription = async () => {
     message.warning('请先输入知识库名称')
     return
   }
+  if (!props.chatModelId) {
+    message.warning('请先选择问答模型，再使用 AI 生成或润色描述')
+    return
+  }
 
   loading.value = true
   try {
-    const result = await databaseApi.generateDescription(props.name, props.modelValue, props.files)
+    const result = await databaseApi.generateDescription(
+      props.name,
+      props.modelValue,
+      props.files,
+      props.chatModelId
+    )
     if (result.status === 'success' && result.description) {
       emit('update:modelValue', result.description)
       message.success('描述生成成功')

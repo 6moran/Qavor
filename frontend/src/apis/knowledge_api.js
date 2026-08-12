@@ -96,13 +96,15 @@ export const databaseApi = {
    * @param {string} name - 知识库名称
    * @param {string} currentDescription - 当前描述（可选）
    * @param {Array} fileList - 文件列表（可选）
+   * @param {number} chatModelId - 问答模型 ID（必传，来自表单已选择/预填的模型）
    * @returns {Promise} - 生成结果
    */
-  generateDescription: async (name, currentDescription = '', fileList = []) => {
+  generateDescription: async (name, currentDescription = '', fileList = [], chatModelId) => {
     return apiPost('/api/knowledge/generate-description', {
       name,
       current_description: currentDescription,
-      file_list: fileList
+      file_list: fileList,
+      chat_model_id: chatModelId
     })
   },
 
@@ -452,27 +454,32 @@ export const graphBuildApi = {
 
 export const mindmapApi = {
   getDatabases: async () => {
-    return apiGet('/api/knowledge/mindmap/databases')
+    const response = await apiGet('/api/v1/knowledge/mindmap/databases')
+    return unwrapKnowledgeResponse(response)
   },
 
   getDatabaseFiles: async (kbId) => {
-    return apiGet(`/api/knowledge/databases/${kbId}/mindmap/files`)
+    const response = await apiGet(`/api/v1/knowledge/databases/${kbId}/mindmap/files`)
+    return unwrapKnowledgeResponse(response)
   },
 
   generateMindmap: async (kbId, fileIds = [], userPrompt = '', incremental = false) => {
-    return apiPost(`/api/knowledge/databases/${kbId}/mindmap/generate`, {
+    const response = await apiPost(`/api/v1/knowledge/databases/${kbId}/mindmap/generate`, {
       file_ids: fileIds,
       user_prompt: userPrompt,
       incremental
     })
+    return unwrapKnowledgeResponse(response)
   },
 
   getByDatabase: async (kbId) => {
-    return apiGet(`/api/knowledge/databases/${kbId}/mindmap`)
+    const response = await apiGet(`/api/v1/knowledge/databases/${kbId}/mindmap`)
+    return unwrapKnowledgeResponse(response)
   },
 
   getDiff: async (kbId) => {
-    return apiGet(`/api/knowledge/databases/${kbId}/mindmap/diff`)
+    const response = await apiGet(`/api/v1/knowledge/databases/${kbId}/mindmap/diff`)
+    return unwrapKnowledgeResponse(response)
   }
 }
 
