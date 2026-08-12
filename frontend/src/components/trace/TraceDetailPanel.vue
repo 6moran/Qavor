@@ -60,7 +60,7 @@
               :class="{ 'is-selected': selectedSpanId === row.span_id, 'is-error': row.status === 'error' }"
               @click="selectSpan(row.span_id)"
             >
-              <span class="timeline-name" :style="{ paddingLeft: rowDepth(row) * 14 + 'px' }">
+              <span class="timeline-name" :style="{ paddingLeft: compressedIndent(rowDepth(row), 14, 6, 10) + 'px' }">
                 <span class="wf-kind-badge" :class="`wf-kind-${row.kind}`">{{ kindLabel(row.kind) }}</span>
                 <span class="timeline-name-text">{{ spanName(row) }}</span>
               </span>
@@ -125,6 +125,7 @@ import {
   buildTimelineRows,
   collectDiagnostics,
   collectTreeSpanIds,
+  compressedIndent,
   normalizeDiagnostics
 } from '@/utils/traceViewModel.js'
 
@@ -266,7 +267,7 @@ const loadDetail = async () => {
     run.value = data.run || null
     spans.value = data.spans || []
     backendDiagnostics.value = normalizeDiagnostics(data.diagnostics)
-    collectTreeSpanIds(buildTraceTree(spans.value)).forEach(id => expandedBranches.add(id))
+    buildDefaultExpandedSpanIds(treeRoots.value).forEach(id => expandedBranches.add(id))
     selectedSpanId.value = spans.value.find(span => span.status === 'error')?.span_id || spans.value[0]?.span_id || ''
   } catch (error) {
     loadError.value = error.message || '加载 Trace 详情失败'
@@ -315,7 +316,7 @@ const TraceTreeNode = defineComponent({
       return h('div', { class: 'tree-node' }, [
         h('div', {
           class: ['tree-node-row', { 'tree-node-row--selected': treeProps.selectedSpanId === treeProps.node.span_id, 'tree-node-row--error': treeProps.node.status === 'error' }],
-          style: { paddingLeft: `${treeProps.depth * 18 + 8}px` },
+          style: { paddingLeft: `${compressedIndent(treeProps.depth, 18, 6, 8) + 8}px` },
           role: 'button', tabindex: 0,
           onClick: () => emit('select-span', treeProps.node.span_id),
           onKeydown: event => { if (event.key === 'Enter') emit('select-span', treeProps.node.span_id) }
@@ -373,10 +374,10 @@ const TraceTreeNode = defineComponent({
 .wf-kind-badge { flex:none; min-width:36px; padding:1px 6px; border-radius:4px; color:#fff; font-size:10px; text-align:center; }.wf-kind-llm { background:#1677ff; }.wf-kind-tool { background:#52c41a; }.wf-kind-retriever { background:#722ed1; }.wf-kind-agent { background:#fa8c16; }.wf-kind-http { background:#7b8496; }.wf-kind-queue { background:#13c2c2; }.wf-kind-event { background:#eb2f96; }.wf-kind-persistence { background:#2f54eb; }.wf-kind-context { background:#722ed1; }
 .trace-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(330px,40%); min-height:390px; }
 .trace-tree-pane { min-width:0; border-right:1px solid #e7eaf0; }.tree-body { overflow:auto; }.tree-node { border-bottom:1px solid #eef0f3; }.tree-node:last-child { border-bottom:0; }
-.tree-node-row { display:flex; align-items:center; gap:6px; min-height:38px; padding:6px 12px 6px 8px; color:#1f2937; cursor:pointer; transition:background .15s ease,box-shadow .15s ease,color .15s ease; }.tree-node-row:hover { background:#edf5ff; }.tree-node-row--error { color:#8f1d1d; background:#fff8f7; }.tree-node-row--selected { color:#0958d9; background:#dbeafe; outline:1px solid #91caff; outline-offset:-1px; box-shadow:inset 3px 0 #1677ff,0 2px 8px rgba(22,119,255,.14); font-weight:600; }
+.tree-node-row { display:flex; min-width:max-content; align-items:center; gap:6px; min-height:38px; padding:6px 12px 6px 8px; color:#1f2937; cursor:pointer; transition:background .15s ease,box-shadow .15s ease,color .15s ease; }.tree-node-row:hover { background:#edf5ff; }.tree-node-row--error { color:#8f1d1d; background:#fff8f7; }.tree-node-row--selected { color:#0958d9; background:#dbeafe; outline:1px solid #91caff; outline-offset:-1px; box-shadow:inset 3px 0 #1677ff,0 2px 8px rgba(22,119,255,.14); font-weight:600; }
 .tree-branch-toggle,.tree-branch-placeholder { display:inline-flex; flex:0 0 20px; align-items:center; justify-content:center; width:20px; height:20px; }.tree-branch-toggle { padding:0; border:1px solid #c9ced8; border-radius:3px; color:#59647a; background:#fff; cursor:pointer; }
 .tree-node-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.tree-node-kind { flex:none; color:#4b5563; font-size:12px; font-weight:600; }.tree-node-kind::before { display:inline-block; width:7px; height:7px; margin-right:5px; border-radius:50%; background:currentColor; content:''; }.tree-node-kind-llm { color:#1677ff; }.tree-node-kind-tool { color:#52c41a; }.tree-node-kind-retriever { color:#722ed1; }.tree-node-kind-agent { color:#fa8c16; }.tree-node-kind-http { color:#595959; }.tree-node-kind-queue { color:#08979c; }.tree-node-kind-event { color:#c41d7f; }.tree-node-kind-persistence { color:#2f54eb; }
-.tree-orphan-badge { padding:0 4px; border:1px solid #ffa39e; border-radius:3px; color:#cf1322; background:#fff1f0; font-size:10px; }.tree-children { margin-left:18px; border-left:1px solid #dbe2ea; background:#fbfcfe; }.wf-error-mark { color:#cf1322; font-weight:800; }.wf-duration-text { margin-left:auto; color:#9aa2b1; font-size:12px; }
+.tree-orphan-badge { padding:0 4px; border:1px solid #ffa39e; border-radius:3px; color:#cf1322; background:#fff1f0; font-size:10px; }.tree-children { border-left:1px solid #dbe2ea; background:#fbfcfe; }.wf-error-mark { color:#cf1322; font-weight:800; }.wf-duration-text { margin-left:auto; color:#9aa2b1; font-size:12px; }
 .trace-span-detail { min-width:0; padding:14px; overflow:auto; background:#fbfcfe; }.span-detail-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }.span-detail-heading>div { display:flex; align-items:center; gap:8px; min-width:0; }.span-detail-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .span-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:14px; }.span-metrics>div { padding:9px 10px; border:1px solid #e7eaf0; border-radius:6px; background:#fff; }.span-metrics span { display:block; color:#8b94a8; font-size:11px; }.span-metrics strong { display:block; margin-top:3px; color:#273147; font-size:13px; }
 .span-fields { display:grid; gap:7px; margin:0; }.span-fields>div { display:grid; grid-template-columns:82px minmax(0,1fr); gap:8px; font-size:12px; }.span-fields dt { color:#8b94a8; }.span-fields dd { min-width:0; margin:0; color:#3e485e; word-break:break-all; }.wf-detail-block { margin-top:12px; }.wf-detail-title { margin-bottom:5px; color:#59647a; font-size:12px; font-weight:700; }.wf-detail-pre { max-height:220px; margin:0; padding:9px; overflow:auto; border:1px solid #e5e8ee; border-radius:6px; color:#5a6478; background:#fff; font:12px/1.55 Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
