@@ -200,4 +200,11 @@ web_search:
   api_key: ""               # 留空则读取环境变量，都为空时不注册搜索工具
                            # debug 模式使用 Mock Provider，release 模式不注册
 
+# 记忆系统配置
+memory:
+  long_term:
+    max_items: 200          # 单次召回的长期记忆条目上限
+    max_tokens: 1500        # 注入 System Prompt 的最大 Token 数（长期记忆部分）
+    default_user_id: 0      # JWT 未携带 UserID 时的降级用户（0 = 全局匿名共享池）
+
 

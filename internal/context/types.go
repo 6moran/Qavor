@@ -40,10 +40,11 @@ type TokenUsage struct {
 
 // ContextHistoryQuery 历史查询参数
 type ContextHistoryQuery struct {
-	ConversationID uint     // 会话 ID
-	Limit          int      // 最大消息数量
-	BeforeID       uint     // 分页：此 ID 之前的消息（游标分页）
-	Roles          []string // 过滤角色（可选）
+	ConversationID     uint     // 会话 ID
+	Limit              int      // 最大消息数量
+	BeforeID           uint     // 分页：此 ID 之前的消息（游标分页）
+	Roles              []string // 过滤角色（可选）
+	SkipLongTermMemory bool     // 跳过长期记忆召回（用于 UI 状态查询等无需 LLM Prompt 的场景）
 }
 
 // AgentTokenUsage Agent状态面板的Token用量详情

@@ -111,6 +111,7 @@ func (t *Tracer) StartRequest(ctx context.Context, meta RequestMeta) (context.Co
 	return t.StartSpan(ctx, SpanSpec{
 		TraceID:      traceID,
 		RequestID:    meta.RequestID,
+		RunID:        meta.RunID,
 		Kind:         "http",
 		Operation:    "http.server",
 		DisplayName:  meta.Method + " " + meta.Path,

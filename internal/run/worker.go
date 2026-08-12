@@ -281,8 +281,13 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		}
 	}
 	if conversationID == 0 {
-		w.logger.Warn("worker 无法解析 conversation_id，消息将不会被持久化",
+		w.logger.Error("worker 无法解析 conversation_id，消息将不会被持久化",
 			zap.String("run_id", run.ID), zap.String("thread_id", threadID))
+		// 尝试通过 AgentRun 记录查找 conversation
+		if run.ConversationThreadID != "" {
+			w.logger.Info("尝试通过 run.ConversationThreadID 查找 conversation",
+				zap.String("run_id", run.ID), zap.String("conversation_thread_id", run.ConversationThreadID))
+		}
 	}
 
 	// 0.2 恢复 trace 上下文：从 TraceCarrier 恢复父 SpanContext，创建 queue.consume Span，
@@ -390,7 +395,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	}
 
 	// 1. 状态置 running
-	if err := w.runRepo.UpdateStatus(run.ID, entity.StatusRunning, ""); err != nil {
+	if err := w.runRepo.UpdateStatus(ctx, run.ID, entity.StatusRunning, ""); err != nil {
 		w.logger.Warn("worker 更新 running 状态失败", zap.String("run_id", run.ID), zap.Error(err))
 	}
 
@@ -469,6 +474,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				ReasoningContent: reasoningContent,
 				RunID:            run.ID,
 				RequestID:        requestID,
+				IsFinished:       ctx.Err() == nil, // ctx 取消时标记为未完成
 			}
 			aiMsg.ToolCalls = buildPersistedToolCalls(msg.ToolCalls, toolResults)
 			// aiMsg 已通过 aiMsg.ToolCalls 携带 tool_calls，由 Create 显式保存
@@ -546,7 +552,11 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 
 // finish 发布 end 事件并更新终态。
 // 创建 event.publish Span 记录终态事件发布，与 agent.run 平级（parent 为 queue.consume）。
+// 注意：终态事件发布和 DB 更新使用独立 ctx（带 5s 超时），避免 ctx 被取消时 end 事件丢失导致 SSE 消费端无限等待。
 func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoStatus string) {
+	finalCtx, finalCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer finalCancel()
+
 	var pubSpan *trace.Span
 	if w.tracer != nil {
 		_, pubSpan = w.tracer.StartSpan(ctx, trace.SpanSpec{
@@ -564,7 +574,7 @@ func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoS
 	// 先发布 end 事件
 	var endID string
 	var publishErr error
-	if id, err := w.pub.PublishPayload(ctx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
+	if id, err := w.pub.PublishPayload(finalCtx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
 		eventbus.EndPayload{Status: status}); err == nil {
 		endID = id
 	} else {
@@ -579,7 +589,7 @@ func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoS
 		}
 	}
 	// 再更新 DB 状态（last_event_id 为 end 事件 ID）
-	if err := w.runRepo.UpdateStatus(run.ID, repoStatus, endID); err != nil {
+	if err := w.runRepo.UpdateStatus(finalCtx, run.ID, repoStatus, endID); err != nil {
 		w.logger.Warn("worker 更新终态失败", zap.String("run_id", run.ID), zap.Error(err))
 		if pubSpan != nil && publishErr == nil {
 			pubSpan.End(trace.SpanEnd{
@@ -596,6 +606,7 @@ func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoS
 }
 
 // publishError 发布 error 事件
+// 注意：error 事件发布使用独立 ctx（带 5s 超时），避免 ctx 被取消时 error 事件丢失导致 SSE 消费端无限等待。
 func (w *Worker) publishError(ctx context.Context, run *entity.AgentRun, execErr error) {
 	code := "AGENT_ERROR"
 	msg := execErr.Error()
@@ -620,7 +631,10 @@ func (w *Worker) publishError(ctx context.Context, run *entity.AgentRun, execErr
 		msg = "模型认证失败，请检查 API Key 配置"
 	}
 
-	_, _ = w.pub.PublishPayload(ctx, eventbus.EventError, run.ID, run.ConversationThreadID, run.RequestID,
+	finalCtx, finalCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer finalCancel()
+
+	_, _ = w.pub.PublishPayload(finalCtx, eventbus.EventError, run.ID, run.ConversationThreadID, run.RequestID,
 		eventbus.ErrorPayload{Code: code, Message: msg})
 }
 

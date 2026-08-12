@@ -316,6 +316,8 @@ export function useAgentRunStream({
     const initialSteerable =
       options.steerable ?? (isSameRun && ts.activeRunSteerable === true)
     stopRunStreamSubscription(threadId)
+    // 新 Run 开始，清理上一轮的取消标记
+    if (ts.pendingCancel) ts.pendingCancel = false
     const runController = new AbortController()
     ts.runStreamAbortController = runController
     ts.activeRunId = runId
@@ -349,6 +351,15 @@ export function useAgentRunStream({
           runId = data.run_id
           ts.activeRunId = runId
           saveActiveRunSnapshot(threadId, runId, ts.runLastSeq)
+          // 安全网：用户在 runId 未到达前已点击停止（pendingCancel 为 true）
+          // 若 SSE 仍然送达 metadata，则立即取消并收尾，避免后端 Run 继续运行
+          if (ts.pendingCancel) {
+            ts.pendingCancel = false
+            agentApi.cancelAgentRun(runId).catch(() => {})
+            sawTerminalEvent = true
+            finalizeRunStream(threadId, runId, touchedThreadIds, { status: 'cancelled' })
+            return
+          }
         }
         if (!data || (runId && ts.activeRunId !== runId)) return
 
@@ -556,8 +567,14 @@ export function useAgentRunStream({
       if (error?.name !== 'AbortError') {
         streamSmoother?.flushThread(threadId)
         console.error('[SSE] Run stream error:', error)
-        handleChatError(error, 'stream')
-        scheduleRunReconnect(threadId, runId)
+        // pendingCancel 为用户主动取消态，不弹错误提示
+        if (!ts.pendingCancel) {
+          handleChatError(error, 'stream')
+        }
+        // pendingCancel 下不重连，避免用户取消后又自动重启 Run
+        if (!ts.pendingCancel) {
+          scheduleRunReconnect(threadId, runId)
+        }
       }
     } finally {
       if (ts.runStreamAbortController === runController) {
