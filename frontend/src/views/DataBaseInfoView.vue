@@ -228,14 +228,6 @@
             </div>
           </div>
 
-          <div v-if="activeTab === 'graph'" class="tab-panel">
-            <KnowledgeGraphSection
-              :visible="true"
-              :active="activeTab === 'graph'"
-              @toggle-visible="() => {}"
-            />
-          </div>
-
           <div v-if="activeTab === 'mindmap'" class="tab-panel">
             <MindMapSection v-if="kbId" :kb-id="kbId" ref="mindmapSectionRef" />
           </div>
@@ -338,7 +330,6 @@ import {
   Hash,
   LoaderCircle,
   Map as MapIcon,
-  Network,
   Pencil,
   Save,
   Search,
@@ -350,7 +341,6 @@ import FileTable from '@/components/FileTable.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
 import FileUploadModal from '@/components/FileUploadModal.vue'
 import FileSearchModal from '@/components/modals/FileSearchModal.vue'
-import KnowledgeGraphSection from '@/components/KnowledgeGraphSection.vue'
 import QuerySection from '@/components/QuerySection.vue'
 import MindMapSection from '@/components/MindMapSection.vue'
 import RAGEvaluationTab from '@/components/RAGEvaluationTab.vue'
@@ -397,7 +387,6 @@ const tabs = computed(() => {
   result.push({ key: 'query', label: '检索测试', icon: Search })
 
   result.push(
-    { key: 'graph', label: '知识图谱', icon: Network },
     { key: 'mindmap', label: '知识导图', icon: MapIcon },
     { key: 'evaluation', label: 'RAG 评估', icon: BarChart3 },
     { key: 'benchmarks', label: '评估基准', icon: ClipboardList }
@@ -1256,8 +1245,7 @@ onUnmounted(() => {
   }
 }
 
-.query-section,
-.graph-section {
+.query-section {
   .panel-section();
 
   .content {
@@ -1265,11 +1253,6 @@ onUnmounted(() => {
     flex: 1;
     overflow: hidden;
   }
-}
-
-.graph-section {
-  border: 1px solid var(--gray-100);
-  border-radius: 12px;
 }
 
 .benchmark-management-container {
