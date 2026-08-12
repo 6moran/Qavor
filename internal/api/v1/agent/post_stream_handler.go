@@ -22,17 +22,12 @@ import (
 	"go.uber.org/zap"
 )
 
-// QueueWriter 队列写入接口，便于测试替换。
-type QueueWriter interface {
-	Enqueue(ctx context.Context, item run.QueueItem) error
-}
-
 // PostStreamHandler POST /api/v1/agent/runs 处理器
 // 承担「新建 Run + 流式推送」与「resume 重连续传」两种语义
 type PostStreamHandler struct {
 	sub             *eventbus.Subscriber
 	runRepo         repository.AgentRunRepository
-	queue           QueueWriter
+	queue           *run.RequestQueue
 	heartbeatPeriod time.Duration
 	logger          *zap.Logger
 	tracer          *trace.Tracer
