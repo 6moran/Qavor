@@ -127,6 +127,23 @@ export function buildDefaultExpandedSpanIds(roots, options = {}) {
 }
 
 /**
+ * 计算指定深度的压缩缩进像素值。
+ * 前 compactAfter 层每层 step px，之后每层 compactStep px，
+ * 避免深层 Span 把内容推出可视区。
+ * @param {number} depth - 节点深度，负值按 0 处理
+ * @param {number} step - 常规层递进像素
+ * @param {number} compactStep - 深层递进像素
+ * @param {number} compactAfter - 超过该深度后启用紧凑递进
+ * @returns {number}
+ */
+export function compressedIndent(depth, step, compactStep, compactAfter) {
+  const safeDepth = Math.max(depth, 0)
+  const full = Math.min(safeDepth, compactAfter) * step
+  const extra = Math.max(safeDepth - compactAfter, 0) * compactStep
+  return full + extra
+}
+
+/**
  * 计算时间线行（瀑布图），leftPct/widthPct 归一化到 0-100，最短 0.4%。
  * @param {Array} spans - 平铺的 Span 列表
  * @returns {Array} 行数组，每项含 span 原始字段 + leftPct + widthPct
