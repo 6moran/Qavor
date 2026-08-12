@@ -8,3 +8,4 @@ pymupdf>=1.24.0                   # PDF 渲染为图片
 Pillow>=10.0.0                    # 图像处理
 numpy>=1.26.0                     # RapidOCR 依赖
 opencv-python-headless>=4.9.0     # RapidOCR 依赖(无 GUI 环境)
+requests>=2.31.0                  # 通用 OCR API 客户端(api_ocr.py)
