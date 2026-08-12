@@ -11,16 +11,16 @@
     />
 
     <div v-if="!isDetailPage" class="extensions-content">
-      <div v-if="isKnowledgeRoute && userStore.isAdmin && activeTab === 'knowledge'" class="tab-panel">
+      <div v-if="isKnowledgeRoute && activeTab === 'knowledge'" class="tab-panel">
         <DataBaseView ref="knowledgeRef" embedded />
       </div>
-      <div v-if="isToolsRoute && userStore.isAdmin && activeTab === 'tools'" class="tab-panel">
+      <div v-if="isToolsRoute && activeTab === 'tools'" class="tab-panel">
         <ToolsCardList ref="toolsRef" />
       </div>
       <div v-if="isToolsRoute && activeTab === 'skills'" class="tab-panel">
         <SkillCardList ref="skillsRef" />
       </div>
-      <div v-if="isToolsRoute && userStore.isAdmin && activeTab === 'mcp'" class="tab-panel">
+      <div v-if="isToolsRoute && activeTab === 'mcp'" class="tab-panel">
         <McpCardList ref="mcpRef" />
       </div>
     </div>
@@ -37,11 +37,9 @@ import McpCardList from '@/components/extensions/McpCardList.vue'
 import SkillCardList from '@/components/extensions/SkillCardList.vue'
 import PageHeader from '@/components/shared/PageHeader.vue'
 import DataBaseView from '@/views/DataBaseView.vue'
-import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
 const activeTab = ref(null)
 const knowledgeRef = ref(null)
 const skillsRef = ref(null)
@@ -61,12 +59,10 @@ const toolsTabs = [
   { key: 'skills', label: '技能' },
   { key: 'mcp', label: 'MCP' }
 ]
-const userToolsTabs = [{ key: 'skills', label: '技能' }]
 
 const extensionTabs = computed(() => {
   if (isKnowledgeRoute.value) return knowledgeTabs
-  if (userStore.isAdmin) return toolsTabs
-  return userToolsTabs
+  return toolsTabs
 })
 
 const allowedTabKeys = computed(() => extensionTabs.value.map((tab) => tab.key))
@@ -107,7 +103,7 @@ const activeChildLoading = computed(() => {
 })
 
 watch(
-  () => [route.query.tab, userStore.isAdmin, route.path],
+  () => [route.query.tab, route.path],
   ([tab]) => {
     const nextTab = normalizeTab(tab)
     if (activeTab.value !== nextTab) activeTab.value = nextTab
