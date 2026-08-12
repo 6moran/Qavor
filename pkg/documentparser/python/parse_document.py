@@ -35,6 +35,7 @@ if hasattr(sys.stdout, "reconfigure"):
 from docling.datamodel.base_models import InputFormat
 from docling.document_converter import DocumentConverter
 
+from api_ocr import ocr_image_api, ocr_pdf_api
 from rapid_ocr import IMAGE_EXTENSIONS, ocr_image, ocr_pdf
 
 
@@ -128,10 +129,21 @@ def main() -> None:
     """解析命令行参数并执行文档解析,输出 JSON 结果。"""
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", required=True)
+    parser.add_argument(
+        "--ocr-engine",
+        choices=("rapidocr", "api"),
+        default="rapidocr",
+        help="图片/PDF 使用的 OCR 引擎: rapidocr(本地,默认) 或 api(通用 OCR API)",
+    )
+    parser.add_argument("--ocr-api-url", default="", help="通用 OCR API 接口地址")
+    parser.add_argument("--ocr-api-key", default="", help="通用 OCR API 访问凭证")
+    parser.add_argument("--ocr-api-model", default="", help="通用 OCR API 模型名称")
     args = parser.parse_args()
     path = Path(args.input)
     if not path.is_file():
         fail("PARSER_FILE_NOT_FOUND", "输入文件不存在")
+    if args.ocr_engine == "api" and not args.ocr_api_url:
+        fail("PARSER_OCR_CONFIG_MISSING", "未配置 OCR API 服务地址")
     suffix = path.suffix.lower()
     result = ParseResult(metadata={"file_type": suffix})
     try:
@@ -139,11 +151,19 @@ def main() -> None:
             result.markdown = _convert_with_docling(path, result)
             result.metadata["parser"] = "docling"
         elif suffix == ".pdf":
-            result.markdown, result.pages = ocr_pdf(path)
-            result.metadata["parser"] = "rapidocr"
+            if args.ocr_engine == "api":
+                result.markdown, result.pages = ocr_pdf_api(path, args.ocr_api_url, args.ocr_api_key, args.ocr_api_model)
+                result.metadata["parser"] = "api_ocr"
+            else:
+                result.markdown, result.pages = ocr_pdf(path)
+                result.metadata["parser"] = "rapidocr"
         elif suffix in IMAGE_EXTENSIONS:
-            result.markdown = ocr_image(path)
-            result.metadata["parser"] = "rapidocr"
+            if args.ocr_engine == "api":
+                result.markdown = ocr_image_api(path, args.ocr_api_url, args.ocr_api_key, args.ocr_api_model)
+                result.metadata["parser"] = "api_ocr"
+            else:
+                result.markdown = ocr_image(path)
+                result.metadata["parser"] = "rapidocr"
         else:
             fail("PARSER_UNSUPPORTED_TYPE", f"不支持的文档类型: {suffix}")
     except SystemExit:
