@@ -8,11 +8,15 @@ import (
 	"strings"
 	"time"
 
+	"Qavor/internal/model/dto/request"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
 	"Qavor/pkg/config"
 	bizerrors "Qavor/pkg/errors"
 	pkgllm "Qavor/pkg/llm"
+
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 )
 
 // 检索测试可调参数白名单，与前端 SearchConfigPanel 返回的选项 key 一一对应。
@@ -32,6 +36,9 @@ const sampleQuestionFileTitleLimit = 20
 // sampleQuestionTimeout 生成示例问题的宽松超时：模型推理可能超过配置的短超时，
 // 批处理场景用独立下限避免失败。
 const sampleQuestionTimeout = 120 * time.Second
+
+// descriptionTimeout 生成/润色知识库描述的宽松超时：模型推理可能超过配置的短超时。
+const descriptionTimeout = 60 * time.Second
 
 // knowledgeQueryService 实现 KnowledgeQueryService。
 type knowledgeQueryService struct {
@@ -161,6 +168,98 @@ func (s *knowledgeQueryService) GenerateSampleQuestions(ctx context.Context, kbI
 		return nil, err
 	}
 	return &SampleQuestionsPayload{Questions: result}, nil
+}
+
+// GenerateDescription 生成或润色知识库描述（新建/编辑表单的 AI 润色）。
+// current_description 为空时生成新描述，非空时在保留原意基础上润色；返回结果不持久化。
+// 请求必须携带 ChatModelID：模型由前端表单预填/选择传入，缺失时返回明确提示。
+func (s *knowledgeQueryService) GenerateDescription(ctx context.Context, req *request.GenerateDescriptionRequest) (string, error) {
+	if req == nil {
+		return "", bizerrors.New(bizerrors.CodeInvalidParam, "请求参数不能为空")
+	}
+	if req.ChatModelID == 0 {
+		return "", bizerrors.New(bizerrors.CodeInvalidParam, "未指定 Chat 模型，请先选择问答模型后再试")
+	}
+	name := strings.TrimSpace(req.DatabaseName)
+	if name == "" {
+		return "", bizerrors.New(bizerrors.CodeInvalidParam, "知识库名称不能为空")
+	}
+	// 生成描述是单次推理：使用独立宽松超时，避免模型配置的短超时在推理较慢时导致失败。
+	genCtx, cancel := context.WithTimeout(ctx, descriptionTimeout)
+	defer cancel()
+	chatModel, err := s.resolveChatModelWithTimeout(genCtx, req.ChatModelID)
+	if err != nil {
+		return "", err
+	}
+	prompt := buildDescriptionPrompt(name, req.CurrentDescription, req.FileList)
+	out, err := chatModel.Generate(genCtx, []*schema.Message{{Role: schema.User, Content: prompt}})
+	if err != nil {
+		return "", bizerrors.NewWithErr(bizerrors.CodeLLMRequestFailed, "LLM 生成描述失败", err)
+	}
+	description := cleanDescriptionOutput(out.Content)
+	if description == "" {
+		return "", bizerrors.New(bizerrors.CodeLLMResponseInvalid, "LLM 未返回有效的描述内容")
+	}
+	return description, nil
+}
+
+// resolveChatModelWithTimeout 解析 Chat 模型客户端并统一错误包装。
+func (s *knowledgeQueryService) resolveChatModelWithTimeout(ctx context.Context, modelID uint) (model.ToolCallingChatModel, error) {
+	chatModel, err := s.modelSvc.ResolveChatModelWithTimeout(ctx, modelID, descriptionTimeout)
+	if err != nil {
+		return nil, bizerrors.NewWithErr(bizerrors.CodeLLMConfigError, "Chat 模型不可用，请检查模型配置后重试", err)
+	}
+	return chatModel, nil
+}
+
+// buildDescriptionPrompt 构造描述生成/润色提示词：
+// current 为空时要求生成，否则在保留原意的基础上润色。
+func buildDescriptionPrompt(name, current string, fileList []string) string {
+	var sb strings.Builder
+	if strings.TrimSpace(current) == "" {
+		sb.WriteString("你是知识库建设助手。请根据知识库名称撰写一段专业、清晰的知识库描述，说明知识库的用途、内容范围和适用场景。\n")
+	} else {
+		sb.WriteString("你是知识库建设助手。请对下面的知识库描述进行润色，使其更专业、简洁、信息完整，保持原有核心含义，不要编造未提及的内容。\n")
+	}
+	sb.WriteString("要求：\n")
+	sb.WriteString("1. 直接输出描述文本本身，不要输出标题、解释或 Markdown 标记；\n")
+	sb.WriteString("2. 控制在 200 字以内，使用中文。\n\n")
+	fmt.Fprintf(&sb, "知识库名称：%s\n", name)
+	if strings.TrimSpace(current) != "" {
+		fmt.Fprintf(&sb, "当前描述：%s\n", strings.TrimSpace(current))
+	}
+	if len(fileList) > 0 {
+		sb.WriteString("知识库将包含文档：\n")
+		for _, file := range fileList {
+			if strings.TrimSpace(file) != "" {
+				fmt.Fprintf(&sb, "- %s\n", strings.TrimSpace(file))
+			}
+		}
+	}
+	return sb.String()
+}
+
+// cleanDescriptionOutput 清洗模型输出的描述文本：
+// 去除代码块围栏、Markdown 引用/列表标记与多余解释，合并为单段描述。
+func cleanDescriptionOutput(content string) string {
+	content = strings.TrimSpace(content)
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	lines := strings.Split(content, "\n")
+	var sb strings.Builder
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		line = strings.TrimPrefix(line, "> ")
+		line = strings.TrimPrefix(line, "- ")
+		if sb.Len() > 0 {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(line)
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 // findBase 查询知识库，不存在时返回统一的业务错误。

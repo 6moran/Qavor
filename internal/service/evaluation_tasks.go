@@ -20,6 +20,8 @@ type generateParams struct {
 	NeighborsCount   int
 	ConcurrencyCount int
 	LLMModelID       uint
+	GenerationMode   string
+	GraphExpandTopK  int
 }
 
 // parseGenerateParams 从构建元数据中解析生成参数。
@@ -33,6 +35,8 @@ func parseGenerateParams(metadata entity.JSON) (generateParams, error) {
 		NeighborsCount:   toInt(params["neighbors_count"]),
 		ConcurrencyCount: toInt(params["concurrency_count"]),
 		LLMModelID:       uint(toInt(params["llm_model_id"])),
+		GenerationMode:   stringValue(params["generation_mode"]),
+		GraphExpandTopK:  toInt(params["graph_expand_top_k"]),
 	}
 	if p.Count < 1 {
 		return generateParams{}, fmt.Errorf("生成参数无效: count")
@@ -45,6 +49,12 @@ func parseGenerateParams(metadata entity.JSON) (generateParams, error) {
 	}
 	if p.LLMModelID == 0 {
 		return generateParams{}, fmt.Errorf("生成参数无效: 模型缺失")
+	}
+	if p.GenerationMode == "" {
+		p.GenerationMode = "vector"
+	}
+	if p.GenerationMode == "graph_enhanced" && p.GraphExpandTopK < 1 {
+		p.GraphExpandTopK = p.NeighborsCount
 	}
 	return p, nil
 }
@@ -63,6 +73,14 @@ func toInt(v any) int {
 	}
 }
 
+// stringValue 将任务元数据中的字符串安全转换出来。
+func stringValue(v any) string {
+	if value, ok := v.(string); ok {
+		return value
+	}
+	return ""
+}
+
 // runGenerateTask 执行数据集自动生成任务。
 func (s *evaluationService) runGenerateTask(ctx context.Context, dataset *entity.EvaluationDataset) {
 	datasetID := dataset.DatasetID
@@ -78,22 +96,10 @@ func (s *evaluationService) runGenerateTask(ctx context.Context, dataset *entity
 		return
 	}
 
-	// 采样知识片段：每组 neighbors 个，共 count 组
-	sampleCount := params.Count * params.NeighborsCount
-	chunks, err := s.chunkRepo.FindRandomByKBIDs(ctx, []string{dataset.KBID}, sampleCount)
+	groups, err := s.buildEvaluationGroups(ctx, dataset.KBID, params)
 	if err != nil {
 		s.failDataset(datasetID, "采样知识片段失败: "+err.Error())
 		return
-	}
-	if len(chunks) == 0 {
-		s.failDataset(datasetID, "知识库暂无已入库的知识片段，请先上传并入库文档")
-		return
-	}
-
-	// 分组：每组 neighbors 个片段，不足一组时跳过
-	groups := make([][]repository.ChunkWithFile, 0, params.Count)
-	for i := 0; i+params.NeighborsCount <= len(chunks); i += params.NeighborsCount {
-		groups = append(groups, chunks[i:i+params.NeighborsCount])
 	}
 	if len(groups) == 0 {
 		s.failDataset(datasetID, fmt.Sprintf("知识片段不足（需要至少 %d 个）", params.NeighborsCount))
@@ -201,6 +207,73 @@ func (s *evaluationService) runGenerateTask(ctx context.Context, dataset *entity
 		return
 	}
 	logRunner("评估基准生成完成", zap.String("dataset_id", datasetID), zap.Int("items", len(items)))
+}
+
+// buildEvaluationGroups 按生成模式构造用于生成问题的知识片段组。
+func (s *evaluationService) buildEvaluationGroups(ctx context.Context, kbID string, params generateParams) ([][]repository.ChunkWithFile, error) {
+	if params.GenerationMode != "graph_enhanced" {
+		sampleCount := params.Count * params.NeighborsCount
+		chunks, err := s.chunkRepo.FindRandomByKBIDs(ctx, []string{kbID}, sampleCount)
+		if err != nil {
+			return nil, err
+		}
+		groups := make([][]repository.ChunkWithFile, 0, params.Count)
+		for i := 0; i+params.NeighborsCount <= len(chunks); i += params.NeighborsCount {
+			groups = append(groups, chunks[i:i+params.NeighborsCount])
+		}
+		return groups, nil
+	}
+
+	// 图增强模式在当前存储模型中使用同一文件的相邻分块扩展上下文，
+	// 这样不依赖未落地的外部图数据库，也能让基准覆盖跨分块上下文。
+	seeds, err := s.chunkRepo.FindRandomByKBIDs(ctx, []string{kbID}, params.Count)
+	if err != nil {
+		return nil, err
+	}
+	groups := make([][]repository.ChunkWithFile, 0, len(seeds))
+	windowSize := params.GraphExpandTopK
+	if windowSize < params.NeighborsCount {
+		windowSize = params.NeighborsCount
+	}
+	for _, seed := range seeds {
+		allChunks, err := s.chunkRepo.FindByFileID(ctx, kbID, seed.FileID)
+		if err != nil {
+			return nil, err
+		}
+		seedIndex := -1
+		for i, chunk := range allChunks {
+			if chunk.ChunkID == seed.ChunkID {
+				seedIndex = i
+				break
+			}
+		}
+		if seedIndex < 0 {
+			continue
+		}
+		start := seedIndex - windowSize/2
+		if start < 0 {
+			start = 0
+		}
+		end := start + windowSize
+		if end > len(allChunks) {
+			end = len(allChunks)
+			start = end - windowSize
+			if start < 0 {
+				start = 0
+			}
+		}
+		group := make([]repository.ChunkWithFile, 0, end-start)
+		for _, chunk := range allChunks[start:end] {
+			group = append(group, repository.ChunkWithFile{
+				ChunkID: chunk.ChunkID, KBID: chunk.KBID, FileID: chunk.FileID,
+				Filename: seed.Filename, Content: chunk.Content,
+			})
+		}
+		if len(group) > 0 {
+			groups = append(groups, group)
+		}
+	}
+	return groups, nil
 }
 
 // updateDatasetStatus 更新数据集构建状态与进度。
