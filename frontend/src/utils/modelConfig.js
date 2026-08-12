@@ -71,6 +71,9 @@ export const isModelConnectionTestSupported = (modelType) =>
 export const formatModelTestSuccess = ({ latency_ms } = {}) =>
   `连接成功 · ${Number(latency_ms) || 0} ms`
 
+// formatModelTestError 从连接测试错误中提取友好 message 与 detail。
+// 后端业务错误响应为 { code, message, detail }（message 为分类后的友好提示，
+// detail 为脱敏后的原始错误）；网络/未知错误回退到 error.message。
 export const formatModelTestError = (error) => {
   const data = error?.response?.data
   return {

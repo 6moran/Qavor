@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"Qavor/internal/repository"
 	"Qavor/pkg/config"
 	bizerrors "Qavor/pkg/errors"
+	pkgllm "Qavor/pkg/llm"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -131,11 +133,12 @@ func (s *knowledgeQueryService) GenerateSampleQuestions(ctx context.Context, kbI
 		return nil, bizerrors.NewWithErr(bizerrors.CodeLLMConfigError, "解析 Chat 模型失败", err)
 	}
 	prompt := buildSampleQuestionsPrompt(base.Name, base.Description, s.fileTitles(genCtx, kbID), count)
-	out, err := chatModel.Generate(genCtx, []*schema.Message{{Role: schema.User, Content: prompt}})
+	content, err := pkgllm.Chat(genCtx, chatModel, prompt, 0)
 	if err != nil {
-		return nil, bizerrors.NewWithErr(bizerrors.CodeLLMRequestFailed, "LLM 生成示例问题失败", err)
+		// 复用公共错误分类：message 为友好提示（余额不足/超时等），detail 为原始错误
+		return nil, llmCallBizError("生成示例问题", err)
 	}
-	questions, err := parseJSONStringArray(out.Content)
+	questions, err := parseJSONStringArray(content)
 	if err != nil {
 		return nil, bizerrors.NewWithErr(bizerrors.CodeLLMResponseInvalid, "LLM 返回的示例问题格式无效", err)
 	}
@@ -466,6 +469,20 @@ func parseJSONStringArray(content string) ([]string, error) {
 		}
 	}
 	return questions, nil
+}
+
+// llmCallBizError 把公共 LLM 调用错误转为带友好提示的业务错误。
+// message 为分类后的中文提示（余额不足/认证失败等），detail 为原始错误。
+func llmCallBizError(stage string, err error) error {
+	var classified *pkgllm.ClassifiedError
+	if errors.As(err, &classified) {
+		detail := ""
+		if classified.Err != nil {
+			detail = classified.Err.Error()
+		}
+		return bizerrors.NewWithDetail(bizerrors.CodeLLMRequestFailed, stage+"失败："+classified.Friendly, detail)
+	}
+	return bizerrors.NewWithErr(bizerrors.CodeLLMRequestFailed, stage+"失败", err)
 }
 
 func (s *knowledgeQueryService) defaultInt(value, fallback int) int {

@@ -268,8 +268,9 @@ function isStatusConsistent(agentStatus, businessStatus) {
   const mapping = {
     ok: ['completed'],
     error: ['failed'],
-    cancelled: ['cancelled'],
-    interrupted: ['interrupted'],
+    // 用户手动中断：span 常落成 cancelled 而业务 run 是 interrupted，互认避免误报
+    cancelled: ['cancelled', 'interrupted'],
+    interrupted: ['interrupted', 'cancelled'],
     running: ['pending', 'running'],
     timeout: ['failed', 'cancelled']
   }

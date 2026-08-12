@@ -8,6 +8,7 @@
       :show-icon="showIcon"
       :block-node="blockNode"
       :show-line="showLine"
+      :expand-action="false"
       class="custom-file-tree"
       @update:selected-keys="handleSelectedUpdate"
       @update:expanded-keys="handleExpandedUpdate"
@@ -33,7 +34,7 @@
 
       <!-- Custom Title Slot -->
       <template #title="{ data }">
-        <div class="tree-node-wrapper" @click="handleNodeClick(data)">
+        <div class="tree-node-wrapper">
           <div class="tree-node-content">
             <slot name="title" :node="data">
               <span class="node-title-text" :title="data.title">{{ data.title }}</span>
@@ -97,7 +98,6 @@ const emit = defineEmits([
   'update:selectedKeys',
   'update:expandedKeys',
   'select',
-  'nodeClick',
   'toggleFolder'
 ])
 
@@ -136,28 +136,24 @@ const handleExpandedUpdate = (keys) => {
 }
 
 const handleSelect = (selectedKeys, info) => {
-  emit('select', selectedKeys, info)
-}
-
-const handleNodeClick = (data) => {
-  emit('nodeClick', data)
-
-  const isFolder = data.isLeaf === false || (data.children && Array.isArray(data.children))
-
+  const node = info?.node || {}
+  const isFolder = node.isLeaf === false || (node.children && Array.isArray(node.children))
   if (isFolder) {
-    const key = data.key
+    // 文件夹点击：切换展开状态，不触发文件选择。
+    // 展开集合完全受控，精确切换当前节点，避免 antd 默认点击展开/事件冒泡误触发父级。
+    const key = node.key
     const newExpandedKeys = [...props.expandedKeys]
     const index = newExpandedKeys.indexOf(key)
-
     if (index > -1) {
       newExpandedKeys.splice(index, 1)
     } else {
       newExpandedKeys.push(key)
     }
-
     emit('update:expandedKeys', newExpandedKeys)
-    emit('toggleFolder', data, newExpandedKeys.indexOf(key) > -1)
+    emit('toggleFolder', node, newExpandedKeys.indexOf(key) > -1)
+    return
   }
+  emit('select', selectedKeys, info)
 }
 </script>
 

@@ -74,6 +74,7 @@ watch(activeTab, (tab) => {
           <span>{{ activeStats.enabled || 0 }} 个启用</span>
           <span>{{ activeStats.chat || 0 }} 个 Chat</span>
           <span>{{ activeStats.embedding || 0 }} 个 Embedding</span>
+          <span>{{ activeStats.rerank || 0 }} 个 Rerank</span>
         </div>
       </template>
     </PageHeader>

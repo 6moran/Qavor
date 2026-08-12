@@ -237,17 +237,16 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 		},
 	}
 
-	// Agent OnEnd 的 output 是异步 Events 迭代器，只标记成功不消费
+	// Agent callback：不再创建 agent.invoke span。
+	// eino 的 AgentCallbackOutput 是异步 Events 迭代器，OnEnd 在子 Agent 实际执行完成前
+	// 就被触发，导致 agent.invoke span 时长恒为 0ms（而真实执行发生在子 Agent 内部的
+	// agent.run span 及其下 LLM/工具 span）。为避免树中出现 0ms 的重复 Agent 节点，
+	// 这里不创建 span，层级由子 Agent 的 agent.run span 通过 SpanContext 传播承接。
 	agentH := &callbackstpl.AgentCallbackHandler{
 		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *adk.AgentCallbackInput) context.Context {
-			summary := ""
-			if input != nil {
-				summary = col.sanitizer.Text(agentInputSummary(input))
-			}
-			return col.start(ctx, info, "agent", "agent.invoke", info.Name, summary, nil)
+			return ctx
 		},
 		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *adk.AgentCallbackOutput) context.Context {
-			col.end(ctx, SpanEnd{Status: SpanStatusOK})
 			return ctx
 		},
 	}
@@ -360,12 +359,4 @@ func promptSummary(msgs []*schema.Message) string {
 		}
 	}
 	return strings.TrimSpace(sb.String())
-}
-
-// agentInputSummary 提取 Agent 输入中的用户消息摘要（AgentInput 为 TypedAgentInput[*schema.Message] 的类型别名）
-func agentInputSummary(input *adk.AgentCallbackInput) string {
-	if input == nil || input.Input == nil {
-		return ""
-	}
-	return promptSummary(input.Input.Messages)
 }

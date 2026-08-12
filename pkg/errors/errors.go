@@ -35,7 +35,7 @@ func NewWithErr(code int, message string, err error) *BizError {
 	}
 }
 
-// NewWithDetail 创建带原始错误详情的业务错误
+// NewWithDetail 创建带原始错误详情的业务错误（如脱敏后的连接测试错误 / 模型调用错误）
 func NewWithDetail(code int, message, detail string) *BizError {
 	return &BizError{
 		Code:    code,

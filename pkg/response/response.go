@@ -35,7 +35,7 @@ func Error(c *gin.Context, code int, message string) {
 	})
 }
 
-// bizErrorResponse 业务错误响应体（Detail 可选，仅连接测试等场景输出）
+// bizErrorResponse 业务错误响应体（Detail 可选，仅连接测试 / 模型调用错误等场景输出）
 type bizErrorResponse struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`

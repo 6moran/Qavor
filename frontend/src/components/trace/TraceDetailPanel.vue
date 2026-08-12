@@ -120,7 +120,6 @@ import { message } from 'ant-design-vue'
 import { ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { traceApi } from '@/apis'
 import {
-  buildDefaultExpandedSpanIds,
   buildTraceTree,
   buildTimelineRows,
   collectDiagnostics,
@@ -178,7 +177,7 @@ watch(selectedSpanId, async (id) => {
     try {
       const full = await traceApi.getSpan(props.traceId, id)
       if (full && full.span_id === id) spanDetailFull.value = full
-    } catch (e) {
+    } catch {
       // 拉取失败则回退到列表 span（无 attributes）
     } finally {
       spanDetailLoading.value = false
@@ -267,7 +266,8 @@ const loadDetail = async () => {
     run.value = data.run || null
     spans.value = data.spans || []
     backendDiagnostics.value = normalizeDiagnostics(data.diagnostics)
-    buildDefaultExpandedSpanIds(treeRoots.value).forEach(id => expandedBranches.add(id))
+    // 调用树默认全部展开（与时间轴全量展示保持一致）；深层缩进由 compressedIndent 压缩防止显示不全
+    collectTreeSpanIds(treeRoots.value).forEach(id => expandedBranches.add(id))
     selectedSpanId.value = spans.value.find(span => span.status === 'error')?.span_id || spans.value[0]?.span_id || ''
   } catch (error) {
     loadError.value = error.message || '加载 Trace 详情失败'
