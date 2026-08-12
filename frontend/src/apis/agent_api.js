@@ -22,6 +22,38 @@ ${String(requestContent || '').slice(0, 2000)}
 
 只输出一个概括该请求主题的简短标题，最多 30 个字符；不要添加引号、句号、解释或 Markdown 标记。`
 
+/**
+ * 将前端审批决策归一化为后端期望的纯字符串 "approve"/"reject"。
+ * 后端审批恢复链路（post_stream_handler.approvalResume）只认纯字符串决策，
+ * 并用它填充 eino 的 resume target；中间件以 data == "approve" 判断是否放行。
+ * 前端 HumanApprovalModal 提交的是 {decisions:[{type:'approve'}]} 或 {type:'approve'} 结构，
+ * 这里统一提取为纯字符串，避免被 JSON.stringify 成对象字符串后比对失败，
+ * 导致"允许"被误判为"拒绝"（模型报"执行请求被拒绝了"）。
+ * 对于 ask_user 的答案对象（无 type/decisions 字段），原样返回交由外层序列化，不受影响。
+ */
+const normalizeApprovalDecision = (decision) => {
+  if (decision == null) return null
+  if (typeof decision === 'string') return decision
+  if (Array.isArray(decision)) {
+    return decision.length > 0 && decision.every((d) => d && d.type === 'approve')
+      ? 'approve'
+      : 'reject'
+  }
+  if (Array.isArray(decision.decisions)) {
+    return decision.decisions.length > 0 &&
+      decision.decisions.every((d) => d && d.type === 'approve')
+      ? 'approve'
+      : 'reject'
+  }
+  if (decision.type === 'approve' || decision.type === 'reject') {
+    return decision.type
+  }
+  // ask_user 的答案对象（如 {questionId: answer}）必须序列化为 JSON 字符串：
+  // 后端 ApprovalDecision 为 string 字段，且以首字符 '{' 识别 ask_user 回复。
+  // 原样返回对象会导致请求体 approval_decision 变成嵌套对象，ShouldBindJSON 失败返回 400。
+  return JSON.stringify(decision)
+}
+
 export const agentApi = {
   /**
    * 简单聊天调用（非流式）
@@ -228,11 +260,7 @@ export const agentApi = {
       tool_approval_mode: data.tool_approval_mode ?? null,
       resume: data.resume ?? null,
       created_by_run_id: data.created_by_run_id || null,
-      approval_decision: data.approval_decision != null
-        ? (typeof data.approval_decision === 'object'
-            ? JSON.stringify(data.approval_decision)
-            : data.approval_decision)
-        : null,
+      approval_decision: normalizeApprovalDecision(data.approval_decision),
       queue_policy: data.queue_policy || 'enqueue'
     }),
 
@@ -264,11 +292,7 @@ export const agentApi = {
         tool_approval_mode: data.tool_approval_mode ?? null,
         resume: data.resume ?? null,
         created_by_run_id: data.created_by_run_id || null,
-        approval_decision: data.approval_decision != null
-          ? (typeof data.approval_decision === 'object'
-              ? JSON.stringify(data.approval_decision)
-              : data.approval_decision)
-          : null,
+        approval_decision: normalizeApprovalDecision(data.approval_decision),
         queue_policy: data.queue_policy || 'enqueue'
       }),
       signal
@@ -436,7 +460,8 @@ export const threadApi = {
   updateThread: (threadId, title, is_pinned, toolApprovalMode) =>
     apiPut(`/api/v1/conversations/${threadId}`, {
       title,
-      is_pinned
+      is_pinned,
+      tool_approval_mode: toolApprovalMode
     }).then((res) => res?.data),
 
   /**
