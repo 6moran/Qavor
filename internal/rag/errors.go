@@ -28,8 +28,8 @@ var (
 	// ErrEmbeddingUnavailable Embedding 调用失败。
 	ErrEmbeddingUnavailable = errors.New("Embedding 服务不可用")
 
-	// ErrRetrievalUnavailable 向量检索失败。
-	ErrRetrievalUnavailable = errors.New("向量检索服务不可用")
+	// ErrRetrievalUnavailable 检索分支均不可用。
+	ErrRetrievalUnavailable = errors.New("检索服务不可用")
 
 	// ErrLLMUnavailable LLM 调用失败。
 	ErrLLMUnavailable = errors.New("LLM 服务不可用")

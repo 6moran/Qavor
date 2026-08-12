@@ -9,6 +9,7 @@ import (
 	"Qavor/internal/llm"
 	"Qavor/internal/model/dto/request"
 	dto "Qavor/internal/model/dto/response"
+	"Qavor/internal/rag"
 	"Qavor/pkg/errors"
 
 	"github.com/cloudwego/eino/schema"
@@ -19,10 +20,6 @@ const defaultConnectionTestTimeoutMS = 60000
 // TestConnection 测试未保存的模型配置是否能正常连接。
 // 不会持久化任何变更，仅执行一次最小化的真实请求。
 func (s *modelService) TestConnection(ctx context.Context, req *request.ModelConnectionTestRequest) (*dto.ModelConnectionTestResponse, error) {
-	if req.ModelType == "rerank" {
-		return nil, errors.New(errors.CodeInvalidParam, "暂不支持 rerank 模型连接测试")
-	}
-
 	apiKey, err := s.resolveConnectionTestKey(req)
 	if err != nil {
 		return nil, err
@@ -43,6 +40,8 @@ func (s *modelService) TestConnection(ctx context.Context, req *request.ModelCon
 		result, err = s.testEmbeddingConnection(ctx, req, apiKey)
 	case "chat":
 		result, err = s.testChatConnection(ctx, req, apiKey)
+	case "rerank":
+		result, err = s.testRerankConnection(ctx, req, apiKey)
 	default:
 		return nil, errors.New(errors.CodeInvalidParam, "不支持的模型类型: "+req.ModelType)
 	}
@@ -60,6 +59,32 @@ func (s *modelService) TestConnection(ctx context.Context, req *request.ModelCon
 	result.ModelType = req.ModelType
 	result.Connected = true
 	return result, nil
+}
+
+// testRerankConnection 执行一次最小化的重排请求并校验结果。
+// 与运行时 ResolveReranker 保持一致：复用自定义请求头与 Bearer API Key。
+func (s *modelService) testRerankConnection(ctx context.Context, req *request.ModelConnectionTestRequest, apiKey string) (*dto.ModelConnectionTestResponse, error) {
+	client, err := rag.NewHTTPReranker(rag.HTTPRerankerConfig{
+		Model:   req.Name,
+		BaseURL: req.BaseURL,
+		APIKey:  apiKey,
+		Headers: req.Headers,
+		Timeout: time.Duration(req.Timeout) * time.Millisecond,
+	})
+	if err != nil {
+		return nil, err
+	}
+	results, err := client.Rerank(ctx, "连接测试", []rag.RerankDocument{
+		{ID: "relevant", Content: "相关内容"},
+		{ID: "irrelevant", Content: "无关内容"},
+	}, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, errors.New(errors.CodeLLMResponseInvalid, "模型未返回有效重排结果")
+	}
+	return &dto.ModelConnectionTestResponse{ModelType: req.ModelType}, nil
 }
 
 // resolveConnectionTestKey 解析测试连接使用的 API Key。

@@ -5,11 +5,12 @@
     :size="props.size"
     :style="props.style"
     :disabled="props.disabled"
-    :loading="loading"
+    :loading="props.loading || modelsLoading"
+    allow-clear
     @dropdown-visible-change="handleOpenChange"
     @change="handleSelect"
   >
-    <a-select-option v-for="model in models" :key="model.id" :value="String(model.id)">
+    <a-select-option v-for="model in models" :key="model.id" :value="Number(model.id)">
       {{ model.name }}
     </a-select-option>
   </a-select>
@@ -24,17 +25,18 @@ const props = defineProps({
   placeholder: { type: String, default: '请选择重排序模型' },
   size: { type: String, default: 'small' },
   style: { type: Object, default: () => ({ width: '100%' }) },
-  disabled: { type: Boolean, default: false }
+  disabled: { type: Boolean, default: false },
+  loading: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:value', 'change'])
 const models = ref([])
-const loading = ref(false)
+const modelsLoading = ref(false)
 let loaded = false
 
 const handleOpenChange = async (open) => {
   if (!open || loaded) return
-  loading.value = true
+  modelsLoading.value = true
   try {
     const response = await modelApi.list({ model_type: 'rerank', page: 1, page_size: 100 })
     models.value = (response?.data?.items || []).filter((model) => model.enabled)
@@ -42,7 +44,7 @@ const handleOpenChange = async (open) => {
   } catch (error) {
     console.error('获取 rerank 模型失败:', error)
   } finally {
-    loading.value = false
+    modelsLoading.value = false
   }
 }
 

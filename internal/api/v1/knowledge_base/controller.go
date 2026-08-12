@@ -14,11 +14,14 @@ import (
 )
 
 // Controller 负责知识库请求参数绑定、业务服务调用和统一响应转换
-type Controller struct{ service service.KnowledgeBaseService }
+type Controller struct {
+	service  service.KnowledgeBaseService
+	querySvc service.KnowledgeQueryService
+}
 
 // NewController 创建知识库 API 控制器
-func NewController(service service.KnowledgeBaseService) *Controller {
-	return &Controller{service: service}
+func NewController(service service.KnowledgeBaseService, querySvc service.KnowledgeQueryService) *Controller {
+	return &Controller{service: service, querySvc: querySvc}
 }
 
 // Create 创建知识库
@@ -119,4 +122,79 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 // 响应格式与前端 useChunkPresetOptions 的 {value, label, description} 解析一致。
 func (ctrl *Controller) ChunkPresets(c *gin.Context) {
 	response.Success(c, map[string]any{"chunk_presets": rag.ChunkPresetList()})
+}
+
+// QueryTest 执行检索测试：携带查询与可选检索参数，不修改知识库配置。
+func (ctrl *Controller) QueryTest(c *gin.Context) {
+	var req request.QueryTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.querySvc.QueryTest(c.Request.Context(), c.Param("kb_id"), req.Query, req.Meta)
+	if err != nil {
+		ctrl.handleQueryServiceError(c, err, "检索测试失败")
+		return
+	}
+	response.Success(c, result.Chunks)
+}
+
+// GetQueryParams 获取知识库检索参数选项与当前保存值。
+func (ctrl *Controller) GetQueryParams(c *gin.Context) {
+	result, err := ctrl.querySvc.GetQueryParams(c.Param("kb_id"))
+	if err != nil {
+		ctrl.handleQueryServiceError(c, err, "获取检索参数失败")
+		return
+	}
+	response.Success(c, result)
+}
+
+// UpdateQueryParams 更新知识库检索参数（白名单过滤后持久化）。
+func (ctrl *Controller) UpdateQueryParams(c *gin.Context) {
+	var req request.UpdateQueryParamsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if err := ctrl.querySvc.UpdateQueryParams(c.Param("kb_id"), req); err != nil {
+		ctrl.handleQueryServiceError(c, err, "更新检索参数失败")
+		return
+	}
+	response.Success(c, nil)
+}
+
+// GetSampleQuestions 获取知识库已生成的示例问题。
+func (ctrl *Controller) GetSampleQuestions(c *gin.Context) {
+	result, err := ctrl.querySvc.GetSampleQuestions(c.Param("kb_id"))
+	if err != nil {
+		ctrl.handleQueryServiceError(c, err, "获取示例问题失败")
+		return
+	}
+	response.Success(c, result)
+}
+
+// GenerateSampleQuestions 用 AI 生成知识库测试问题并持久化。
+func (ctrl *Controller) GenerateSampleQuestions(c *gin.Context) {
+	var req request.GenerateSampleQuestionsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.querySvc.GenerateSampleQuestions(c.Request.Context(), c.Param("kb_id"), req.Count)
+	if err != nil {
+		ctrl.handleQueryServiceError(c, err, "生成示例问题失败")
+		return
+	}
+	response.Success(c, result)
+}
+
+// handleQueryServiceError 统一处理查询服务的业务错误与内部错误。
+func (ctrl *Controller) handleQueryServiceError(c *gin.Context, err error, action string) {
+	if errors.IsBizError(err) {
+		logger.Warn("业务错误，"+action, zap.Error(err))
+		response.BizError(c, err)
+		return
+	}
+	logger.Error(action, zap.Error(err))
+	response.InternalServerError(c)
 }

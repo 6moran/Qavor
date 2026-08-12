@@ -113,7 +113,7 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 		return nil, apperrors.New(CodeRAGInvalidRequest, "top_k 必须在 1 到 20 之间")
 	}
 	if topK == 0 {
-		topK = s.cfg.VectorTopK
+		topK = s.cfg.RerankTopK
 		if topK <= 0 {
 			topK = 5
 		}
@@ -147,6 +147,57 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 	if s.cfg.ScoreThreshold > 0 {
 		opts = append(opts, einoretriever.WithScoreThreshold(s.cfg.ScoreThreshold))
 	}
+	return s.retrieveCore(ctx, query, validKBIDs, kbNames, opts...)
+}
+
+// RetrieveTest 执行检索测试：按单次请求的检索参数覆盖各阶段配置，不修改知识库配置。
+// cfg 为 nil 时行为与 Retrieve 默认一致；cfg 中为 nil 的字段沿用系统默认。
+func (s *rAGService) RetrieveTest(ctx context.Context, kbIDs []string, query string, cfg *RetrievalTestConfig) (*RAGRetrieveResult, error) {
+	query, validKBIDs, kbNames, err := s.validateRequest(kbIDs, query)
+	if err != nil {
+		return nil, err
+	}
+	if s.retriever == nil {
+		return nil, apperrors.New(CodeRAGNotConfigured, "RAG 未配置")
+	}
+
+	// 最终返回条数：显式 TopK > RerankTopK(测试覆盖/配置) > 5。
+	topK := 0
+	if cfg != nil && cfg.RerankTopK != nil && *cfg.RerankTopK > 0 {
+		topK = *cfg.RerankTopK
+	}
+	if topK == 0 {
+		topK = s.cfg.RerankTopK
+	}
+	if topK <= 0 {
+		topK = 5
+	}
+	if cfg != nil && cfg.TopK != nil && *cfg.TopK > 0 {
+		topK = *cfg.TopK
+	}
+	if topK < 1 || topK > 20 {
+		return nil, apperrors.New(CodeRAGInvalidRequest, "top_k 必须在 1 到 20 之间")
+	}
+
+	opts := []einoretriever.Option{
+		rag.WithKnowledgeBaseIDs(validKBIDs),
+		einoretriever.WithTopK(topK),
+	}
+	if cfg != nil {
+		// 覆盖各召回阶段候选窗口与 RRF 参数；nil 字段沿用默认配置。
+		if cfg.VectorTopK != nil || cfg.KeywordTopK != nil || cfg.FusedTopK != nil || cfg.RRFK != nil {
+			opts = append(opts, rag.WithHybridStageOptions(cfg.VectorTopK, cfg.KeywordTopK, cfg.FusedTopK, cfg.RRFK))
+		}
+		// 相似度阈值过滤：显式提供时覆盖系统默认。
+		if cfg.ScoreThreshold != nil {
+			opts = append(opts, einoretriever.WithScoreThreshold(*cfg.ScoreThreshold))
+		}
+	}
+	return s.retrieveCore(ctx, query, validKBIDs, kbNames, opts...)
+}
+
+// retrieveCore 执行检索并转换为结构化分块结果。
+func (s *rAGService) retrieveCore(ctx context.Context, query string, validKBIDs []string, kbNames map[string]string, opts ...einoretriever.Option) (*RAGRetrieveResult, error) {
 	docs, err := s.retriever.Retrieve(ctx, query, opts...)
 	if err != nil {
 		if mapped := mapRAGRetrievalError(err); mapped != nil {
@@ -164,7 +215,8 @@ func (s *rAGService) Retrieve(ctx context.Context, kbIDs []string, query string,
 		result.Chunks = append(result.Chunks, RAGChunk{
 			KBID: chunk.KBID, KBName: kbNames[chunk.KBID], ChunkID: chunk.ChunkID,
 			FileID: chunk.FileID, Filename: chunk.Filename, Content: chunk.Content,
-			Score: chunk.Score,
+			Score: chunk.Score, VectorScore: chunk.VectorScore, KeywordScore: chunk.KeywordScore,
+			RRFScore: chunk.RRFScore, RerankScore: chunk.RerankScore, MatchedBy: chunk.MatchedBy,
 		})
 	}
 	return result, nil
@@ -199,12 +251,17 @@ func (s *rAGService) Answer(ctx context.Context, kbIDs []string, query string) (
 	result := &RAGAnswerResult{Answer: out.Answer}
 	for _, c := range out.Citations {
 		result.Citations = append(result.Citations, RAGCitation{
-			Index:    c.Index,
-			ChunkID:  c.ChunkID,
-			FileID:   c.FileID,
-			Filename: c.Filename,
-			Content:  c.Content,
-			Score:    c.Score,
+			Index:        c.Index,
+			ChunkID:      c.ChunkID,
+			FileID:       c.FileID,
+			Filename:     c.Filename,
+			Content:      c.Content,
+			Score:        c.Score,
+			VectorScore:  c.VectorScore,
+			KeywordScore: c.KeywordScore,
+			RRFScore:     c.RRFScore,
+			RerankScore:  c.RerankScore,
+			MatchedBy:    c.MatchedBy,
 		})
 	}
 	return result, nil

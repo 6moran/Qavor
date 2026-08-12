@@ -587,37 +587,49 @@ export const useDatabaseStore = defineStore('database', () => {
     fileDetailFileId.value = null
   }
 
+  let queryParamsLoadingPromise = null
+
   async function loadQueryParams(id) {
     const kbIdValue = id || kbId.value
     if (!kbIdValue) return
 
-    state.queryParamsLoading = true
-    try {
-      const response = await queryApi.getKnowledgeBaseQueryParams(kbIdValue)
-      queryParams.value = response.params?.options || []
-
-      // 创建当前支持的参数键集合
-      const supportedParamKeys = new Set(queryParams.value.map((param) => param.key))
-
-      // 从 meta 中移除不支持的参数
-      for (const key in meta) {
-        if (key !== 'kb_id' && !supportedParamKeys.has(key)) {
-          delete meta[key]
-        }
-      }
-
-      // 为 meta 中不存在的支持参数添加默认值
-      queryParams.value.forEach((param) => {
-        if (!(param.key in meta)) {
-          meta[param.key] = param.default
-        }
-      })
-    } catch (error) {
-      console.error('Failed to load query params:', error)
-      message.error('加载查询参数失败')
-    } finally {
-      state.queryParamsLoading = false
+    // 防止重复请求：如果正在加载相同的 kbId，直接返回现有的 Promise
+    if (queryParamsLoadingPromise && state.queryParamsLoading) {
+      return queryParamsLoadingPromise
     }
+
+    state.queryParamsLoading = true
+    queryParamsLoadingPromise = (async () => {
+      try {
+        const response = await queryApi.getKnowledgeBaseQueryParams(kbIdValue)
+        queryParams.value = response.params?.options || []
+
+        // 创建当前支持的参数键集合
+        const supportedParamKeys = new Set(queryParams.value.map((param) => param.key))
+
+        // 从 meta 中移除不支持的参数
+        for (const key in meta) {
+          if (key !== 'kb_id' && !supportedParamKeys.has(key)) {
+            delete meta[key]
+          }
+        }
+
+        // 为 meta 中不存在的支持参数添加默认值
+        queryParams.value.forEach((param) => {
+          if (!(param.key in meta)) {
+            meta[param.key] = param.default
+          }
+        })
+      } catch (error) {
+        console.error('Failed to load query params:', error)
+        message.error('加载查询参数失败')
+      } finally {
+        state.queryParamsLoading = false
+        queryParamsLoadingPromise = null
+      }
+    })()
+
+    return queryParamsLoadingPromise
   }
 
   function startAutoRefresh() {
