@@ -22,6 +22,8 @@ const testing = ref(false)
 const testResult = ref(null)
 const models = ref([])
 const total = ref(0)
+// statsModels 缓存全量模型（仅用于顶部统计），避免分页后按类型计数只统计当前页
+const statsModels = ref([])
 const keyword = ref('')
 const modelType = ref('')
 const page = ref(1)
@@ -42,11 +44,22 @@ const typeOptions = [
 
 const stats = computed(() => ({
   total: total.value,
-  enabled: models.value.filter((model) => model.enabled).length,
-  chat: models.value.filter((model) => model.model_type === 'chat').length,
-  embedding: models.value.filter((model) => model.model_type === 'embedding').length,
-  rerank: models.value.filter((model) => model.model_type === 'rerank').length
+  enabled: statsModels.value.filter((model) => model.enabled).length,
+  chat: statsModels.value.filter((model) => model.model_type === 'chat').length,
+  embedding: statsModels.value.filter((model) => model.model_type === 'embedding').length,
+  rerank: statsModels.value.filter((model) => model.model_type === 'rerank').length
 }))
+
+// 拉取全量模型用于顶部类型统计（不受分页影响）
+const loadStats = async () => {
+  try {
+    const response = await modelApi.list({ page: 1, page_size: 100 })
+    const data = response?.data || { total: 0, items: [] }
+    statsModels.value = data.items || []
+  } catch {
+    // 统计失败不影响列表展示
+  }
+}
 
 const testResultDescription = computed(() => {
   if (!testResult.value) return ''
@@ -139,6 +152,7 @@ const save = async () => {
     message.success(editingId.value ? '模型配置已保存' : '模型配置已创建')
     showModal.value = false
     await loadModels()
+    loadStats()
   } catch (error) {
     message.error(error.message || '保存模型配置失败')
   } finally {
@@ -207,6 +221,7 @@ const remove = (model) => {
         message.success('模型配置已删除')
         if (models.value.length === 1 && page.value > 1) page.value -= 1
         await loadModels()
+        loadStats()
       } catch (error) {
         message.error(error.message || '删除模型配置失败')
       }
@@ -217,7 +232,10 @@ const remove = (model) => {
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-')
 
 defineExpose({ loading, stats, loadModels })
-onMounted(loadModels)
+onMounted(() => {
+  loadModels()
+  loadStats()
+})
 </script>
 
 <template>
