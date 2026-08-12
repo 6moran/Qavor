@@ -2,6 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +15,7 @@ import (
 	dto "Qavor/internal/model/dto/response"
 	"Qavor/internal/rag"
 	"Qavor/pkg/errors"
+	pkgllm "Qavor/pkg/llm"
 
 	"github.com/cloudwego/eino/schema"
 )
@@ -51,8 +56,10 @@ func (s *modelService) TestConnection(ctx context.Context, req *request.ModelCon
 	}
 
 	if err != nil {
-		return nil, errors.New(errors.CodeLLMRequestFailed,
-			"连接测试失败: "+redactConnectionTestError(err, apiKey))
+		// 复用公共错误分类：message 为友好提示（余额不足/认证失败等），detail 为脱敏后的原始错误
+		classified := pkgllm.ClassifyError(err)
+		return nil, errors.NewWithDetail(errors.CodeLLMRequestFailed,
+			classified.Friendly, redactConnectionTestError(err, apiKey))
 	}
 
 	result.LatencyMS = latency

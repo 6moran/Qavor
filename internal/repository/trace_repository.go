@@ -364,13 +364,18 @@ func (r *traceSpanRepo) ListTraces(ctx context.Context, filter trace.TraceFilter
 				(latest_agent.agent_status = ? AND business_run.status = ?) OR
 				(latest_agent.agent_status = ? AND business_run.status = ?) OR
 				(latest_agent.agent_status = ? AND business_run.status = ?) OR
+				(latest_agent.agent_status = ? AND business_run.status = ?) OR
+				(latest_agent.agent_status = ? AND business_run.status = ?) OR
 				(latest_agent.agent_status = ? AND business_run.status IN (?, ?)) OR
 				(latest_agent.agent_status = ? AND business_run.status IN (?, ?))
 			)`,
 				trace.SpanStatusOK, entity.StatusCompleted,
 				trace.SpanStatusError, entity.StatusFailed,
+				// cancelled / interrupted 互认（用户手动中断：span 常落成 cancelled，业务 run 是 interrupted）
 				trace.SpanStatusCancelled, entity.StatusCancelled,
+				trace.SpanStatusCancelled, entity.StatusInterrupted,
 				trace.SpanStatusInterrupted, entity.StatusInterrupted,
+				trace.SpanStatusInterrupted, entity.StatusCancelled,
 				trace.SpanStatusRunning, entity.StatusPending, entity.StatusRunning,
 				trace.SpanStatusTimeout, entity.StatusFailed, entity.StatusCancelled,
 			)

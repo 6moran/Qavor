@@ -7,6 +7,7 @@
       :show-icon="showIcon"
       :block-node="blockNode"
       :show-line="showLine"
+      :expand-action="false"
       class="custom-file-tree"
       @update:selected-keys="handleSelectedUpdate"
       @update:expanded-keys="handleExpandedUpdate"
@@ -32,7 +33,7 @@
 
       <!-- Custom Title Slot -->
       <template #title="{ data }">
-        <div class="tree-node-wrapper" @click="handleNodeClick(data)">
+        <div class="tree-node-wrapper">
           <div class="tree-node-content">
             <slot name="title" :node="data">
               <span class="node-title-text" :title="data.title">{{ data.title }}</span>
@@ -162,6 +163,7 @@ const handleNodeClick = (data) => {
       triggerFolderLoad(key, data)
     }
   }
+  emit('select', selectedKeys, info)
 }
 </script>
 

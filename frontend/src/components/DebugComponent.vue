@@ -421,9 +421,7 @@ const printUserInfo = () => {
     phoneNumber: userStore.phoneNumber,
     avatar: userStore.avatar,
     userRole: userStore.userRole,
-    isLoggedIn: userStore.isLoggedIn,
-    isAdmin: userStore.isAdmin,
-    isSuperAdmin: userStore.isSuperAdmin
+    isLoggedIn: userStore.isLoggedIn
   }
   console.log(JSON.stringify(userInfo, null, 2))
 }
@@ -498,16 +496,12 @@ const printAgentConfig = async () => {
         configurableItemsCount: Object.keys(agentStore.configurableItems).length
       })
 
-      // 当前智能体配置（仅管理员可见）
-      if (userStore.isAdmin) {
-        console.log('当前智能体配置:', {
-          current: toRaw(agentStore.agentConfig),
-          original: toRaw(agentStore.originalAgentConfig),
-          hasChanges: agentStore.hasConfigChanges
-        })
-      } else {
-        console.log('智能体配置: 需要管理员权限查看详细配置')
-      }
+      // 当前智能体配置
+      console.log('当前智能体配置:', {
+        current: toRaw(agentStore.agentConfig),
+        original: toRaw(agentStore.originalAgentConfig),
+        hasChanges: agentStore.hasConfigChanges
+      })
     }
 
     // 工具信息
@@ -517,8 +511,8 @@ const printAgentConfig = async () => {
       tools: toolsList
     })
 
-    // 配置项信息（管理员可见）
-    if (userStore.isAdmin && agentStore.selectedAgent) {
+    // 配置项信息
+    if (agentStore.selectedAgent) {
       console.log('可配置项:', toRaw(agentStore.configurableItems))
     }
   } catch (error) {

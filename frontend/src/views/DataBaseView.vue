@@ -15,7 +15,7 @@
         <a-button
           type="primary"
           class="lucide-icon-btn"
-          @click="state.openNewDatabaseModel = true"
+          @click="openNewDatabaseModal"
         >
           <Plus :size="16" /> 新建知识库
         </a-button>
@@ -123,6 +123,7 @@
           <AiTextarea
             v-model="newDatabase.description"
             :name="newDatabase.name"
+            :chat-model-id="newDatabase.chat_model_id"
             placeholder="新建知识库描述"
             :auto-size="{ minRows: 3, maxRows: 10 }"
           />
@@ -159,7 +160,7 @@
           type="primary"
           size="large"
           class="lucide-icon-btn"
-          @click="state.openNewDatabaseModel = true"
+          @click="openNewDatabaseModal"
         >
           <template #icon>
             <Plus :size="16" />
@@ -314,6 +315,7 @@ const loadModels = async () => {
     console.error('加载模型列表失败:', error)
   } finally {
     modelsLoading.value = false
+    sanitizePrefilledModels()
   }
 }
 
@@ -334,6 +336,33 @@ const openRagSettings = () => {
 
 const resetNewDatabase = () => {
   Object.assign(newDatabase, createEmptyDatabaseForm())
+}
+
+// 用系统设置里的默认模型预填创建表单（可手动修改）
+const applyDefaultModelPrefill = () => {
+  const config = configStore.config || {}
+  newDatabase.chat_model_id = config.default_model ? Number(config.default_model) : undefined
+  newDatabase.embedding_model_id = config.embed_model ? Number(config.embed_model) : undefined
+  sanitizePrefilledModels()
+}
+
+// 校验预填的模型是否在可选列表中，已禁用/下线则回退为空
+const sanitizePrefilledModels = () => {
+  if (modelsLoading.value) return
+  const chatIds = new Set(chatModelOptions.value.map((o) => Number(o.value)))
+  const embedIds = new Set(embeddingModelOptions.value.map((o) => Number(o.value)))
+  if (newDatabase.chat_model_id && !chatIds.has(Number(newDatabase.chat_model_id))) {
+    newDatabase.chat_model_id = undefined
+  }
+  if (newDatabase.embedding_model_id && !embedIds.has(Number(newDatabase.embedding_model_id))) {
+    newDatabase.embedding_model_id = undefined
+  }
+}
+
+const openNewDatabaseModal = () => {
+  resetNewDatabase()
+  applyDefaultModelPrefill()
+  state.openNewDatabaseModel = true
 }
 
 const cancelCreateDatabase = () => {

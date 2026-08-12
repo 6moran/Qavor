@@ -35,7 +35,7 @@
             </div>
           </a-menu-item>
         </a-menu>
-        <div v-if="userStore.isAdmin" class="model-config-link">
+        <div class="model-config-link">
           没有合适的模型？
           <RouterLink :to="{ path: '/agent-manage', query: { tab: 'providers' } }" @click.stop>
             配置模型
@@ -50,7 +50,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { modelApi } from '@/apis/model_api'
-import { useUserStore } from '@/stores/user'
 
 const props = defineProps({
   model_spec: { type: String, default: '' },
@@ -62,7 +61,6 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['select-model', 'update:model_spec'])
-const userStore = useUserStore()
 const models = ref([])
 const keyword = ref('')
 const loading = ref(false)

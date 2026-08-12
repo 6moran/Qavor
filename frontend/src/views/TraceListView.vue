@@ -114,6 +114,7 @@ import { message } from 'ant-design-vue'
 import { traceApi } from '@/apis'
 import { agentApi } from '@/apis'
 import PageHeader from '@/components/shared/PageHeader.vue'
+import dayjs from '@/utils/time'
 
 const router = useRouter()
 
@@ -204,8 +205,9 @@ const loadTraces = async () => {
       mismatch_only: filters.mismatch_only || undefined
     }
     if (filters.range && filters.range.length === 2) {
-      params.from = filters.range[0].toISOString()
-      params.to = filters.range[1].toISOString()
+      // 用本地时区（上海）的当天起止时间，避免 toISOString() 的 UTC 截断导致当天数据被排除
+      params.from = dayjs(filters.range[0]).startOf('day').format('YYYY-MM-DDTHH:mm:ssZ')
+      params.to = dayjs(filters.range[1]).endOf('day').format('YYYY-MM-DDTHH:mm:ssZ')
     }
     const data = await traceApi.listTraces(params)
     items.value = data.items || []

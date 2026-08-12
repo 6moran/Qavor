@@ -7,6 +7,7 @@ import AgentRuntimeConfigForm from '@/components/AgentRuntimeConfigForm.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { useAgentStore } from '@/stores/agent'
+import { useConfigStore } from '@/stores/config'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
 
 const props = defineProps({
@@ -16,6 +17,7 @@ const props = defineProps({
 const emit = defineEmits(['saved'])
 
 const agentStore = useAgentStore()
+const configStore = useConfigStore()
 
 const DEFAULT_AGENT_BACKEND_ID = 'ChatbotAgent'
 const SUB_AGENT_BACKEND_ID = 'SubAgentBackend'
@@ -108,6 +110,8 @@ const openCreate = () => {
   editingAgentId.value = null
   agentModalActiveTab.value = 'basic'
   resetAgentForm()
+  // 用系统设置里的默认对话模型预填（可手动修改）
+  agentForm.model_id = configStore.config?.default_model || ''
   agentStore.resetAgentConfig()
   isEditingAgent = false
   preEditSelectedAgentId = null

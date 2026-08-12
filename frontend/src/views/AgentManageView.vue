@@ -5,20 +5,19 @@ import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/shared/PageHeader.vue'
 import AgentManagePanel from '@/components/model-management/AgentManagePanel.vue'
 import ModelManagePanel from '@/components/model-management/ModelManagePanel.vue'
-import { useUserStore } from '@/stores/user'
 
 const route = useRoute()
 const router = useRouter()
-const userStore = useUserStore()
 
 const activeTab = ref('agents')
 const agentPanelRef = ref(null)
 const providerPanelRef = ref(null)
 
 const modelManageTabs = computed(() => {
-  const tabs = [{ key: 'agents', label: '智能体' }]
-  if (userStore.isAdmin) tabs.push({ key: 'providers', label: '模型配置' })
-  return tabs
+  return [
+    { key: 'agents', label: '智能体' },
+    { key: 'providers', label: '模型配置' }
+  ]
 })
 
 const activePanel = computed(() =>
@@ -29,12 +28,12 @@ const activeLoading = computed(() => activePanel.value?.loading || false)
 const activeStats = computed(() => activePanel.value?.stats || {})
 
 const normalizeTab = (tab) => {
-  if (tab === 'providers' && userStore.isAdmin) return 'providers'
+  if (tab === 'providers') return 'providers'
   return 'agents'
 }
 
 watch(
-  () => [route.query.tab, userStore.isAdmin],
+  () => [route.query.tab],
   ([tab]) => {
     const nextTab = normalizeTab(tab)
     if (activeTab.value !== nextTab) activeTab.value = nextTab
@@ -73,6 +72,7 @@ watch(activeTab, (tab) => {
           <span>{{ activeStats.enabled || 0 }} 个启用</span>
           <span>{{ activeStats.chat || 0 }} 个 Chat</span>
           <span>{{ activeStats.embedding || 0 }} 个 Embedding</span>
+          <span>{{ activeStats.rerank || 0 }} 个 Rerank</span>
         </div>
       </template>
     </PageHeader>
@@ -81,7 +81,7 @@ watch(activeTab, (tab) => {
       <div v-show="activeTab === 'agents'" class="tab-panel">
         <AgentManagePanel ref="agentPanelRef" />
       </div>
-      <div v-if="userStore.isAdmin && activeTab === 'providers'" class="tab-panel">
+      <div v-show="activeTab === 'providers'" class="tab-panel">
         <ModelManagePanel ref="providerPanelRef" />
       </div>
     </div>

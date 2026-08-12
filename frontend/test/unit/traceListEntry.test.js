@@ -68,10 +68,10 @@ test('Selected trace tree row has a strong visual highlight', () => {
   assert.match(panelSource, /\.tree-node-row--selected\s*\{[^}]*outline:/s)
 })
 
-test('Trace panel defaults to shallow expansion instead of expanding every span', () => {
+test('Trace panel defaults to fully expanded tree like the timeline', () => {
   const panelSource = readFileSync(panelUrl, 'utf8')
-  assert.match(panelSource, /buildDefaultExpandedSpanIds\(treeRoots\.value\)/)
-  assert.doesNotMatch(panelSource, /collectTreeSpanIds\(buildTraceTree\(spans\.value\)\)/)
+  assert.match(panelSource, /collectTreeSpanIds\(treeRoots\.value\)\.forEach\(id => expandedBranches\.add\(id\)\)/)
+  assert.doesNotMatch(panelSource, /buildDefaultExpandedSpanIds\(treeRoots\.value\)/)
 })
 
 test('Trace tree and timeline use compressed indent with horizontal scroll fallback', () => {

@@ -35,13 +35,21 @@ func Error(c *gin.Context, code int, message string) {
 	})
 }
 
+// bizErrorResponse 业务错误响应体（Detail 可选，仅连接测试 / 模型调用错误等场景输出）
+type bizErrorResponse struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Detail  string `json:"detail,omitempty"`
+}
+
 // BizError 业务错误响应
 func BizError(c *gin.Context, err error) {
 	if bizErr, ok := err.(*errors.BizError); ok {
 		httpStatus := getHTTPStatus(bizErr.Code)
-		c.JSON(httpStatus, Response{
+		c.JSON(httpStatus, bizErrorResponse{
 			Code:    bizErr.Code,
 			Message: bizErr.Message,
+			Detail:  bizErr.Detail,
 		})
 		return
 	}
