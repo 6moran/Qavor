@@ -540,9 +540,9 @@ func (a *App) initDependencies() error {
 	ltmRepo := repository.NewLongTermMemoryRepository(a.postgresDB)
 	longTermMgr := longterm.NewManager(logger.GetLogger(), ltmRepo,
 		&modelResolverAdapter{modelSvc: modelSvc}, longterm.Config{
-			MaxItems:      200,  // 召回上限
-			MaxTokens:     1500, // 注入 System Prompt 的最大 Token
-			DefaultUserID: 0,    // JWT 未携带 UserID 时的降级用户（0 = 全局匿名共享池）
+			MaxItems:      a.cfg.Memory.LongTerm.MaxItems,      // 召回上限（config.yaml: memory.long_term.max_items）
+			MaxTokens:     a.cfg.Memory.LongTerm.MaxTokens,     // 注入 System Prompt 的最大 Token（memory.long_term.max_tokens）
+			DefaultUserID: a.cfg.Memory.LongTerm.DefaultUserID, // JWT 未携带 UserID 时的降级用户（0 = 全局匿名共享池）
 		})
 
 	// 创建上下文管理器（集成 Short Memory + Long Term Memory）
@@ -611,7 +611,7 @@ func (a *App) initDependencies() error {
 		logger.Info("Run Worker 已启动", zap.Int("worker_count", a.cfg.Run.WorkerCount))
 
 		heartbeatPeriod := time.Duration(a.cfg.SSE.HeartbeatInterval) * time.Second
-		postStreamHandler = agentctrl.NewPostStreamHandler(sub, runRepo, reqQueue, heartbeatPeriod, logger.GetLogger(), tracer, traceSpanRepo)
+		postStreamHandler = agentctrl.NewPostStreamHandler(sub, runRepo, conversationRepo, reqQueue, heartbeatPeriod, logger.GetLogger(), tracer, traceSpanRepo)
 		runController = agentctrl.NewRunController(runRepo, reqQueue, runWorker, logger.GetLogger(), contextMgr, conversationRepo, todoStore)
 	} else {
 		logger.Warn("Redis 不可用，Run 流式服务未启动")

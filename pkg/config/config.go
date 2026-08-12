@@ -8,22 +8,23 @@ import (
 
 // Config 应用配置结构体
 type Config struct {
-	App             AppConfig             `mapstructure:"app"`
-	Auth            AuthConfig            `mapstructure:"auth"`
-	Database        DatabaseConfig        `mapstructure:"database"`
-	DocumentQueue   DocumentQueueConfig   `mapstructure:"document_queue"`
-	DocumentParser  DocumentParserConfig  `mapstructure:"document_parser"`
-	JWT           JWTConfig           `mapstructure:"jwt"`
-	Log           LogConfig           `mapstructure:"log"`
-	CORS          CORSConfig          `mapstructure:"cors"`
-	Ollama        OllamaConfig        `mapstructure:"ollama"` // Ollama 配置（可选）
-	RAG           RAGConfig           `mapstructure:"rag"`
-	MCP           MCPConfig           `mapstructure:"mcp"`
-	SSE           SSEConfig           `mapstructure:"sse"`   // SSE 流式服务配置
-	Run           RunConfig           `mapstructure:"run"`   // Run 执行器 / 队列配置
-	Trace         TraceConfig         `mapstructure:"trace"` // 链路追踪配置
-	Agent         AgentConfig         `mapstructure:"agent"`
-	WebSearch     WebSearchConfig     `mapstructure:"web_search"`
+	App            AppConfig            `mapstructure:"app"`
+	Auth           AuthConfig           `mapstructure:"auth"`
+	Database       DatabaseConfig       `mapstructure:"database"`
+	DocumentQueue  DocumentQueueConfig  `mapstructure:"document_queue"`
+	DocumentParser DocumentParserConfig `mapstructure:"document_parser"`
+	JWT            JWTConfig            `mapstructure:"jwt"`
+	Log            LogConfig            `mapstructure:"log"`
+	CORS           CORSConfig           `mapstructure:"cors"`
+	Ollama         OllamaConfig         `mapstructure:"ollama"` // Ollama 配置（可选）
+	RAG            RAGConfig            `mapstructure:"rag"`
+	MCP            MCPConfig            `mapstructure:"mcp"`
+	SSE            SSEConfig            `mapstructure:"sse"`   // SSE 流式服务配置
+	Run            RunConfig            `mapstructure:"run"`   // Run 执行器 / 队列配置
+	Trace          TraceConfig          `mapstructure:"trace"` // 链路追踪配置
+	Agent          AgentConfig          `mapstructure:"agent"`
+	WebSearch      WebSearchConfig      `mapstructure:"web_search"`
+	Memory         MemoryConfig         `mapstructure:"memory"` // 记忆系统配置（长期/短期）
 }
 
 // AgentConfig agent 运行时配置（本地文件系统与安全管控）。
@@ -151,15 +152,15 @@ func (c *RunConfig) ApplyDefaults() {
 
 // RAGConfig RAG 功能配置。第一版仅支持文档索引和问答同步接口。
 type RAGConfig struct {
-	HistoryLimit          int `mapstructure:"history_limit"`
-	ChunkTokens           int `mapstructure:"chunk_tokens"`
-	ChunkOverlapTokens    int `mapstructure:"chunk_overlap_tokens"`
-	VectorTopK            int `mapstructure:"vector_top_k"`
-	KeywordTopK           int `mapstructure:"keyword_top_k"`
-	FusedTopK             int `mapstructure:"fused_top_k"`
-	RerankTopK            int `mapstructure:"rerank_top_k"`
-	RRFK                  int `mapstructure:"rrf_k"`
-	TopK                  int `mapstructure:"top_k"` // 兼容字段：未启用融合/重排时使用
+	HistoryLimit          int     `mapstructure:"history_limit"`
+	ChunkTokens           int     `mapstructure:"chunk_tokens"`
+	ChunkOverlapTokens    int     `mapstructure:"chunk_overlap_tokens"`
+	VectorTopK            int     `mapstructure:"vector_top_k"`
+	KeywordTopK           int     `mapstructure:"keyword_top_k"`
+	FusedTopK             int     `mapstructure:"fused_top_k"`
+	RerankTopK            int     `mapstructure:"rerank_top_k"`
+	RRFK                  int     `mapstructure:"rrf_k"`
+	TopK                  int     `mapstructure:"top_k"`           // 兼容字段：未启用融合/重排时使用
 	ScoreThreshold        float64 `mapstructure:"score_threshold"` // 相似度阈值，低于该值的检索片段将被过滤
 	RequestTimeoutSeconds int     `mapstructure:"request_timeout_seconds"`
 	// Chat/Embedding 模型由知识库绑定的模型 ID 决定，不从这里读取。
@@ -482,4 +483,26 @@ type CORSConfig struct {
 	ExposeHeaders    []string `mapstructure:"expose_headers"`
 	AllowCredentials bool     `mapstructure:"allow_credentials"`
 	MaxAge           int      `mapstructure:"max_age"`
+}
+
+// MemoryConfig 记忆系统配置（长期/短期）
+type MemoryConfig struct {
+	LongTerm LongTermMemoryConfig `mapstructure:"long_term"`
+}
+
+// LongTermMemoryConfig 长期记忆配置
+type LongTermMemoryConfig struct {
+	MaxItems      int  `mapstructure:"max_items"`       // 召回条目上限
+	MaxTokens     int  `mapstructure:"max_tokens"`      // 注入 System Prompt 的最大 Token 数
+	DefaultUserID uint `mapstructure:"default_user_id"` // JWT 未携带 UserID 时的降级用户（0=全局匿名共享池）
+}
+
+// ApplyDefaults 为记忆系统配置设置安全默认值
+func (c *MemoryConfig) ApplyDefaults() {
+	if c.LongTerm.MaxItems <= 0 {
+		c.LongTerm.MaxItems = 200
+	}
+	if c.LongTerm.MaxTokens <= 0 {
+		c.LongTerm.MaxTokens = 1500
+	}
 }

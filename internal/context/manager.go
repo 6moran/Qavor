@@ -107,7 +107,8 @@ func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistory
 	// 召回长期记忆（用户画像/偏好/决策），注入到 window.MemoryContext
 	// 注：目前 JWT 未携带 UserID，使用 defaultUserID（0 → 全局匿名用户）；
 	// 待 User 表完成后，此处改为从 ctx 中读取 userID
-	if m.longTermMgr != nil {
+	// SkipLongTermMemory=true 时跳过召回，避免 UI 状态查询等高频路径重复 DB 查询
+	if m.longTermMgr != nil && !query.SkipLongTermMemory {
 		memText, ltmErr := m.longTermMgr.RetrieveForPrompt(spanCtx, 0)
 		if ltmErr != nil {
 			m.logger.Warn("召回长期记忆失败", zap.Error(ltmErr))
@@ -318,9 +319,12 @@ func (m *contextManager) GetAgentState(ctx context.Context, conversationID uint)
 
 	// —— 计算 token_usage ——
 	// 1. FetchContext: 加载历史消息 + 短期记忆（裁剪前）
+	// 跳过长期记忆召回：UI 状态查询每 5 秒轮询一次，长期记忆变化频率极低，
+	// 召回会带来重复 DB 查询开销；系统 Prompt token 估算会少算长期记忆部分（约几百 tokens），可接受
 	window, err := m.FetchContext(ctx, &ContextHistoryQuery{
-		ConversationID: conversationID,
-		Limit:          50,
+		ConversationID:     conversationID,
+		Limit:              50,
+		SkipLongTermMemory: true,
 	})
 	if err != nil {
 		m.logger.Warn("GetAgentState: FetchContext 失败", zap.Uint("conv", conversationID), zap.Error(err))

@@ -66,6 +66,7 @@ func Load(configPath string) (*Config, error) {
 	config.Run.ApplyDefaults()
 	config.Trace.ApplyDefaults()
 	config.WebSearch.ApplyDefaults()
+	config.Memory.ApplyDefaults()
 
 	err := godotenv.Load(".env")
 	if err != nil {
