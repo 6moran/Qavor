@@ -16,5 +16,4 @@ func (ctrl *Controller) RegisterRoutes(v1 *gin.RouterGroup) {
 	group.DELETE("/file", ctrl.DeleteFile)
 	group.POST("/directory", ctrl.CreateDirectory)
 	group.POST("/upload", ctrl.Upload)
-	group.GET("/download", ctrl.Download)
 }
