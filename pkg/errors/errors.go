@@ -6,6 +6,7 @@ import "fmt"
 type BizError struct {
 	Code    int
 	Message string
+	Detail  string // 原始错误详情（如脱敏后的连接测试错误），JSON 序列化为 detail,omitempty
 	Err     error
 }
 
@@ -31,6 +32,15 @@ func NewWithErr(code int, message string, err error) *BizError {
 		Code:    code,
 		Message: message,
 		Err:     err,
+	}
+}
+
+// NewWithDetail 创建带原始错误详情的业务错误
+func NewWithDetail(code int, message, detail string) *BizError {
+	return &BizError{
+		Code:    code,
+		Message: message,
+		Detail:  detail,
 	}
 }
 
