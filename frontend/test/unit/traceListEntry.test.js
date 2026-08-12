@@ -55,10 +55,10 @@ test('Trace detail panel implements prototype D timeline tree and side detail la
 
 test('Trace tree keeps type colors for LLM, tools, and agents', () => {
   const panelSource = readFileSync(panelUrl, 'utf8')
-  assert.match(panelSource, /tree-node-kind-\$\{(?:props|treeProps)\.node\.kind\}/)
-  assert.match(panelSource, /\.tree-node-kind-llm\s*\{[^}]*#1677ff/s)
-  assert.match(panelSource, /\.tree-node-kind-tool\s*\{[^}]*#52c41a/s)
-  assert.match(panelSource, /\.tree-node-kind-agent\s*\{[^}]*#fa8c16/s)
+  assert.match(panelSource, /wf-kind-\$\{(?:props|treeProps)\.node\.kind\}/)
+  assert.match(panelSource, /\.wf-kind-llm\s*\{[^}]*#1677ff/s)
+  assert.match(panelSource, /\.wf-kind-tool\s*\{[^}]*#52c41a/s)
+  assert.match(panelSource, /\.wf-kind-agent\s*\{[^}]*#fa8c16/s)
 })
 
 test('Selected trace tree row has a strong visual highlight', () => {
