@@ -549,7 +549,7 @@ func (a *App) initDependencies() error {
 	contextConfig := &contextmgr.ContextConfig{
 		MaxTokens:     32768, // 上下文窗口（对话历史保留上限），中文每字约2-3 Token
 		ReserveTokens: 4096,  // 预留给模型回复的 Token
-		SystemPrompt:  "You are a helpful assistant.",
+		SystemPrompt:  "你是 Qavor AI 助手，请始终使用中文回答用户的问题。",
 	}
 	// 上下文压缩用的摘要器（复用 ModelService 适配器，modelID=0 时返回空摘要跳过压缩）
 	ctxSummarizer := contextmgr.NewLLMSummarizer(logger.GetLogger(), &llmClientAdapter{client: nil, modelSvc: modelSvc, modelID: 0})
