@@ -8,6 +8,7 @@
       :show-icon="showIcon"
       :block-node="blockNode"
       :show-line="showLine"
+      :expand-action="false"
       class="custom-file-tree"
       @update:selected-keys="handleSelectedUpdate"
       @update:expanded-keys="handleExpandedUpdate"
