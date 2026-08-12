@@ -551,9 +551,9 @@ func (a *App) initDependencies() error {
 		ReserveTokens: 4096,  // 预留给模型回复的 Token
 		SystemPrompt:  "You are a helpful assistant.",
 	}
-	// 上下文压缩用的摘要器（复用 ModelService 适配器，modelID=0 时返回空摘要跳过压缩）
-	ctxSummarizer := contextmgr.NewLLMSummarizer(logger.GetLogger(), &llmClientAdapter{client: nil, modelSvc: modelSvc, modelID: 0})
-	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, ctxSummarizer, logger.GetLogger(), tracer)
+	// 模型解析器适配器，用于根据 modelID 动态创建 LLM 客户端
+	contextModelResolver := &contextModelResolverAdapter{modelSvc: modelSvc}
+	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, nil, contextModelResolver, logger.GetLogger(), tracer)
 
 	// 创建 SSE 模块
 	heartbeatConfig := &sse.HeartbeatConfig{
@@ -602,7 +602,7 @@ func (a *App) initDependencies() error {
 
 		executor := run.NewAgentExecutor(agentMgr, modelSvc)
 		todoStore := run.NewTodoStore(a.redis, 24*time.Hour)
-		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, logger.GetLogger(), a.cfg.Run.WorkerCount, tracer)
+		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, modelSvc, logger.GetLogger(), a.cfg.Run.WorkerCount, tracer)
 
 		// 启动 Run Worker 池
 		runWorkerCtx, cancelRunWorker := context.WithCancel(context.Background())
@@ -806,4 +806,20 @@ func (a *llmClientAdapter) Generate(ctx context.Context, input []*schema.Message
 		return nil, fmt.Errorf("LLM client not initialized")
 	}
 	return a.client.Generate(ctx, input)
+}
+
+// contextModelResolverAdapter 将 service.ModelService 适配为 context.ModelResolver
+type contextModelResolverAdapter struct {
+	modelSvc service.ModelService
+}
+
+func (a *contextModelResolverAdapter) CreateLLMClient(ctx context.Context, modelID uint) (llm.Client, error) {
+	return a.modelSvc.CreateLLMClient(ctx, modelID)
+}
+
+func (a *contextModelResolverAdapter) GetContextWindow(modelID uint) int {
+	if _, _, contextWindow, ok := a.modelSvc.GetModelInfo(modelID); ok {
+		return contextWindow
+	}
+	return 0
 }

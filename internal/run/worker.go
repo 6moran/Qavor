@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"Qavor/internal/eventbus"
+	"Qavor/internal/llm"
 	longterm "Qavor/internal/memory/long_term"
 	"Qavor/internal/model/entity"
 	"Qavor/internal/repository"
@@ -107,6 +108,7 @@ type Worker struct {
 	contextMgr       ContextProvider
 	longTermMgr      *longterm.Manager
 	todoStore        *TodoStore
+	modelSvc         ModelResolver // 用于获取模型信息以动态调整上下文窗口
 	logger           *zap.Logger
 	tracer           *trace.Tracer
 
@@ -119,7 +121,8 @@ type Worker struct {
 
 // ContextProvider 上下文管理接口（用于加载对话历史和短期记忆）
 type ContextProvider interface {
-	LoadHistory(ctx context.Context, conversationID uint) ([]*schema.Message, error)
+	// LoadHistory 加载对话历史，maxTokens 为该请求对应的模型上下文窗口大小，modelID 用于摘要生成
+	LoadHistory(ctx context.Context, conversationID uint, maxTokens int, modelID uint) ([]*schema.Message, error)
 	UpdateShortMemory(ctx context.Context, conversationID uint, message *schema.Message, modelID uint) error
 }
 
@@ -145,7 +148,7 @@ func queueRunMeta(run *entity.AgentRun, item *QueueItem, conversationID uint, re
 func NewWorker(queue *RequestQueue, pub EventPublisher, runRepo repository.AgentRunRepository,
 	messageRepo repository.MessageRepository, conversationRepo repository.ConversationRepository,
 	executor AgentExecutor, contextMgr ContextProvider, longTermMgr *longterm.Manager, todoStore *TodoStore,
-	logger *zap.Logger, workerCount int,
+	modelSvc ModelResolver, logger *zap.Logger, workerCount int,
 	tracer *trace.Tracer) *Worker {
 	if workerCount <= 0 {
 		workerCount = 3
@@ -160,6 +163,7 @@ func NewWorker(queue *RequestQueue, pub EventPublisher, runRepo repository.Agent
 		contextMgr:       contextMgr,
 		longTermMgr:      longTermMgr,
 		todoStore:        todoStore,
+		modelSvc:         modelSvc,
 		logger:           logger,
 		workerCount:      workerCount,
 		block:            5 * time.Second,
@@ -391,7 +395,22 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	// 0.2 加载对话历史（在保存用户消息之后，获取包含当前用户消息的完整历史）
 	var history []*schema.Message
 	if conversationID > 0 && w.contextMgr != nil {
-		history, _ = w.contextMgr.LoadHistory(ctx, conversationID)
+		// 根据模型动态调整上下文窗口大小
+		// 优先级：模型配置 > Provider 默认值 > 全局默认值
+		maxTokens := 0
+		if w.modelSvc != nil && modelID > 0 {
+			if provider, name, contextWindow, ok := w.modelSvc.GetModelInfo(modelID); ok {
+				if contextWindow > 0 {
+					// 使用模型配置的 ContextWindow
+					maxTokens = contextWindow
+				} else {
+					// 数据库中未配置，使用 Provider 默认值作为后备
+					maxTokens = llm.GetMaxContextTokens(provider, name)
+				}
+			}
+		}
+		// 传入 modelID 用于摘要生成
+		history, _ = w.contextMgr.LoadHistory(ctx, conversationID, maxTokens, modelID)
 	}
 
 	// 1. 状态置 running

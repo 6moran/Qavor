@@ -198,6 +198,7 @@ func (ctrl *RunController) ContinueThreadQueue(c *gin.Context) {
 // 返回 Agent 状态面板数据（token 用量、待办、文件、子 Agent 运行）
 // :threadId 同时支持数字 ID（如 137）和 UUID（如 7d936311-...），
 // 前端全链路使用数字 ID，旧版 SSE/Run 相关调用可能使用 UUID。
+// 查询参数 model_id: 可选，用于获取模型的上下文窗口大小
 func (ctrl *RunController) GetAgentState(c *gin.Context) {
 	threadID := c.Param("threadId")
 
@@ -233,8 +234,16 @@ func (ctrl *RunController) GetAgentState(c *gin.Context) {
 		return
 	}
 
+	// 从查询参数获取 model_id（可选）
+	var modelID uint
+	if modelIDStr := c.Query("model_id"); modelIDStr != "" {
+		if id, parseErr := strconv.ParseUint(modelIDStr, 10, 32); parseErr == nil {
+			modelID = uint(id)
+		}
+	}
+
 	// 获取 token_usage 等（contextMgr 聚合）
-	state, err := ctrl.contextMgr.GetAgentState(c.Request.Context(), conv.ID)
+	state, err := ctrl.contextMgr.GetAgentState(c.Request.Context(), conv.ID, modelID)
 	if err != nil {
 		logger.Error("GetAgentState: 获取状态失败", zap.Uint("conv", conv.ID), zap.Error(err))
 		response.InternalServerError(c)
