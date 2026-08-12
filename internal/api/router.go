@@ -6,6 +6,7 @@ import (
 	chatctrl "Qavor/internal/api/v1/chat"
 	"Qavor/internal/api/v1/conversation"
 	dashboardctrl "Qavor/internal/api/v1/dashboard"
+	evaluationctrl "Qavor/internal/api/v1/evaluation"
 	knowledgebase "Qavor/internal/api/v1/knowledge_base"
 	knowledgefile "Qavor/internal/api/v1/knowledge_file"
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
@@ -15,6 +16,7 @@ import (
 	processingjob "Qavor/internal/api/v1/processing_job"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
+	systemctrl "Qavor/internal/api/v1/system"
 	toolctrl "Qavor/internal/api/v1/tool"
 	tracectrl "Qavor/internal/api/v1/trace"
 	workspaceapi "Qavor/internal/api/v1/workspace"
@@ -39,6 +41,7 @@ type Router struct {
 	agentCtrl         *agentctrl.Controller
 	chatCtrl          *chatctrl.Controller
 	ragCtrl           *ragctrl.Controller
+	systemCtrl        *systemctrl.Controller
 	toolCtrl          *toolctrl.Controller
 	skillCtrl         *skillapi.Controller
 	sseCtrl           *ssectrl.Controller
@@ -49,6 +52,7 @@ type Router struct {
 	traceCtrl         *tracectrl.Controller
 	dashboardCtrl     *dashboardctrl.Controller
 	workspaceCtrl     *workspaceapi.Controller
+	evaluationCtrl    *evaluationctrl.Controller
 	tracer            *tracepkg.Tracer
 }
 
@@ -66,6 +70,7 @@ func NewRouter(
 	agentCacheInvalidator agentctrl.AgentCacheInvalidator,
 	chatCtrl *chatctrl.Controller,
 	ragCtrl *ragctrl.Controller,
+	systemCtrl *systemctrl.Controller,
 	toolRegistry *tool.Registry,
 	skillCtrl *skillapi.Controller,
 	sseCtrl *ssectrl.Controller,
@@ -75,11 +80,13 @@ func NewRouter(
 	traceCtrl *tracectrl.Controller,
 	dashboardService service.DashboardService,
 	workspaceCtrl *workspaceapi.Controller,
+	knowledgeQueryService service.KnowledgeQueryService,
 	tracer *tracepkg.Tracer,
+	evaluationCtrl *evaluationctrl.Controller,
 ) *Router {
 	return &Router{
 		authCtrl:          auth.NewController(authService),
-		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService),
+		knowledgeBaseCtrl: knowledgebase.NewController(knowledgeBaseService, knowledgeQueryService),
 		knowledgeFileCtrl: knowledgefile.NewController(knowledgeFileService),
 		processingJobCtrl: processingjob.NewController(processingJobService),
 		modelCtrl:         model.NewController(modelService),
@@ -88,6 +95,7 @@ func NewRouter(
 		agentCtrl:         agentctrl.NewController(agentService, agentOpts, agentCacheInvalidator),
 		chatCtrl:          chatCtrl,
 		ragCtrl:           ragCtrl,
+		systemCtrl:        systemCtrl,
 		toolCtrl:          toolctrl.NewController(toolRegistry),
 		sseCtrl:           sseCtrl,
 		skillCtrl:         skillCtrl,
@@ -97,6 +105,7 @@ func NewRouter(
 		traceCtrl:         traceCtrl,
 		dashboardCtrl:     dashboardctrl.NewController(dashboardService),
 		workspaceCtrl:     workspaceCtrl,
+		evaluationCtrl:    evaluationCtrl,
 		tracer:            tracer,
 	}
 }
@@ -152,6 +161,10 @@ func (r *Router) Setup(engine *gin.Engine) {
 		if r.ragCtrl != nil {
 			r.ragCtrl.RegisterRoutes(v1)
 		}
+		// 全局 RAG 设置路由
+		if r.systemCtrl != nil {
+			r.systemCtrl.RegisterRoutes(v1)
+		}
 		// 工具路由
 		r.toolCtrl.RegisterRoutes(v1)
 		// OCR 引擎路由
@@ -180,6 +193,11 @@ func (r *Router) Setup(engine *gin.Engine) {
 		// 仪表盘路由
 		if r.dashboardCtrl != nil {
 			r.dashboardCtrl.RegisterRoutes(v1)
+		}
+
+		// 评估路由
+		if r.evaluationCtrl != nil {
+			r.evaluationCtrl.RegisterRoutes(v1)
 		}
 	}
 }

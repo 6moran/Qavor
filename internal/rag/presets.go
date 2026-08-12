@@ -13,6 +13,8 @@ const (
 	PresetGeneral = "general"
 	// PresetFAQ 问答对切分。
 	PresetFAQ = "faq"
+	// PresetHierarchy 标题父子块：父块章节摘要 + 子块带标题路径正文。
+	PresetHierarchy = "hierarchy"
 )
 
 // DefaultChunkPresetID 未指定预设时的回退值。
@@ -29,6 +31,11 @@ var chunkPresets = []ChunkPreset{
 		ID:          PresetFAQ,
 		Label:       "FAQ 问答对",
 		Description: "按问答对切分：识别「Q:/A:」「问:/答:」格式，每个问答对独立成块，适合常见问题手册",
+	},
+	{
+		ID:          PresetHierarchy,
+		Label:       "标题父子块",
+		Description: "标题层级分块：父块保留章节摘要，子块携带完整标题路径，适合章节多、层级深的长技术文档",
 	},
 }
 
@@ -62,6 +69,8 @@ func NewSplitter(presetID string, maxTokens, overlapTokens int) markdownSplitter
 	switch NormalizeChunkPreset(presetID) {
 	case PresetFAQ:
 		return NewFAQChunker(maxTokens, overlapTokens)
+	case PresetHierarchy:
+		return NewHierarchyChunker(maxTokens, overlapTokens)
 	default:
 		return NewChunker(maxTokens, overlapTokens)
 	}

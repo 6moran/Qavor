@@ -48,11 +48,12 @@ type ModelListRequest struct {
 
 // ModelConnectionTestRequest 模型连接测试请求
 type ModelConnectionTestRequest struct {
-	ModelID   uint   `json:"model_id" binding:"omitempty,min=1"`
-	Name      string `json:"name" binding:"required,max=100"`
-	Protocol  string `json:"protocol" binding:"required,max=32"`
-	BaseURL   string `json:"base_url" binding:"required,max=500"`
-	APIKey    string `json:"api_key" binding:"omitempty,max=500"`
-	Timeout   int    `json:"timeout" binding:"omitempty,min=1000,max=300000"`
-	ModelType string `json:"model_type" binding:"required,oneof=chat embedding rerank"`
+	ModelID   uint              `json:"model_id" binding:"omitempty,min=1"`
+	Name      string            `json:"name" binding:"required,max=100"`
+	Protocol  string            `json:"protocol" binding:"required,max=32"`
+	BaseURL   string            `json:"base_url" binding:"required,max=500"`
+	APIKey    string            `json:"api_key" binding:"omitempty,max=500"`
+	Headers   map[string]string `json:"headers" binding:"omitempty"`
+	Timeout   int               `json:"timeout" binding:"omitempty,min=1000,max=300000"`
+	ModelType string            `json:"model_type" binding:"required,oneof=chat embedding rerank"`
 }

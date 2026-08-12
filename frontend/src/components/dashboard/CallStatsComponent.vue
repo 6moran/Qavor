@@ -59,6 +59,7 @@ const themeStore = useThemeStore()
 const callStatsData = ref(null)
 const callStatsLoading = ref(false)
 const callTimeRange = ref('7days')
+const callDataType = ref('tokens')
 const timeRangeOptions = [
   { value: 'today', label: '今天' },
   { value: '7days', label: '近7天' },
@@ -106,6 +107,7 @@ const callStatsChartRef = ref(null)
 let callStatsChart = null
 let retryTimer = null
 let hoveredSeriesName = null
+let resizeObserver = null
 const retryCount = ref(0)
 const maxRetry = 20
 
@@ -128,7 +130,6 @@ const renderCallStatsChart = () => {
   const container = callStatsChartRef.value
   if (!container || !callStatsData.value) return
 
-  // 若父卡片仍在 loading，等待 loading 结束
   if (props.loading) {
     scheduleRetry()
     return
@@ -152,6 +153,17 @@ const renderCallStatsChart = () => {
   hoveredSeriesName = null
 
   callStatsChart = echarts.init(container)
+
+  // 监听容器尺寸变化，自动调整图表大小
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
+  resizeObserver = new ResizeObserver(() => {
+    if (callStatsChart) {
+      callStatsChart.resize()
+    }
+  })
+  resizeObserver.observe(container)
 
   const data = callStatsData.value.data || []
   const categories = callStatsData.value.categories || []
@@ -286,12 +298,26 @@ const renderCallStatsChart = () => {
 }
 
 const scheduleRetry = () => {
-  if (retryCount.value >= maxRetry) return
   if (retryTimer) clearTimeout(retryTimer)
   retryTimer = setTimeout(() => {
+    // 如果容器仍然没有尺寸，设置 ResizeObserver 等待布局完成
+    const container = callStatsChartRef.value
+    if (container && (!container.clientWidth || !container.clientHeight)) {
+      if (!resizeObserver) {
+        resizeObserver = new ResizeObserver(() => {
+          if (callStatsData.value && !callStatsChart) {
+            renderCallStatsChart()
+          } else if (callStatsChart) {
+            callStatsChart.resize()
+          }
+        })
+        resizeObserver.observe(container)
+      }
+      return
+    }
     retryCount.value += 1
     renderCallStatsChart()
-  }, 100)
+  }, retryCount.value >= maxRetry ? 500 : 100)
 }
 
 const handleResize = () => {
@@ -302,6 +328,10 @@ const resizeListenerOptions = { passive: true }
 
 const cleanup = () => {
   window.removeEventListener('resize', handleResize, resizeListenerOptions)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
   if (retryTimer) {
     clearTimeout(retryTimer)
     retryTimer = null
@@ -372,15 +402,17 @@ onUnmounted(() => {
 .call-stats .chart-container {
   height: 100%;
   flex: 1;
+  min-height: 250px;
   padding: 0; /* 移除默认padding */
 }
 
 .call-stats .chart {
   height: 100% !important;
+  min-height: 250px;
   width: 100%;
-  padding: 0; /* 移除chart的padding */
-  border: none; /* 移除chart的border */
-  background-color: transparent; /* 移除背景色 */
+  padding: 0;
+  border: none;
+  background-color: transparent;
 }
 
 .simple-controls {

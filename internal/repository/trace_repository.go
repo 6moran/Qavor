@@ -410,45 +410,46 @@ func (r *traceSpanRepo) ListTraces(ctx context.Context, filter trace.TraceFilter
 		return []trace.TraceSummary{}, total, nil
 	}
 
-	// 为每个 trace_id 构建摘要
+	// 批量取出本页 trace 的 records 与 spans，避免逐条 trace 查询的 N+1
+	var records []entity.TraceRecord
+	if err := r.db.WithContext(ctx).Where("trace_id IN ?", traceIDs).Find(&records).Error; err != nil {
+		return nil, 0, err
+	}
+	recByID := make(map[string]*entity.TraceRecord, len(records))
+	for i := range records {
+		recByID[records[i].TraceID] = &records[i]
+	}
+
+	var allSpans []entity.TraceSpan
+	if err := r.db.WithContext(ctx).Where("trace_id IN ?", traceIDs).Order("started_at ASC").Find(&allSpans).Error; err != nil {
+		return nil, 0, err
+	}
+	spansByID := make(map[string][]*entity.TraceSpan, len(traceIDs))
+	for i := range allSpans {
+		tid := allSpans[i].TraceID
+		spansByID[tid] = append(spansByID[tid], &allSpans[i])
+	}
+
+	// 内存聚合（与原 buildSummary 逻辑一致），保持 traceIDs 的顺序（created_at DESC）
 	summaries := make([]trace.TraceSummary, 0, len(traceIDs))
 	for _, tid := range traceIDs {
-		s, err := r.buildSummary(ctx, tid)
-		if err != nil {
-			return nil, 0, err
+		rec, ok := recByID[tid]
+		if !ok {
+			continue
 		}
-		if s != nil {
-			summaries = append(summaries, *s)
-		}
+		summaries = append(summaries, r.buildSummaryFromRecord(rec, spansByID[tid]))
 	}
 	return summaries, total, nil
 }
 
-// buildSummary 为单个 trace_id 构建聚合摘要
-func (r *traceSpanRepo) buildSummary(ctx context.Context, traceID string) (*trace.TraceSummary, error) {
-	// 读取 TraceRecord
-	var rec entity.TraceRecord
-	if err := r.db.WithContext(ctx).Where("trace_id = ?", traceID).First(&rec).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	summary := &trace.TraceSummary{
+// buildSummaryFromRecord 由已查询的 TraceRecord 与 spans 在内存中聚合出列表摘要。
+// 抽离为纯函数，供 ListTraces 批量取数后复用，消除逐条 trace 查询导致的 N+1。
+func (r *traceSpanRepo) buildSummaryFromRecord(rec *entity.TraceRecord, spans []*entity.TraceSpan) trace.TraceSummary {
+	summary := trace.TraceSummary{
 		TraceID:      rec.TraceID,
 		RequestID:    rec.RequestID,
 		QuerySummary: rec.QuerySummary,
 		StartedAt:    rec.CreatedAt,
-	}
-
-	// 读取该 trace 的所有 span
-	var spans []*entity.TraceSpan
-	if err := r.db.WithContext(ctx).
-		Where("trace_id = ?", traceID).
-		Order("started_at ASC").
-		Find(&spans).Error; err != nil {
-		return nil, err
 	}
 
 	var minStarted, maxEnded *time.Time
@@ -492,7 +493,7 @@ func (r *traceSpanRepo) buildSummary(ctx context.Context, traceID string) (*trac
 	if minStarted != nil && maxEnded != nil {
 		summary.DurationMs = maxEnded.Sub(*minStarted).Milliseconds()
 	}
-	return summary, nil
+	return summary
 }
 
 // ListSpans 查询某 Trace 的所有 Span（按 started_at 排序）
@@ -503,6 +504,19 @@ func (r *traceSpanRepo) ListSpans(ctx context.Context, traceID string) ([]*entit
 		Order("started_at ASC").
 		Find(&spans).Error
 	return spans, err
+}
+
+// GetSpan 查询单条 Span 完整记录（含 attributes），供详情页按需懒加载。
+func (r *traceSpanRepo) GetSpan(ctx context.Context, spanID string) (*entity.TraceSpan, error) {
+	var span entity.TraceSpan
+	err := r.db.WithContext(ctx).Where("span_id = ?", spanID).First(&span).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &span, nil
 }
 
 // GetTraceIDByRunID 通过 run_id 反查 trace_id（从 agent.run span 查询）

@@ -528,7 +528,9 @@ const loadSourcePreview = async () => {
   sourcePreview.value.loading = true
   try {
     const response = await documentApi.downloadDocument(props.kbId, props.fileId)
-    const preview = await normalizePreviewResponse(response)
+    const preview = await normalizePreviewResponse(response, {
+      filename: file.value?.filename || ''
+    })
     if (requestId !== sourceRequestSeq) {
       if (preview.previewUrl) {
         window.URL.revokeObjectURL(preview.previewUrl)

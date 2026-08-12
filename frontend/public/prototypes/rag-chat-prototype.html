@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Qavor 对话页原型 — RAG 快速/深度模式</title>
+<style>
+  :root {
+    --main-800: #1a4a8a;
+    --main-700: #2563b0;
+    --main-600: #3b82d6;
+    --main-500: #5b9dea;
+    --main-400: #7eb4f0;
+    --main-50: #eff6ff;
+    --main-100: #dbeafe;
+    --gray-0: #ffffff;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-400: #9ca3af;
+    --gray-500: #6b7280;
+    --gray-600: #4b5563;
+    --gray-700: #374151;
+    --gray-800: #1f2937;
+    --gray-900: #111827;
+    --green-600: #16a34a;
+    --green-50: #f0fdf4;
+    --amber-600: #d97706;
+    --amber-50: #fffbeb;
+    --red-600: #dc2626;
+    --radius: 10px;
+    --shadow: 0 1px 3px rgba(0,0,0,.08), 0 4px 14px rgba(0,0,0,.05);
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font); background: var(--gray-50); color: var(--gray-800); height: 100vh; overflow: hidden; }
+
+  .app { display: flex; height: 100vh; }
+
+  /* ============ 左侧会话列表 ============ */
+  .sidebar {
+    width: 248px; flex-shrink: 0; background: var(--gray-0);
+    border-right: 1px solid var(--gray-200); display: flex; flex-direction: column;
+  }
+  .sidebar-head { padding: 14px 12px 10px; display: flex; align-items: center; gap: 8px; }
+  .logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; color: var(--gray-900); }
+  .logo-badge {
+    width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--main-600), var(--main-400));
+    color: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800;
+  }
+  .new-btn {
+    margin-left: auto; border: 1px solid var(--gray-200); background: var(--gray-50); color: var(--gray-600);
+    border-radius: 7px; padding: 5px 10px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;
+  }
+  .new-btn:hover { border-color: var(--main-500); color: var(--main-600); background: var(--main-50); }
+  .search-box { margin: 0 12px 8px; padding: 6px 10px; border: 1px solid var(--gray-200); border-radius: 7px; font-size: 12px; color: var(--gray-400); background: var(--gray-50); }
+  .conv-list { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
+  .conv-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; color: var(--gray-700); margin-bottom: 2px;
+  }
+  .conv-item:hover { background: var(--gray-50); }
+  .conv-item.active { background: var(--main-50); color: var(--main-700); }
+  .conv-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conv-modes { display: flex; gap: 2px; flex-shrink: 0; }
+  .mode-mini { font-size: 11px; padding: 1px 5px; border-radius: 5px; }
+  .mode-mini.fast { background: var(--amber-50); color: var(--amber-600); }
+  .mode-mini.deep { background: var(--main-50); color: var(--main-600); }
+
+  /* ============ 主区域 ============ */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .header {
+    height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 16px;
+    background: var(--gray-0); border-bottom: 1px solid var(--gray-200);
+  }
+  .header-title { font-size: 14px; font-weight: 600; color: var(--gray-900); }
+  .header-sub { font-size: 12px; color: var(--gray-400); }
+  .header-right { margin-left: auto; display: flex; gap: 6px; }
+  .icon-btn {
+    width: 30px; height: 30px; border: none; background: transparent; border-radius: 7px; cursor: pointer;
+    color: var(--gray-500); display: flex; align-items: center; justify-content: center; font-size: 14px;
+  }
+  .icon-btn:hover { background: var(--gray-100); color: var(--gray-700); }
+  .agent-pill {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--gray-200);
+    border-radius: 999px; font-size: 12px; color: var(--gray-700); background: var(--gray-0); cursor: pointer;
+  }
+  .agent-dot { width: 16px; height: 16px; border-radius: 4px; background: linear-gradient(135deg, var(--main-600), var(--main-400)); }
+
+  /* ============ 消息流 ============ */
+  .chat { flex: 1; overflow-y: auto; padding: 20px 0 12px; }
+  .chat-inner { max-width: 860px; margin: 0 auto; padding: 0 20px; display: flex; flex-direction: column; gap: 18px; }
+  .msg { display: flex; flex-direction: column; max-width: 92%; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.assistant { align-self: flex-start; }
+  .msg-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; font-size: 12px; color: var(--gray-400); }
+  .msg.user .msg-meta { flex-direction: row-reverse; }
+  .mode-tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; display: inline-flex; align-items: center; gap: 3px; }
+  .mode-tag.fast { background: var(--amber-50); color: var(--amber-600); border: 1px solid #fde68a; }
+  .mode-tag.deep { background: var(--main-50); color: var(--main-600); border: 1px solid var(--main-100); }
+  .bubble {
+    border-radius: var(--radius); padding: 11px 14px; font-size: 14px; line-height: 1.65; position: relative;
+  }
+  .msg.user .bubble { background: var(--main-600); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.assistant .bubble { background: var(--gray-0); border: 1px solid var(--gray-200); box-shadow: var(--shadow); border-bottom-left-radius: 4px; }
+  .kb-chips { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+  .kb-chip {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,.18);
+    border: 1px solid rgba(255,255,255,.35); color: #fff;
+  }
+  .assistant .kb-chip { background: var(--gray-100); border-color: var(--gray-200); color: var(--gray-600); }
+  .md { white-space: pre-wrap; word-break: break-word; }
+  .md b { font-weight: 600; }
+  .ref-num { color: var(--main-600); font-size: 12px; vertical-align: super; margin: 0 1px; cursor: pointer; }
+  .ref-num:hover { text-decoration: underline; }
+
+  /* 引用卡片 */
+  .refs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .ref-card {
+    width: calc(33.33% - 6px); min-width: 200px; border: 1px solid var(--gray-200); border-radius: 9px;
+    padding: 9px 11px; background: var(--gray-50); cursor: pointer; transition: border-color .15s;
+  }
+  .ref-card:hover { border-color: var(--main-500); }
+  .ref-card-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--gray-800); margin-bottom: 4px; }
+  .ref-file-icon { width: 18px; height: 18px; border-radius: 4px; background: var(--main-100); color: var(--main-700); display: flex; align-items: center; justify-content: center; font-size: 10px; flex-shrink: 0; }
+  .ref-card-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ref-score { font-size: 11px; color: var(--green-600); flex-shrink: 0; }
+  .ref-snippet { font-size: 12px; color: var(--gray-500); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .ref-card.expanded .ref-snippet { -webkit-line-clamp: unset; display: block; }
+  .ref-more { font-size: 11px; color: var(--main-600); margin-top: 4px; }
+
+  /* 工具调用折叠 */
+  .tool-group { border: 1px solid var(--gray-200); border-radius: 9px; margin-top: 10px; background: var(--gray-0); overflow: hidden; }
+  .tool-head {
+    display: flex; align-items: center; gap: 8px; padding: 9px 12px; cursor: pointer; font-size: 13px; color: var(--gray-700);
+  }
+  .tool-head:hover { background: var(--gray-50); }
+  .tool-icon { width: 22px; height: 22px; border-radius: 6px; background: var(--main-50); color: var(--main-600); display: flex; align-items: center; justify-content: center; font-size: 12px; }
+  .tool-name { font-weight: 600; }
+  .tool-status { margin-left: auto; font-size: 11px; color: var(--green-600); display: flex; align-items: center; gap: 4px; }
+  .tool-caret { transition: transform .2s; color: var(--gray-400); }
+  .tool-body { display: none; border-top: 1px solid var(--gray-100); padding: 8px 12px 12px; }
+  .tool-group.open .tool-body { display: block; }
+  .tool-group.open .tool-caret { transform: rotate(180deg); }
+  .tool-call { margin-top: 8px; }
+  .tool-call:first-child { margin-top: 0; }
+  .tool-call-query { font-size: 12px; color: var(--gray-600); margin-bottom: 6px; }
+  .tool-call-query b { color: var(--gray-800); font-weight: 500; }
+  .chunk-item {
+    display: flex; gap: 8px; padding: 7px 9px; border: 1px solid var(--gray-100); border-radius: 7px; background: var(--gray-50); margin-top: 5px;
+  }
+  .chunk-idx { font-size: 11px; color: var(--main-600); font-weight: 600; flex-shrink: 0; padding-top: 2px; }
+  .chunk-main { flex: 1; min-width: 0; }
+  .chunk-file { font-size: 11px; color: var(--gray-400); margin-bottom: 2px; }
+  .chunk-text { font-size: 12px; color: var(--gray-600); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .chunk-score { font-size: 11px; color: var(--green-600); flex-shrink: 0; padding-top: 2px; }
+
+  /* 模式切换提示 */
+  .mode-switch-note {
+    align-self: center; font-size: 11px; color: var(--gray-400); background: var(--gray-100);
+    padding: 3px 12px; border-radius: 999px;
+  }
+
+  /* 生成中状态 */
+  .thinking { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--gray-500); padding: 4px 2px; }
+  .thinking .phase { color: var(--gray-400); font-size: 12px; }
+  .dots { display: inline-flex; gap: 3px; }
+  .dots span { width: 5px; height: 5px; border-radius: 50%; background: var(--main-500); animation: blink 1.2s infinite; }
+  .dots span:nth-child(2) { animation-delay: .2s; }
+  .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+  /* 快速回答生成中的骨架 */
+  .skeleton { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .skeleton-line { height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--gray-100) 25%, var(--gray-200) 50%, var(--gray-100) 75%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+  .skeleton-line.w60 { width: 60%; } .skeleton-line.w80 { width: 80%; } .skeleton-line.w40 { width: 40%; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* ============ 输入区 ============ */
+  .input-area { border-top: 1px solid var(--gray-200); background: var(--gray-0); padding: 10px 20px 14px; }
+  .input-inner { max-width: 860px; margin: 0 auto; }
+  .mode-switch { display: inline-flex; background: var(--gray-100); border-radius: 9px; padding: 3px; margin-bottom: 8px; }
+  .mode-btn {
+    border: none; background: transparent; padding: 6px 16px; border-radius: 7px; font-size: 13px; cursor: pointer;
+    color: var(--gray-500); display: inline-flex; align-items: center; gap: 6px; transition: all .15s;
+  }
+  .mode-btn.active { background: var(--gray-0); color: var(--main-700); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 600; }
+  .mode-btn.fast.active { color: var(--amber-600); }
+  .kb-select { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .kb-label { font-size: 12px; color: var(--gray-500); flex-shrink: 0; }
+  .kb-option {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--gray-200); background: var(--gray-0);
+    color: var(--gray-600); cursor: pointer; transition: all .15s;
+  }
+  .kb-option:hover { border-color: var(--main-400); }
+  .kb-option.selected { background: var(--main-50); border-color: var(--main-500); color: var(--main-700); }
+  .input-box { display: flex; align-items: flex-end; border: 1px solid var(--gray-200); border-radius: 12px; padding: 8px 10px; background: var(--gray-0); transition: border-color .15s; }
+  .input-box:focus-within { border-color: var(--main-500); box-shadow: 0 0 0 3px var(--main-50); }
+  .input-ta { flex: 1; border: none; outline: none; resize: none; font-size: 14px; font-family: var(--font); color: var(--gray-800); background: transparent; line-height: 1.6; min-height: 24px; max-height: 160px; }
+  .input-ta::placeholder { color: var(--gray-400); }
+  .input-side { display: flex; align-items: center; gap: 6px; margin-left: 8px; }
+  .attach-btn { width: 30px; height: 30px; border: none; background: transparent; color: var(--gray-400); cursor: pointer; border-radius: 7px; font-size: 15px; }
+  .attach-btn:hover { background: var(--gray-100); color: var(--gray-600); }
+  .send-btn {
+    width: 32px; height: 32px; border: none; border-radius: 8px; background: var(--main-600); color: #fff;
+    cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all .15s;
+  }
+  .send-btn:hover { background: var(--main-700); }
+  .send-btn:disabled { background: var(--gray-200); color: var(--gray-400); cursor: not-allowed; }
+  .input-hint { font-size: 11px; color: var(--gray-400); margin-top: 6px; text-align: center; }
+
+  /* 说明面板 */
+  .note-panel {
+    position: fixed; right: 16px; bottom: 16px; width: 320px; background: var(--gray-0); border: 1px solid var(--gray-200);
+    border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,.14); padding: 14px 16px; z-index: 99; font-size: 12px;
+  }
+  .note-panel h3 { font-size: 13px; color: var(--gray-900); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .note-panel ul { list-style: none; }
+  .note-panel li { padding: 4px 0; color: var(--gray-600); line-height: 1.5; display: flex; gap: 6px; }
+  .note-panel li::before { content: "•"; color: var(--main-600); }
+  .note-close { position: absolute; top: 10px; right: 10px; border: none; background: transparent; cursor: pointer; color: var(--gray-400); font-size: 14px; }
+  .note-close:hover { color: var(--gray-600); }
+  .proto-badge {
+    position: fixed; left: 16px; bottom: 16px; z-index: 98; font-size: 11px; color: var(--amber-600);
+    background: var(--amber-50); border: 1px solid #fde68a; padding: 4px 10px; border-radius: 999px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- 左侧会话列表 -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="logo"><span class="logo-badge">Q</span>Qavor</div>
+      <button class="new-btn" title="新建对话">＋ 新对话</button>
+    </div>
+    <div class="search-box">🔍 搜索对话...</div>
+    <div class="conv-list">
+      <div class="conv-item active">
+        <span class="conv-title">退款政策与退货率分析</span>
+        <span class="conv-modes"><span class="mode-mini fast">⚡</span><span class="mode-mini deep">🧠</span></span>
+      </div>
+      <div class="conv-item">
+        <span class="conv-title">产品定价策略讨论</span>
+        <span class="conv-modes"><span class="mode-mini deep">🧠</span></span>
+      </div>
+      <div class="conv-item">
+        <span class="conv-title">API 接入文档查询</span>
+        <span class="conv-modes"><span class="mode-mini fast">⚡</span></span>
+      </div>
+      <div class="conv-item">
+        <span class="conv-title">新员工入职流程咨询</span>
+        <span class="conv-modes"><span class="mode-mini deep">🧠</span><span class="mode-mini fast">⚡</span></span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 主区域 -->
+  <main class="main">
+    <header class="header">
+      <div class="header-title">退款政策与退货率分析</div>
+      <div class="header-sub">· 12 条消息</div>
+      <div class="header-right">
+        <span class="agent-pill"><span class="agent-dot"></span>客户支持助手</span>
+        <button class="icon-btn" title="查看状态">◫</button>
+        <button class="icon-btn" title="查看文件">🗂</button>
+      </div>
+    </header>
+
+    <!-- 消息流 -->
+    <div class="chat" id="chat">
+      <div class="chat-inner" id="chatInner">
+
+        <!-- 消息 1：用户 · 快速 -->
+        <div class="msg user">
+          <div class="msg-meta"><span class="mode-tag fast">⚡ 快速回答</span><span>10:24</span></div>
+          <div class="bubble">
+            <div class="md">公司当前的退款政策是什么？多久能到账？</div>
+            <div class="kb-chips"><span class="kb-chip">📘 产品手册</span><span class="kb-chip">📕 售后政策</span></div>
+          </div>
+        </div>
+
+        <!-- 消息 2：助手 · 快速回答 -->
+        <div class="msg assistant">
+          <div class="msg-meta"><span class="mode-tag fast">⚡ 快速回答</span><span>0.8 秒 · 3 个来源</span></div>
+          <div class="bubble">
+            <div class="md">根据售后政策文档，公司实行 <b>7 天无理由退货</b>：商品签收后 7 天内可申请退货，退款将在审核通过后 <b>3-5 个工作日</b>原路退回[1]。特殊商品（定制类、生鲜类）不支持无理由退货，但支持 48 小时内质量问题换货[2][3]。</div>
+            <div class="refs">
+              <div class="ref-card" onclick="this.classList.toggle('expanded')">
+                <div class="ref-card-head"><span class="ref-file-icon">📄</span><span class="ref-card-title">售后政策.md</span><span class="ref-score">0.92</span></div>
+                <div class="ref-snippet">7 天无理由退货：自签收之日起 7 日内，用户可申请退货退款。退款将在审核通过后 3-5 个工作日原路退回...</div>
+                <div class="ref-more">点击展开原文</div>
+              </div>
+              <div class="ref-card" onclick="this.classList.toggle('expanded')">
+                <div class="ref-card-head"><span class="ref-file-icon">📄</span><span class="ref-card-title">退货流程说明.docx</span><span class="ref-score">0.87</span></div>
+                <div class="ref-snippet">特殊商品说明：定制类、生鲜类不支持无理由退货。质量问题换货窗口为签收后 48 小时...</div>
+                <div class="ref-more">点击展开原文</div>
+              </div>
+              <div class="ref-card" onclick="this.classList.toggle('expanded')">
+                <div class="ref-card-head"><span class="ref-file-icon">📄</span><span class="ref-card-title">常见问题FAQ.pdf</span><span class="ref-score">0.79</span></div>
+                <div class="ref-snippet">Q：退款多久到账？A：审核通过后 3-5 个工作日，原支付渠道退回。大促期间可能延迟至 7 个工作日...</div>
+                <div class="ref-more">点击展开原文</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mode-switch-note">▼ 中途切换为深度思考 · 以下消息走 Agent 链路</div>
+
+        <!-- 消息 3：用户 · 深度 -->
+        <div class="msg user">
+          <div class="msg-meta"><span class="mode-tag deep">🧠 深度思考</span><span>10:31</span></div>
+          <div class="bubble">
+            <div class="md">帮我分析一下最近退货率上升的原因，结合销售数据和售后记录给出改进建议</div>
+          </div>
+        </div>
+
+        <!-- 消息 4：助手 · 深度 -->
+        <div class="msg assistant">
+          <div class="msg-meta"><span class="mode-tag deep">🧠 深度思考</span><span>Agent 规划 · 2 次检索 · 45 秒</span></div>
+          <div class="bubble">
+            <div class="md">我来分步分析这个问题。先从售后记录和销售数据中检索相关证据，再给出结论。</div>
+
+            <div class="tool-group open">
+              <div class="tool-head" onclick="this.parentElement.classList.toggle('open')">
+                <span class="tool-icon">🔍</span>
+                <span class="tool-name">query_kb</span>
+                <span class="tool-status">✓ 已完成</span>
+                <span class="tool-caret">▼</span>
+              </div>
+              <div class="tool-body">
+                <div class="tool-call">
+                  <div class="tool-call-query"><b>检索 1</b> · 知识库：售后分析 · query：<i>"近 90 天退货原因分布"</i> · top_k=5</div>
+                  <div class="chunk-item">
+                    <span class="chunk-idx">[1]</span>
+                    <div class="chunk-main">
+                      <div class="chunk-file">📄 退货原因分析.md</div>
+                      <div class="chunk-text">退货原因 TOP3：尺码不符（34%）、商品描述不符（27%）、质量问题（18%）。其中"商品描述不符"环比上升 12%...</div>
+                    </div>
+                    <span class="chunk-score">0.94</span>
+                  </div>
+                  <div class="chunk-item">
+                    <span class="chunk-idx">[2]</span>
+                    <div class="chunk-main">
+                      <div class="chunk-file">📄 8月销售复盘.xlsx</div>
+                      <div class="chunk-text">8 月新品"轻量冲锋衣"退货率 11.2%，显著高于均值 6.8%，差评集中在尺码偏小...</div>
+                    </div>
+                    <span class="chunk-score">0.88</span>
+                  </div>
+                </div>
+                <div class="tool-call">
+                  <div class="tool-call-query"><b>检索 2</b> · 知识库：产品手册 · query：<i>"冲锋衣尺码对照表"</i> · top_k=3</div>
+                  <div class="chunk-item">
+                    <span class="chunk-idx">[1]</span>
+                    <div class="chunk-main">
+                      <div class="chunk-file">📄 尺码对照表.md</div>
+                      <div class="chunk-text">轻量冲锋衣 M 码对应胸围 96-100cm，偏紧身版型。与常规版型相比建议选大一号...</div>
+                    </div>
+                    <span class="chunk-score">0.91</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="md" style="margin-top:10px">
+              <b>分析结论：</b>近 90 天退货率上升主要由三类原因驱动：
+              1）<b>商品描述不符（27%，环比 +12%）</b>——8 月新品"轻量冲锋衣"采用紧身版型，但商品页未标注版型差异，导致尺码预期偏差；
+              2）尺码不符占 34% 为结构性因素，与版型说明缺失叠加放大；
+              3）质量问题占比 18% 保持稳定。
+              <b>建议：</b>① 在商品页补充版型说明与"建议选大一码"提示；② 对冲锋衣品类启用尺码助手工具；③ 将描述不符类差评接入质检周报。
+            </div>
+          </div>
+        </div>
+
+        <div id="liveArea"></div>
+      </div>
+    </div>
+
+    <!-- 输入区 -->
+    <div class="input-area">
+      <div class="input-inner">
+        <div class="mode-switch" id="modeSwitch">
+          <button class="mode-btn fast" data-mode="fast" onclick="setMode('fast')">⚡ 快速回答</button>
+          <button class="mode-btn deep active" data-mode="deep" onclick="setMode('deep')">🧠 深度思考</button>
+        </div>
+        <div class="kb-select" id="kbSelect" style="display:none">
+          <span class="kb-label">选择知识库（1-10 个）：</span>
+          <span class="kb-option selected" data-kb="产品手册" onclick="toggleKB(this)">📘 产品手册</span>
+          <span class="kb-option selected" data-kb="售后政策" onclick="toggleKB(this)">📕 售后政策</span>
+          <span class="kb-option" data-kb="技术文档" onclick="toggleKB(this)">📗 技术文档</span>
+          <span class="kb-option" data-kb="销售数据" onclick="toggleKB(this)">📊 销售数据</span>
+        </div>
+        <div class="input-box">
+          <textarea class="input-ta" id="inputTa" placeholder="输入消息，Enter 发送（Shift+Enter 换行）" rows="1"></textarea>
+          <div class="input-side">
+            <button class="attach-btn" title="上传附件">📎</button>
+            <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="发送">➤</button>
+          </div>
+        </div>
+        <div class="input-hint" id="inputHint">🧠 深度思考：Agent 自主规划，可多次检索知识库、调用工具</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="proto-badge">🖼 HTML 交互原型 · 非真实数据</div>
+<div class="note-panel" id="notePanel">
+  <button class="note-close" onclick="document.getElementById('notePanel').style.display='none'">✕</button>
+  <h3>📐 原型说明（前端改动点）</h3>
+  <ul>
+    <li>输入区新增"快速/深度"分段切换（消息级，中途可切换）</li>
+    <li>快速模式显示知识库多选 chips（调 <code>/api/v1/rag/answer</code>）</li>
+    <li>快速回答渲染引用卡片（citations），点击可展开原文</li>
+    <li>深度模式沿用 Agent 链路（<code>/api/agent/runs</code> + SSE），query_kb 工具调用可折叠（复用 QueryKbTool.vue）</li>
+    <li>会话列表显示会话内出现的模式标记</li>
+    <li><b>后端配套：</b>rag/answer 需支持 conversation_id 落库；消息记录增加 mode / knowledge_base_ids / sources 字段；历史渲染按 mode 区分</li>
+  </ul>
+</div>
+
+<script>
+  let currentMode = 'deep'
+
+  function setMode(mode) {
+    currentMode = mode
+    document.querySelectorAll('.mode-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.mode === mode)
+    })
+    const kbSelect = document.getElementById('kbSelect')
+    kbSelect.style.display = mode === 'fast' ? 'flex' : 'none'
+    const hint = document.getElementById('inputHint')
+    hint.textContent = mode === 'fast'
+      ? '⚡ 快速回答：一次检索 + 一次生成，引用知识库原文（支持会话历史）'
+      : '🧠 深度思考：Agent 自主规划，可多次检索知识库、调用工具'
+  }
+
+  function toggleKB(el) {
+    el.classList.toggle('selected')
+  }
+
+  function scrollBottom() {
+    const chat = document.getElementById('chat')
+    chat.scrollTop = chat.scrollHeight
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+
+  function sendMessage() {
+    const ta = document.getElementById('inputTa')
+    const text = ta.value.trim()
+    if (!text) return
+    ta.value = ''
+
+    const area = document.getElementById('liveArea')
+    const now = new Date().toTimeString().slice(0, 5)
+
+    // 用户消息
+    const userMsg = document.createElement('div')
+    userMsg.className = 'msg user'
+    const chips = currentMode === 'fast'
+      ? Array.from(document.querySelectorAll('.kb-option.selected')).map(o => `<span class="kb-chip">${esc(o.dataset.kb)}</span>`).join('')
+      : ''
+    userMsg.innerHTML = `
+      <div class="msg-meta"><span class="mode-tag ${currentMode}">${currentMode === 'fast' ? '⚡ 快速回答' : '🧠 深度思考'}</span><span>${now}</span></div>
+      <div class="bubble"><div class="md">${esc(text)}</div>${chips ? `<div class="kb-chips">${chips}</div>` : ''}</div>`
+    area.appendChild(userMsg)
+
+    if (currentMode === 'fast') {
+      // 快速回答：骨架屏 → 回答 + 引用
+      const skeleton = document.createElement('div')
+      skeleton.className = 'msg assistant'
+      skeleton.innerHTML = `
+        <div class="msg-meta"><span class="mode-tag fast">⚡ 快速回答</span><span>生成中...</span></div>
+        <div class="bubble"><div class="skeleton"><div class="skeleton-line w80"></div><div class="skeleton-line w60"></div><div class="skeleton-line w40"></div></div></div>`
+      area.appendChild(skeleton)
+      scrollBottom()
+      setTimeout(() => {
+        skeleton.innerHTML = `
+          <div class="msg-meta"><span class="mode-tag fast">⚡ 快速回答</span><span>0.9 秒 · 2 个来源</span></div>
+          <div class="bubble">
+            <div class="md">根据现有资料：${esc(text)}。相关说明见引用原文[1][2]，如有具体场景需求可继续追问，或切换为深度思考进行多步分析。</div>
+            <div class="refs">
+              <div class="ref-card" onclick="this.classList.toggle('expanded')">
+                <div class="ref-card-head"><span class="ref-file-icon">📄</span><span class="ref-card-title">产品手册.md</span><span class="ref-score">0.90</span></div>
+                <div class="ref-snippet">（模拟引用片段）这是从选中的知识库中检索到的相关原文摘要，点击卡片可展开完整内容查看...</div>
+                <div class="ref-more">点击展开原文</div>
+              </div>
+              <div class="ref-card" onclick="this.classList.toggle('expanded')">
+                <div class="ref-card-head"><span class="ref-file-icon">📄</span><span class="ref-card-title">FAQ 汇总.pdf</span><span class="ref-score">0.83</span></div>
+                <div class="ref-snippet">（模拟引用片段）第二条引用示例，展示多来源合并回答的效果与引用标注方式...</div>
+                <div class="ref-more">点击展开原文</div>
+              </div>
+            </div>
+          </div>`
+        scrollBottom()
+      }, 1200)
+      return
+    }
+
+    // 深度回答：工具调用 → 回答
+    const thinking = document.createElement('div')
+    thinking.className = 'msg assistant'
+    thinking.innerHTML = `
+      <div class="msg-meta"><span class="mode-tag deep">🧠 深度思考</span><span>Agent 运行中</span></div>
+      <div class="bubble">
+        <div class="thinking"><span>正在规划任务</span><span class="dots"><span></span><span></span><span></span></span></div>
+        <div class="tool-group">
+          <div class="tool-head">
+            <span class="tool-icon">🔍</span><span class="tool-name">query_kb</span>
+            <span class="tool-status" style="color:var(--gray-400)">执行中...</span>
+          </div>
+        </div>
+      </div>`
+    area.appendChild(thinking)
+    scrollBottom()
+    setTimeout(() => {
+      thinking.querySelector('.thinking').innerHTML = '<span>检索知识库</span><span class="dots"><span></span><span></span><span></span></span>'
+      thinking.querySelector('.tool-status').textContent = '执行中...'
+      scrollBottom()
+    }, 900)
+    setTimeout(() => {
+      thinking.innerHTML = `
+        <div class="msg-meta"><span class="mode-tag deep">🧠 深度思考</span><span>Agent 规划 · 1 次检索 · 8 秒</span></div>
+        <div class="bubble">
+          <div class="md">已完成分析：针对"${esc(text)}"，我检索了选中的知识库并整理了结论如下。深度模式下 Agent 可以自主决定检索策略、多次调用工具，并在中途继续追问时保持上下文。</div>
+          <div class="tool-group open">
+            <div class="tool-head" onclick="this.parentElement.classList.toggle('open')">
+              <span class="tool-icon">🔍</span><span class="tool-name">query_kb</span>
+              <span class="tool-status">✓ 已完成</span><span class="tool-caret">▼</span>
+            </div>
+            <div class="tool-body">
+              <div class="tool-call">
+                <div class="tool-call-query"><b>检索 1</b> · query：<i>"${esc(text)}"</i> · top_k=5</div>
+                <div class="chunk-item">
+                  <span class="chunk-idx">[1]</span>
+                  <div class="chunk-main">
+                    <div class="chunk-file">📄 示例文档.md</div>
+                    <div class="chunk-text">（模拟检索片段）深度模式通过 Agent 运行时调用 query_kb 工具，检索过程实时展示，可折叠查看每个片段...</div>
+                  </div>
+                  <span class="chunk-score">0.89</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`
+      scrollBottom()
+    }, 2400)
+  }
+
+  document.getElementById('inputTa').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+  })
+</script>
+</body>
+</html>

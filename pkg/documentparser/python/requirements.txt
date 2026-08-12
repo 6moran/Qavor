@@ -3,6 +3,7 @@
 
 docling>=2.68.0                   # Office 文档 -> Markdown
 rapidocr>=3.0.0                   # 图片 OCR(PP-OCRv5)
+onnxruntime>=1.17.0               # RapidOCR 推理引擎(必装,rapidocr 不自动拉取)
 pymupdf>=1.24.0                   # PDF 渲染为图片
 Pillow>=10.0.0                    # 图像处理
 numpy>=1.26.0                     # RapidOCR 依赖

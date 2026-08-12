@@ -237,12 +237,17 @@ func buildCitations(docs []*schema.Document) []Citation {
 	citations := make([]Citation, 0, len(docs))
 	for i, d := range docs {
 		citations = append(citations, Citation{
-			Index:    i + 1,
-			ChunkID:  metaDataString(d, MetaKeyChunkID),
-			FileID:   metaDataString(d, MetaKeyFileID),
-			Filename: metaDataString(d, MetaKeyFilename),
-			Content:  d.Content,
-			Score:    metaDataFloat64(d, MetaKeyScore, 0),
+			Index:        i + 1,
+			ChunkID:      metaDataString(d, MetaKeyChunkID),
+			FileID:       metaDataString(d, MetaKeyFileID),
+			Filename:     metaDataString(d, MetaKeyFilename),
+			Content:      d.Content,
+			Score:        metaDataFloat64(d, MetaKeyScore, 0),
+			VectorScore:  metaDataFloat64Pointer(d, MetaKeyVectorScore),
+			KeywordScore: metaDataFloat64Pointer(d, MetaKeyKeywordScore),
+			RRFScore:     metaDataFloat64Pointer(d, MetaKeyRRFScore),
+			RerankScore:  metaDataFloat64Pointer(d, MetaKeyRerankScore),
+			MatchedBy:    metadataBranches(d.MetaData[MetaKeyMatchedBy]),
 		})
 	}
 	return citations

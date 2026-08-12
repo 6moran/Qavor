@@ -106,7 +106,7 @@ func (ctrl *RunController) CancelRun(c *gin.Context) {
 	// 若仍在排队，从队列移除
 	_, _ = ctrl.queue.Remove(c.Request.Context(), runID)
 	// 更新状态为 cancelled（若 worker 尚未置终态）
-	_ = ctrl.runRepo.UpdateStatus(runID, entity.StatusCancelled, r.LastEventID)
+	_ = ctrl.runRepo.UpdateStatus(c.Request.Context(), runID, entity.StatusCancelled, r.LastEventID)
 
 	response.Success(c, toRunResponseCancel(runID))
 }
@@ -148,7 +148,7 @@ func (ctrl *RunController) CancelRequest(c *gin.Context) {
 	}
 	_, _ = ctrl.queue.Remove(c.Request.Context(), r.ID)
 	if !r.IsTerminal() {
-		_ = ctrl.runRepo.UpdateStatus(r.ID, entity.StatusCancelled, r.LastEventID)
+		_ = ctrl.runRepo.UpdateStatus(c.Request.Context(), r.ID, entity.StatusCancelled, r.LastEventID)
 	}
 	response.Success(c, gin.H{"request_id": requestID, "status": entity.StatusCancelled})
 }

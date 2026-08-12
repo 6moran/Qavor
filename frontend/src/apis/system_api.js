@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './base'
+import { buildRagSettingsPayload } from '@/utils/rag_settings'
 
 /**
  * 系统管理API模块
@@ -65,6 +66,12 @@ export const configOptionsApi = {
 
   updateOption: async (key, value) =>
     apiPut(`/api/system/config/options/${encodeURIComponent(key)}`, { value })
+}
+
+export const ragSettingsApi = {
+  getRagSettings: () => apiGet('/api/system/rag-settings'),
+  updateRagSettings: (rerankModelId) =>
+    apiPut('/api/system/rag-settings', buildRagSettingsPayload(rerankModelId))
 }
 
 // =============================================================================

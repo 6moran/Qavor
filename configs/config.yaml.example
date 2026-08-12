@@ -52,6 +52,13 @@ document_queue:
   pending_claim_count: 10
   max_stream_length: 100000
 
+# 文档解析器（OCR）配置
+document_parser:
+  # Python 解释器路径；需安装 pkg/documentparser/python/requirements.txt 中的依赖。
+  # 留空默认使用 PATH 上的 python，也可用环境变量 QAVOR_DOCUMENT_PARSER_PYTHON_PATH 覆盖。
+  # 示例: "D:/Python/Python3.11/python.exe"
+  python_path: ""
+
 # JWT 配置
 jwt:
   secret: "your-jwt-secret-key-change-in-production"  # JWT 密钥，生产环境请修改
@@ -157,7 +164,15 @@ ollama:
 rag:
   chunk_tokens: 800
   chunk_overlap_tokens: 100
+  # top_k 是旧配置兼容字段；显式的混合检索窗口优先。
   top_k: 5
+  vector_top_k: 20
+  keyword_top_k: 20
+  fused_top_k: 20
+  rerank_top_k: 5
+  rrf_k: 60
+  # 相似度阈值仅过滤向量召回分支。
+  score_threshold: 0.3
   request_timeout_seconds: 60
   embedding:
     batch_size: 15
@@ -188,5 +203,12 @@ web_search:
                            # 企业/自托管场景可填反向代理地址
   api_key: ""               # 留空则读取环境变量，都为空时不注册搜索工具
                            # debug 模式使用 Mock Provider，release 模式不注册
+
+# 记忆系统配置
+memory:
+  long_term:
+    max_items: 200          # 单次召回的长期记忆条目上限
+    max_tokens: 1500        # 注入 System Prompt 的最大 Token 数（长期记忆部分）
+    default_user_id: 0      # JWT 未携带 UserID 时的降级用户（0 = 全局匿名共享池）
 
 

@@ -57,12 +57,16 @@ export const buildModelTestPayload = (form, modelId = null) => {
     protocol: payload.protocol,
     base_url: payload.base_url,
     api_key: payload.api_key,
+    headers: payload.headers,
     timeout: payload.timeout,
     model_type: payload.model_type
   }
   if (modelId) result.model_id = modelId
   return result
 }
+
+export const isModelConnectionTestSupported = (modelType) =>
+  ['chat', 'embedding', 'rerank'].includes(modelType)
 
 export const formatModelTestSuccess = ({ latency_ms } = {}) =>
   `连接成功 · ${Number(latency_ms) || 0} ms`

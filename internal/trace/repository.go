@@ -58,6 +58,7 @@ type SpanSpec struct {
 type RequestMeta struct {
 	TraceID        string
 	RequestID      string
+	RunID          string
 	ConversationID uint
 	QuerySummary   string
 	EntryType      string
@@ -127,6 +128,7 @@ type TraceRepository interface {
 	GetTrace(ctx context.Context, traceID string) (*entity.TraceRecord, error)
 	ListTraces(ctx context.Context, filter TraceFilter) ([]TraceSummary, int64, error)
 	ListSpans(ctx context.Context, traceID string) ([]*entity.TraceSpan, error)
+	GetSpan(ctx context.Context, spanID string) (*entity.TraceSpan, error)
 	GetTraceIDByRunID(ctx context.Context, runID string) (string, error)
 	GetAgentRunSpan(ctx context.Context, runID string) (*RunSpanRef, error)
 	MarkTimeoutSpans(ctx context.Context, before time.Time) (int64, error)

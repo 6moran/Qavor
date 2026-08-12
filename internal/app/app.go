@@ -7,9 +7,11 @@ import (
 	"Qavor/internal/api"
 	agentctrl "Qavor/internal/api/v1/agent"
 	chatctrl "Qavor/internal/api/v1/chat"
+	evaluationctrl "Qavor/internal/api/v1/evaluation"
 	mcpserverctrl "Qavor/internal/api/v1/mcp_server"
 	ragctrl "Qavor/internal/api/v1/rag"
 	ssectrl "Qavor/internal/api/v1/sse"
+	systemctrl "Qavor/internal/api/v1/system"
 	workspaceapi "Qavor/internal/api/v1/workspace"
 	contextmgr "Qavor/internal/context"
 	"Qavor/internal/eventbus"
@@ -57,7 +59,6 @@ import (
 
 	"github.com/cloudwego/eino/adk/backgroundtask"
 	"github.com/cloudwego/eino/callbacks"
-	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -171,9 +172,11 @@ type App struct {
 	workerDone       chan struct{}
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
+	evaluationStop   context.CancelFunc
 	traceWriter      *trace.Writer
 	mcpManager       *mcp.MCPManager
 	bgManager        *backgroundtask.Manager
+	evaluationSvc    service.EvaluationService
 }
 
 // NewApp 创建应用实例
@@ -280,6 +283,7 @@ func (a *App) initDatabase() error {
 			&entity.SubagentThread{},
 			&entity.TaskRecord{},
 			&entity.Model{},
+			&entity.SystemSetting{},
 			&entity.Skill{},
 			&entity.KnowledgeBase{},
 			&entity.KnowledgeFile{},
@@ -290,6 +294,10 @@ func (a *App) initDatabase() error {
 			&entity.TraceRecord{},
 			&entity.TraceSpan{},
 			&entity.LongTermMemory{},
+			&entity.EvaluationDataset{},
+			&entity.EvaluationDatasetItem{},
+			&entity.EvaluationRun{},
+			&entity.EvaluationRunResult{},
 		); err != nil {
 			logger.Warn("数据库迁移警告", zap.Error(err))
 		} else {
@@ -325,6 +333,7 @@ func (a *App) initDependencies() error {
 	knowledgeChunkRepo := repository.NewKnowledgeChunkRepository(a.postgresDB)
 	processingJobRepo := repository.NewDocumentProcessingJobRepository(a.postgresDB)
 	modelRepo := repository.NewModelRepository(a.postgresDB)
+	systemSettingRepo := repository.NewSystemSettingRepository(a.postgresDB)
 	conversationRepo := repository.NewConversationRepository(a.postgresDB)
 	messageRepo := repository.NewMessageRepository(a.postgresDB)
 	agentRepo := repository.NewAgentRepository(a.postgresDB)
@@ -353,6 +362,8 @@ func (a *App) initDependencies() error {
 	// 创建 Service
 	authSvc := service.NewAuthService(a.cfg.Auth)
 	modelSvc := service.NewModelService(modelRepo)
+	ragSettingsSvc := service.NewRAGSettingsService(systemSettingRepo, modelRepo)
+	systemCtrl := systemctrl.NewController(ragSettingsSvc)
 	storage := service.NewMinIOObjectStorage()
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage, agentRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
@@ -371,22 +382,36 @@ func (a *App) initDependencies() error {
 			a.cfg.RAG.Embedding.BatchSize,
 			a.cfg.RAG.Embedding.Dimension,
 		)
-		// 快速回答与独立检索共享同一个按知识库解析 Embedding 模型的检索器。
-		dynamicRetriever retriever.Retriever = rag.NewDynamicRetriever(
+		// 向量召回按知识库绑定的 Embedding 模型分组并保留独立排名。
+		dynamicVectorRetriever = rag.NewDynamicRetriever(
 			knowledgeBaseRepo,
 			modelSvc,
 			knowledgeChunkRepo,
 			a.cfg.RAG.VectorTopK,
 		)
+		keywordRetriever = rag.NewKeywordRetriever(knowledgeChunkRepo, a.cfg.RAG.KeywordTopK)
+		dynamicReranker  = rag.NewDynamicReranker(ragSettingsSvc, modelSvc)
+		hybridRetriever  = rag.NewHybridRetriever(
+			dynamicVectorRetriever,
+			keywordRetriever,
+			dynamicReranker,
+			rag.HybridConfig{
+				VectorTopK: a.cfg.RAG.VectorTopK, KeywordTopK: a.cfg.RAG.KeywordTopK,
+				FusedTopK: a.cfg.RAG.FusedTopK, RerankTopK: a.cfg.RAG.RerankTopK, RRFK: a.cfg.RAG.RRFK,
+			},
+		)
+		// 快速回答与独立检索共享同一个混合检索器实例。
 		answerer rag.AnswerChain = rag.NewDynamicAnswerEngine(
 			knowledgeBaseRepo,
 			modelSvc,
-			dynamicRetriever,
+			hybridRetriever,
 		)
 		ragCtrl *ragctrl.Controller
 	)
-	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, dynamicRetriever, answerer)
+	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, hybridRetriever, answerer)
 	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
+	// 检索测试与示例问题服务：复用 RAG 检索链路与模型解析能力。
+	knowledgeQuerySvc := service.NewKnowledgeQueryService(a.cfg.RAG, knowledgeBaseRepo, knowledgeFileRepo, ragSvc, modelSvc)
 
 	if queue != nil {
 		workerCtx, cancelWorker := context.WithCancel(context.Background())
@@ -394,7 +419,7 @@ func (a *App) initDependencies() error {
 		a.workerDone = make(chan struct{})
 		imgUploader := imageUploader{storage: storage}
 		parser := ingestion.NewParser(
-			ingestion.NewPythonParser("python", "pkg/documentparser/python/parse_document.py", imgUploader),
+			ingestion.NewPythonParser(a.cfg.DocumentParser.PythonPath, "pkg/documentparser/python/parse_document.py", imgUploader),
 			imgUploader,
 		)
 		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser, indexer)
@@ -540,9 +565,9 @@ func (a *App) initDependencies() error {
 	ltmRepo := repository.NewLongTermMemoryRepository(a.postgresDB)
 	longTermMgr := longterm.NewManager(logger.GetLogger(), ltmRepo,
 		&modelResolverAdapter{modelSvc: modelSvc}, longterm.Config{
-			MaxItems:      200,  // 召回上限
-			MaxTokens:     1500, // 注入 System Prompt 的最大 Token
-			DefaultUserID: 0,    // JWT 未携带 UserID 时的降级用户（0 = 全局匿名共享池）
+			MaxItems:      a.cfg.Memory.LongTerm.MaxItems,      // 召回上限（config.yaml: memory.long_term.max_items）
+			MaxTokens:     a.cfg.Memory.LongTerm.MaxTokens,     // 注入 System Prompt 的最大 Token（memory.long_term.max_tokens）
+			DefaultUserID: a.cfg.Memory.LongTerm.DefaultUserID, // JWT 未携带 UserID 时的降级用户（0 = 全局匿名共享池）
 		})
 
 	// 创建上下文管理器（集成 Short Memory + Long Term Memory）
@@ -611,7 +636,7 @@ func (a *App) initDependencies() error {
 		logger.Info("Run Worker 已启动", zap.Int("worker_count", a.cfg.Run.WorkerCount))
 
 		heartbeatPeriod := time.Duration(a.cfg.SSE.HeartbeatInterval) * time.Second
-		postStreamHandler = agentctrl.NewPostStreamHandler(sub, runRepo, reqQueue, heartbeatPeriod, logger.GetLogger(), tracer, traceSpanRepo)
+		postStreamHandler = agentctrl.NewPostStreamHandler(sub, runRepo, conversationRepo, reqQueue, heartbeatPeriod, logger.GetLogger(), tracer, traceSpanRepo)
 		runController = agentctrl.NewRunController(runRepo, reqQueue, runWorker, logger.GetLogger(), contextMgr, conversationRepo, todoStore)
 	} else {
 		logger.Warn("Redis 不可用，Run 流式服务未启动")
@@ -634,8 +659,19 @@ func (a *App) initDependencies() error {
 	// 创建 Dashboard Service（只读统计查询）
 	dashboardSvc := service.NewDashboardService(a.postgresDB)
 
+	// —— RAG 评估服务（基准管理 + 评估运行，后台执行器随应用启动）——
+	evaluationSvc := service.NewEvaluationService(
+		repository.NewEvaluationRepository(a.postgresDB),
+		knowledgeBaseRepo,
+		knowledgeChunkRepo,
+		ragSvc,
+		modelSvc,
+	)
+	evaluationCtrl := evaluationctrl.NewController(evaluationSvc)
+	a.evaluationSvc = evaluationSvc
+
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, tracer)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl)
 
 	return nil
 }
@@ -696,6 +732,14 @@ func (a *App) buildMCPWhitelist(agentRepo repository.AgentRepository) []string {
 
 // Run 运行应用
 func (a *App) Run() {
+	// 启动 RAG 评估后台执行器（处理基准生成与评估运行任务）
+	if a.evaluationSvc != nil {
+		evalCtx, cancelEval := context.WithCancel(context.Background())
+		a.evaluationStop = cancelEval
+		a.evaluationSvc.Start(evalCtx)
+		logger.Info("RAG 评估执行器已启动")
+	}
+
 	// 启动 HTTP 服务器
 	go func() {
 		logger.Info("HTTP 服务器启动",
@@ -743,6 +787,12 @@ func (a *App) gracefulShutdown() {
 	if a.traceJanitorStop != nil {
 		a.traceJanitorStop()
 		logger.Info("Trace Janitor 已关闭")
+	}
+
+	// 停止 RAG 评估执行器
+	if a.evaluationStop != nil {
+		a.evaluationStop()
+		logger.Info("RAG 评估执行器已关闭")
 	}
 
 	// Flush 并关闭 Trace Writer（最多 3 秒）

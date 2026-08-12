@@ -41,10 +41,14 @@
               <div class="setting-label">{{ items?.reranker?.des }}</div>
               <div class="setting-content">
                 <RerankModelSelector
-                  :value="configStore.config?.reranker"
-                  @change="handleChange('reranker', $event)"
+                  :value="configStore.ragSettings.rerankModelId"
+                  :loading="ragSettingsLoading"
+                  @change="handleRerankModelChange"
                   style="width: 100%"
                 />
+                <div class="setting-hint">
+                  {{ configStore.ragSettings.rerankModelName || '未配置，将使用 RRF 融合结果' }}
+                </div>
               </div>
             </div>
           </div>
@@ -91,7 +95,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { message } from 'ant-design-vue'
 import { useConfigStore } from '@/stores/config'
 import { useUserStore } from '@/stores/user'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
@@ -101,6 +106,7 @@ import RerankModelSelector from '@/components/RerankModelSelector.vue'
 const configStore = useConfigStore()
 const userStore = useUserStore()
 const items = computed(() => configStore.config?._config_items || {})
+const ragSettingsLoading = ref(false)
 const handleChange = (key, e) => {
   configStore.setConfigValue(key, e)
 }
@@ -122,6 +128,31 @@ const handleContentGuardModelSelect = (spec) => {
     configStore.setConfigValue('content_guard_llm_model', spec)
   }
 }
+
+const loadRagSettings = async () => {
+  ragSettingsLoading.value = true
+  try {
+    await configStore.refreshRagSettings()
+  } catch (error) {
+    message.error(error.message || '加载 Rerank 设置失败')
+  } finally {
+    ragSettingsLoading.value = false
+  }
+}
+
+const handleRerankModelChange = async (modelId) => {
+  ragSettingsLoading.value = true
+  try {
+    await configStore.updateRerankModel(modelId)
+    message.success(modelId ? '全局 Rerank 模型已更新' : '已关闭全局 Rerank')
+  } catch (error) {
+    message.error(error.message || '保存 Rerank 设置失败，已恢复原值')
+  } finally {
+    ragSettingsLoading.value = false
+  }
+}
+
+onMounted(loadRagSettings)
 </script>
 
 <style lang="less" scoped>
@@ -177,6 +208,12 @@ const handleContentGuardModelSelect = (spec) => {
     .full-width {
       width: 100%;
     }
+  }
+
+  .setting-hint {
+    margin-top: 5px;
+    color: var(--gray-500);
+    font-size: 11px;
   }
 
   .card {

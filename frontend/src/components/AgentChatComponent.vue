@@ -62,6 +62,7 @@
                     :message="displayItem.message"
                     :is-processing="isDisplayMessageProcessing(row.conv, displayItem)"
                     :show-refs="showMsgRefs(displayItem.message, row.conv)"
+                    :sources="getConversationSources(row.conv)"
                     :hide-tool-calls="true"
                     :mention="mentionConfig"
                     @retry="retryMessage(displayItem.message)"
@@ -102,18 +103,20 @@
           </div>
 
           <!-- Token 上下文容量折叠条：内嵌于输入框上方，就近使用、无遮挡 -->
-          <div v-if="currentTokenUsage" class="token-usage-bar-wrapper">
-            <TokenUsageBar
-              :token-usage="currentTokenUsage"
-              :auto-poll="true"
-              :poll-interval="5000"
-              :fetch-token-usage="fetchTokenUsageSilently"
-              @refresh="handleTokenRefresh"
-              @clear-context="handleClearContext"
-            />
-          </div>
 
           <div class="bottom" :class="{ 'start-screen': !conversations.length }">
+            <!-- Token 使用量：固定在输入框上方 -->
+            <div v-if="currentTokenUsage" class="token-usage-bar-wrapper">
+              <TokenUsageBar
+                :token-usage="currentTokenUsage"
+                :auto-poll="true"
+                :poll-interval="5000"
+                :fetch-token-usage="fetchTokenUsageSilently"
+                @refresh="handleTokenRefresh"
+                @clear-context="handleClearContext"
+              />
+            </div>
+
             <div class="message-input-wrapper">
               <!-- 加载状态：加载消息 -->
               <div v-if="isLoadingMessages" class="chat-loading">
@@ -240,14 +243,6 @@
                         <CornerDownRight :size="14" aria-hidden="true" />
                         引导
                       </button>
-                      <div class="input-agent-selector">
-                        <AgentSelectorComponent
-                          :agent-slug="currentAgentId"
-                          size="nano"
-                          placeholder="选择智能体"
-                          @select-agent="handleAgentSelect"
-                        />
-                      </div>
                       <slot name="input-actions-right" :has-active-thread="!!currentChatId"></slot>
                     </template>
                   </AgentInputArea>
@@ -2529,6 +2524,42 @@ const handleDeleteMessage = async (msg) => {
   }
 }
 
+// 后台轮询线程活跃 Run，获取 runId 后执行取消
+// 用于用户点击停止时 metadata 事件尚未到达（activeRunId 为空）的场景
+const pollAndCancelThreadActiveRun = async (threadId, maxWaitMs = 15000) => {
+  const intervalMs = 500
+  const maxAttempts = Math.ceil(maxWaitMs / intervalMs)
+  let attempts = 0
+  while (attempts < maxAttempts) {
+    attempts++
+    const ts = getThreadState(threadId)
+    // 线程已被其他逻辑收尾或用户已开始新 Run，退出
+    if (!ts || !ts.pendingCancel || ts.activeRunId) {
+      return
+    }
+    try {
+      const active = await agentApi.getThreadActiveRun(threadId)
+      const run = active?.run || active?.data?.run || active?.data
+      if (run?.id) {
+        const runId = run.id
+        ts.activeRunId = runId
+        try {
+          await agentApi.cancelAgentRun(runId)
+        } catch {
+          // 忽略：用户主动停止，静默兜底
+        }
+        ts.pendingCancel = false
+        return
+      }
+    } catch {
+      // getThreadActiveRun 未实现或失败，继续下一轮尝试
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+  const ts = getThreadState(threadId)
+  if (ts) ts.pendingCancel = false
+}
+
 // 发送或中断
 const handleSendOrStop = async (payload) => {
   if (sendCooldownActive.value) {
@@ -2538,16 +2569,32 @@ const handleSendOrStop = async (payload) => {
   const threadId = currentChatId.value
   const threadState = getThreadState(threadId)
   const hasNewInput = Boolean(String(userInput.value || '').trim() || payload?.image)
-  if (threadState?.activeRunId && threadState?.isStreaming && !hasNewInput) {
-    try {
-      await agentApi.cancelAgentRun(threadState.activeRunId)
-      threadState.pendingInterrupt = null
-      if (approvalState.threadId === threadId) {
-        hideApprovalState()
+  // 关键修复：仅以 isStreaming 作为停止判定条件，不依赖 activeRunId
+  // 这样用户在 metadata 事件到达前点击停止也能正确触发取消流程
+  if (threadState?.isStreaming && !hasNewInput) {
+    const runId = threadState.activeRunId
+    // 1. 先断开 SSE 订阅，立即停止接收新 chunk（不再显示新内容）
+    stopRunStreamSubscription(threadId)
+    if (runId) {
+      // 已知 runId：直接调用取消接口
+      try {
+        await agentApi.cancelAgentRun(runId)
+      } catch (error) {
+        // 用户主动停止不弹错误提示，仅控制台输出
+        console.warn('[Stop] cancelAgentRun failed (ignored):', error?.message)
       }
-      message.info('已发送取消请求')
-    } catch (error) {
-      handleChatError(error, 'stop')
+    } else {
+      // runId 尚未收到（metadata 事件未到）：设置 pendingCancel 标记 + 后台轮询线程活跃 Run 兜底取消
+      threadState.pendingCancel = true
+      pollAndCancelThreadActiveRun(threadId).catch(() => {})
+    }
+    // 2. 立即更新 UI 状态（零延迟体感）
+    threadState.isStreaming = false
+    threadState.replyLoadingVisible = false
+    threadState.activeRunSteerable = false
+    threadState.pendingInterrupt = null
+    if (approvalState.threadId === threadId) {
+      hideApprovalState()
     }
     return
   }
@@ -2675,40 +2722,11 @@ const handleTokenRefresh = async () => {
 // Token 条清空上下文（轻量重置，不删除会话）
 const handleClearContext = async () => {
   if (!currentChatId.value) return
-  
-  Modal.confirm({
-    title: '清空上下文',
-    content: '选择清空方式：',
-    width: 480,
-    okText: null,
-    cancelText: '取消',
-    footer: () => {
-      return h('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' } }, [
-        h('button', {
-          style: { padding: '6px 16px', borderRadius: '6px', border: '1px solid #d9d9d9', background: '#fff', cursor: 'pointer' },
-          onClick: () => Modal.destroyAll()
-        }, '取消'),
-        h('button', {
-          style: { padding: '6px 16px', borderRadius: '6px', border: '1px solid #ff7875', background: '#fff', color: '#ff4d4f', cursor: 'pointer' },
-          onClick: async () => {
-            Modal.destroyAll()
-            await performClearContext()
-          }
-        }, '彻底销毁会话'),
-        h('button', {
-          style: { padding: '6px 16px', borderRadius: '6px', border: 'none', background: '#1677ff', color: '#fff', cursor: 'pointer' },
-          onClick: async () => {
-            Modal.destroyAll()
-            await performClearContext(true)
-          }
-        }, '仅清空上下文')
-      ])
-    }
-  })
+  await performClearContext(true)
 }
 
 // 执行清空操作
-const performClearContext = async (lightReset = false) => {
+const performClearContext = async (lightReset = true) => {
   if (!currentChatId.value) return
   
   try {
@@ -2718,16 +2736,10 @@ const performClearContext = async (lightReset = false) => {
       message.success('上下文已清空')
       // 清空后刷新状态
       await handleAgentStateRefresh()
-    } else {
-      // 彻底销毁：删除整个会话
-      await chatThreadsStore.deleteThread(currentChatId.value)
-      message.success('会话已删除')
-      // 切换到新会话
-      await selectChat(null)
     }
   } catch (e) {
     console.error('清空操作失败:', e)
-    message.error(lightReset ? '清空上下文失败' : '删除会话失败')
+    message.error('清空上下文失败')
   }
 }
 
@@ -2843,8 +2855,8 @@ const showMsgRefs = (msg, conv) => {
     return false
   }
 
-  // 只有真正完成的消息才显示 refs
-  if (msg.isLast && msg.status === 'finished') {
+  // 对话收尾后，只在本轮最后一条 AI 消息下展示 refs。
+  if (msg.isLast) {
     // 检查是否是当前对话的最后一条 AI 消息
     const lastAiMsg = getLastMessage(conv)
     const isLatestInConv = lastAiMsg && lastAiMsg.id === msg.id

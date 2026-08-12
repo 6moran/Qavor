@@ -230,6 +230,7 @@ func (s *messageService) toResponse(msg *entity.Message) *dto.MessageResponse {
 		RunID:            msg.RunID,
 		RequestID:        msg.RequestID,
 		DeliveryStatus:   msg.DeliveryStatus,
+		IsFinished:       msg.IsFinished,
 		CreatedAt:        msg.CreatedAt,
 		UpdatedAt:        msg.UpdatedAt,
 	}

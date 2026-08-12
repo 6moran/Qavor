@@ -44,6 +44,14 @@ onUnmounted(() => {
 .dashboard-grid {
   padding: var(--page-padding);
   margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
   min-height: 400px;
+  height: calc(100vh - 64px - 120px);
+}
+
+.grid-item.call-stats {
+  flex: 1;
+  min-height: 350px;
 }
 </style>

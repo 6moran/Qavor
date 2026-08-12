@@ -24,6 +24,14 @@ export const traceApi = {
   getTrace: (traceId) => apiGet(`${BASE_URL}/${traceId}`).then(res => res?.data || null),
 
   /**
+   * Span 完整详情（含 attributes），详情列表按需懒加载时调用。
+   * @param {string} traceId
+   * @param {string} spanId
+   * @returns {Promise} - TraceSpanItem
+   */
+  getSpan: (traceId, spanId) => apiGet(`${BASE_URL}/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}`).then(res => res?.data || null),
+
+  /**
    * 通过 run_id 反查 trace_id
    * @param {string} runId
    * @returns {Promise} - { trace_id }

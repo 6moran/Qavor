@@ -31,6 +31,55 @@ type StreamEvent struct {
 	Todos     []eventbus.TodoItem    // TODO 列表（todo_update 事件携带）
 }
 
+// toolExecutionResult 保存一次工具调用的实际执行结果。
+// Worker 会先收到工具结果事件，稍后再把它回填到 AI 消息中的对应 ToolCall。
+type toolExecutionResult struct {
+	Output       string
+	Status       string
+	ErrorMessage string
+}
+
+// recordToolExecutionResult 按 ToolCallID 暂存工具结果。
+// 不能按工具名称关联，因为同一轮对话中可能多次调用同一个工具；缺少调用 ID 的事件
+// 无法可靠匹配，因此直接忽略，避免把知识库结果写到错误的工具调用上。
+func recordToolExecutionResult(results map[string]toolExecutionResult, ev StreamEvent) {
+	if ev.Type != "tool_result" || ev.ToolCall == nil || ev.ToolCall.ID == "" {
+		return
+	}
+	results[ev.ToolCall.ID] = toolExecutionResult{
+		Output: ev.Content,
+		Status: "success",
+	}
+}
+
+// buildPersistedToolCalls 将模型发起的工具调用与执行阶段收集到的结果合并为数据库实体。
+// 尚未收到对应结果的调用保持 pending，避免像旧逻辑一样无条件标记 success，
+// 同时保留空输出，便于后续区分“未执行完成”和“执行成功但没有返回内容”。
+func buildPersistedToolCalls(toolCalls []schema.ToolCall, results map[string]toolExecutionResult) []entity.ToolCall {
+	persisted := make([]entity.ToolCall, 0, len(toolCalls))
+	for i := range toolCalls {
+		tc := &toolCalls[i]
+		var toolInput entity.JSON
+		if tc.Function.Arguments != "" {
+			_ = json.Unmarshal([]byte(tc.Function.Arguments), &toolInput)
+		}
+
+		call := entity.ToolCall{
+			LanggraphToolCallID: tc.ID,
+			ToolName:            tc.Function.Name,
+			ToolInput:           toolInput,
+			Status:              "pending",
+		}
+		if result, ok := results[tc.ID]; ok {
+			call.ToolOutput = result.Output
+			call.Status = result.Status
+			call.ErrorMessage = result.ErrorMessage
+		}
+		persisted = append(persisted, call)
+	}
+	return persisted
+}
+
 // ErrInterrupted 表示 Agent 因工具审批中断
 var ErrInterrupted = errors.New("run: agent interrupted for tool approval")
 
@@ -232,8 +281,13 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 		}
 	}
 	if conversationID == 0 {
-		w.logger.Warn("worker 无法解析 conversation_id，消息将不会被持久化",
+		w.logger.Error("worker 无法解析 conversation_id，消息将不会被持久化",
 			zap.String("run_id", run.ID), zap.String("thread_id", threadID))
+		// 尝试通过 AgentRun 记录查找 conversation
+		if run.ConversationThreadID != "" {
+			w.logger.Info("尝试通过 run.ConversationThreadID 查找 conversation",
+				zap.String("run_id", run.ID), zap.String("conversation_thread_id", run.ConversationThreadID))
+		}
 	}
 
 	// 0.2 恢复 trace 上下文：从 TraceCarrier 恢复父 SpanContext，创建 queue.consume Span，
@@ -243,6 +297,15 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	var assistantMsgs []*schema.Message
 	if w.tracer != nil && item.Trace.TraceID != "" {
 		ctx = trace.ContextFromCarrier(ctx, item.Trace)
+		queueWaitMs := time.Since(item.CreatedAt).Milliseconds()
+		if queueWaitMs < 0 {
+			w.logger.Warn("queue_wait_ms 为负数，可能存在时钟漂移",
+				zap.String("run_id", run.ID),
+				zap.Time("created_at", item.CreatedAt),
+				zap.Int64("queue_wait_ms", queueWaitMs),
+			)
+			queueWaitMs = 0
+		}
 		ctx, consumeSpan = w.tracer.StartSpan(ctx, trace.SpanSpec{
 			Kind:      "queue",
 			Operation: "queue.consume",
@@ -250,7 +313,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 			RequestID: requestID,
 			Attributes: entity.JSON{
 				"queue":         "qavor:run:queue",
-				"queue_wait_ms": time.Since(item.CreatedAt).Milliseconds(),
+				"queue_wait_ms": queueWaitMs,
 			},
 		})
 	}
@@ -332,7 +395,7 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	}
 
 	// 1. 状态置 running
-	if err := w.runRepo.UpdateStatus(run.ID, entity.StatusRunning, ""); err != nil {
+	if err := w.runRepo.UpdateStatus(ctx, run.ID, entity.StatusRunning, ""); err != nil {
 		w.logger.Warn("worker 更新 running 状态失败", zap.String("run_id", run.ID), zap.Error(err))
 	}
 
@@ -343,10 +406,14 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	}
 
 	// 3. 执行 Agent，emit 回调发布 message 事件
+	// 工具调用和工具结果来自不同的流事件，先按调用 ID 收集结果，
+	// 保存最终 AI 消息时再一次性合并到 tool_calls 中。
+	toolResults := make(map[string]toolExecutionResult)
 	emit := func(ev StreamEvent) {
 		if ctx.Err() != nil {
 			return
 		}
+		recordToolExecutionResult(toolResults, ev)
 		// todo_update: 持久化到 Redis 并发布 SSE
 		if ev.Type == "todo_update" && conversationID > 0 && w.todoStore != nil {
 			if err := w.todoStore.SaveTodos(ctx, conversationID, ev.Todos); err != nil {
@@ -407,21 +474,9 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 				ReasoningContent: reasoningContent,
 				RunID:            run.ID,
 				RequestID:        requestID,
+				IsFinished:       ctx.Err() == nil, // ctx 取消时标记为未完成
 			}
-			// 持久化工具调用
-			for i := range msg.ToolCalls {
-				tc := &msg.ToolCalls[i]
-				var toolInput entity.JSON
-				if tc.Function.Arguments != "" {
-					_ = json.Unmarshal([]byte(tc.Function.Arguments), &toolInput)
-				}
-				aiMsg.ToolCalls = append(aiMsg.ToolCalls, entity.ToolCall{
-					LanggraphToolCallID: tc.ID,
-					ToolName:            tc.Function.Name,
-					ToolInput:           toolInput,
-					Status:              "success",
-				})
-			}
+			aiMsg.ToolCalls = buildPersistedToolCalls(msg.ToolCalls, toolResults)
 			// aiMsg 已通过 aiMsg.ToolCalls 携带 tool_calls，由 Create 显式保存
 			if err := w.messageRepo.Create(aiMsg); err != nil {
 				w.logger.Error("worker 保存 AI 消息失败", zap.String("run_id", run.ID), zap.Error(err))
@@ -500,7 +555,11 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 
 // finish 发布 end 事件并更新终态。
 // 创建 event.publish Span 记录终态事件发布，与 agent.run 平级（parent 为 queue.consume）。
+// 注意：终态事件发布和 DB 更新使用独立 ctx（带 5s 超时），避免 ctx 被取消时 end 事件丢失导致 SSE 消费端无限等待。
 func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoStatus string) {
+	finalCtx, finalCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer finalCancel()
+
 	var pubSpan *trace.Span
 	if w.tracer != nil {
 		_, pubSpan = w.tracer.StartSpan(ctx, trace.SpanSpec{
@@ -518,7 +577,7 @@ func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoS
 	// 先发布 end 事件
 	var endID string
 	var publishErr error
-	if id, err := w.pub.PublishPayload(ctx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
+	if id, err := w.pub.PublishPayload(finalCtx, eventbus.EventEnd, run.ID, run.ConversationThreadID, run.RequestID,
 		eventbus.EndPayload{Status: status}); err == nil {
 		endID = id
 	} else {
@@ -533,7 +592,7 @@ func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoS
 		}
 	}
 	// 再更新 DB 状态（last_event_id 为 end 事件 ID）
-	if err := w.runRepo.UpdateStatus(run.ID, repoStatus, endID); err != nil {
+	if err := w.runRepo.UpdateStatus(finalCtx, run.ID, repoStatus, endID); err != nil {
 		w.logger.Warn("worker 更新终态失败", zap.String("run_id", run.ID), zap.Error(err))
 		if pubSpan != nil && publishErr == nil {
 			pubSpan.End(trace.SpanEnd{
@@ -550,6 +609,7 @@ func (w *Worker) finish(ctx context.Context, run *entity.AgentRun, status, repoS
 }
 
 // publishError 发布 error 事件
+// 注意：error 事件发布使用独立 ctx（带 5s 超时），避免 ctx 被取消时 error 事件丢失导致 SSE 消费端无限等待。
 func (w *Worker) publishError(ctx context.Context, run *entity.AgentRun, execErr error) {
 	code := "AGENT_ERROR"
 	msg := execErr.Error()
@@ -574,7 +634,10 @@ func (w *Worker) publishError(ctx context.Context, run *entity.AgentRun, execErr
 		msg = "模型认证失败，请检查 API Key 配置"
 	}
 
-	_, _ = w.pub.PublishPayload(ctx, eventbus.EventError, run.ID, run.ConversationThreadID, run.RequestID,
+	finalCtx, finalCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer finalCancel()
+
+	_, _ = w.pub.PublishPayload(finalCtx, eventbus.EventError, run.ID, run.ConversationThreadID, run.RequestID,
 		eventbus.ErrorPayload{Code: code, Message: msg})
 }
 
