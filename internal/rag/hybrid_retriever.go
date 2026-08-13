@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"Qavor/internal/model/entity"
+	"Qavor/internal/trace"
 	"Qavor/pkg/logger"
 
 	"github.com/cloudwego/eino/components/retriever"
@@ -34,11 +36,12 @@ type RerankerResolver interface {
 type DynamicReranker struct {
 	settings RerankSettingsReader
 	resolver RerankerResolver
+	tracer   *trace.Tracer
 }
 
-// NewDynamicReranker 创建动态重排器。
-func NewDynamicReranker(settings RerankSettingsReader, resolver RerankerResolver) *DynamicReranker {
-	return &DynamicReranker{settings: settings, resolver: resolver}
+// NewDynamicReranker 创建动态重排器。tracer 用于手动埋点重排 Span，可为 nil（不追踪）。
+func NewDynamicReranker(settings RerankSettingsReader, resolver RerankerResolver, tracer *trace.Tracer) *DynamicReranker {
+	return &DynamicReranker{settings: settings, resolver: resolver, tracer: tracer}
 }
 
 // Rerank 返回重排后的候选、是否实际执行了重排及错误。
@@ -57,18 +60,22 @@ func (r *DynamicReranker) Rerank(ctx context.Context, query string, documents []
 	if err != nil {
 		return nil, false, fmt.Errorf("解析 Rerank 模型 %d: %w", modelID, err)
 	}
+	// 手动埋点：重排 Span（仅当 ctx 处于被追踪链路时创建，否则 no-op）。
+	ctx, span := r.startRerankSpan(ctx, modelID, len(documents), topN)
 	candidates := make([]RerankDocument, len(documents))
 	for index, document := range documents {
 		candidates[index] = RerankDocument{ID: metaDataString(document, MetaKeyChunkID), Content: document.Content}
 	}
 	results, err := model.Rerank(ctx, query, candidates, topN)
 	if err != nil {
+		span.End(trace.SpanEnd{Status: trace.SpanStatusError, ErrorMessage: err.Error()})
 		return nil, false, fmt.Errorf("调用 Rerank 模型 %d: %w", modelID, err)
 	}
 	seen := make(map[int]struct{}, len(results))
 	ordered := make([]*schema.Document, 0, len(documents))
 	for _, result := range results {
 		if result.Index < 0 || result.Index >= len(documents) || math.IsNaN(result.Score) || math.IsInf(result.Score, 0) {
+			span.End(trace.SpanEnd{Status: trace.SpanStatusError, ErrorMessage: "Rerank 返回无效结果"})
 			return nil, false, errors.New("Rerank 返回无效结果")
 		}
 		if _, duplicate := seen[result.Index]; duplicate {
@@ -81,6 +88,7 @@ func (r *DynamicReranker) Rerank(ctx context.Context, query string, documents []
 		ordered = append(ordered, document)
 	}
 	if len(ordered) == 0 {
+		span.End(trace.SpanEnd{Status: trace.SpanStatusError, ErrorMessage: "Rerank 返回空结果"})
 		return nil, false, errors.New("Rerank 返回空结果")
 	}
 	for index, document := range documents {
@@ -88,7 +96,26 @@ func (r *DynamicReranker) Rerank(ctx context.Context, query string, documents []
 			ordered = append(ordered, document)
 		}
 	}
+	span.End(trace.SpanEnd{Status: trace.SpanStatusOK, Attributes: entity.JSON{"rerank.hit_count": len(results)}})
 	return ordered, true, nil
+}
+
+// startRerankSpan 创建重排 Span（手动埋点）。ctx 无 SpanContext 时返回 no-op Span。
+func (r *DynamicReranker) startRerankSpan(ctx context.Context, modelID uint, candidateCount, topN int) (context.Context, *trace.Span) {
+	if r == nil || r.tracer == nil {
+		return ctx, trace.NoopSpan()
+	}
+	attrs := entity.JSON{
+		"rerank.model_id":        modelID,
+		"rerank.candidate_count": candidateCount,
+		"rerank.top_n":           topN,
+	}
+	return r.tracer.StartSpanIfTraced(ctx, trace.SpanSpec{
+		Kind:        entity.SpanKindRerank,
+		Operation:   "reranker.rerank",
+		DisplayName: "rerank",
+		Attributes:  attrs,
+	})
 }
 
 // HybridConfig 配置各召回阶段的候选窗口与 RRF 参数。

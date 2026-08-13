@@ -8,6 +8,7 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/components/tool"
@@ -246,6 +247,39 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 		},
 	}
 
+	// Embedding 回调：捕获向量化调用（检索 query 向量化、索引批次向量化）。
+	// eino-ext openai/ark 的 EmbedStrings 内部已触发 OnStart/OnEnd/OnError 且 OnEnd 带 TokenUsage，
+	// 因此这里只需注册 handler，无需改 embedding 调用方。
+	// 索引等后台任务 ctx 无 SpanContext 时由 col.start 自动跳过（不产生孤立 Span）。
+	embeddingH := &callbackstpl.EmbeddingCallbackHandler{
+		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *embedding.CallbackInput) context.Context {
+			name, summary := "", ""
+			attrs := entity.JSON{}
+			if input != nil {
+				if input.Config != nil {
+					name = input.Config.Model
+				}
+				if len(input.Texts) > 0 {
+					attrs["embedding.text_count"] = len(input.Texts)
+				}
+				summary = col.sanitizer.Text(strings.Join(input.Texts, "\n"))
+			}
+			return col.start(ctx, info, "embedding", "embedding.generate", name, summary, attrs)
+		},
+		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *embedding.CallbackOutput) context.Context {
+			end := SpanEnd{Status: SpanStatusOK}
+			if output != nil && output.TokenUsage != nil {
+				end.TokensIn = output.TokenUsage.PromptTokens
+			}
+			col.end(ctx, end)
+			return ctx
+		},
+		OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+			col.end(ctx, SpanEnd{Status: SpanStatusError, ErrorMessage: err.Error()})
+			return ctx
+		},
+	}
+
 	// Agent callback：不再创建 agent.invoke span。
 	// eino 的 AgentCallbackOutput 是异步 Events 迭代器，OnEnd 在子 Agent 实际执行完成前
 	// 就被触发，导致 agent.invoke span 时长恒为 0ms（而真实执行发生在子 Agent 内部的
@@ -267,6 +301,7 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 		ChatModel(modelH).
 		Tool(toolH).
 		Retriever(retrieverH).
+		Embedding(embeddingH).
 		Agent(agentH).
 		Graph(graphH).
 		Handler()
