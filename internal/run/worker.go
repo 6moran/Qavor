@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"Qavor/internal/agent"
 	"Qavor/internal/eventbus"
 	"Qavor/internal/llm"
 	longterm "Qavor/internal/memory/long_term"
@@ -115,8 +116,10 @@ type Worker struct {
 	// 运行中 Run 的取消函数注册表：run_id -> cancelFunc
 	cancels sync.Map
 
-	workerCount int
-	block       time.Duration
+	workerCount       int
+	block             time.Duration
+	heartbeatInterval time.Duration // session 心跳更新间隔
+	heartbeatTimeout  time.Duration // session 心跳超时时间
 }
 
 // ContextProvider 上下文管理接口（用于加载对话历史和短期记忆）
@@ -149,25 +152,33 @@ func NewWorker(queue *RequestQueue, pub EventPublisher, runRepo repository.Agent
 	messageRepo repository.MessageRepository, conversationRepo repository.ConversationRepository,
 	executor AgentExecutor, contextMgr ContextProvider, longTermMgr *longterm.Manager, todoStore *TodoStore,
 	modelSvc ModelResolver, logger *zap.Logger, workerCount int,
-	tracer *trace.Tracer) *Worker {
+	tracer *trace.Tracer, heartbeatIntervalMs int64, heartbeatTimeoutSec int) *Worker {
 	if workerCount <= 0 {
 		workerCount = 3
 	}
+	if heartbeatIntervalMs <= 0 {
+		heartbeatIntervalMs = 15000 // 默认15秒
+	}
+	if heartbeatTimeoutSec <= 0 {
+		heartbeatTimeoutSec = 30 // 默认30秒
+	}
 	return &Worker{
-		queue:            queue,
-		pub:              pub,
-		runRepo:          runRepo,
-		messageRepo:      messageRepo,
-		conversationRepo: conversationRepo,
-		executor:         executor,
-		contextMgr:       contextMgr,
-		longTermMgr:      longTermMgr,
-		todoStore:        todoStore,
-		modelSvc:         modelSvc,
-		logger:           logger,
-		workerCount:      workerCount,
-		block:            5 * time.Second,
-		tracer:           tracer,
+		queue:             queue,
+		pub:               pub,
+		runRepo:           runRepo,
+		messageRepo:       messageRepo,
+		conversationRepo:  conversationRepo,
+		executor:          executor,
+		contextMgr:        contextMgr,
+		longTermMgr:       longTermMgr,
+		todoStore:         todoStore,
+		modelSvc:          modelSvc,
+		logger:            logger,
+		workerCount:       workerCount,
+		block:             5 * time.Second,
+		tracer:            tracer,
+		heartbeatInterval: time.Duration(heartbeatIntervalMs) * time.Millisecond,
+		heartbeatTimeout:  time.Duration(heartbeatTimeoutSec) * time.Second,
 	}
 }
 
@@ -273,6 +284,20 @@ func (w *Worker) process(parent context.Context, runID string) {
 func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueItem) {
 	threadID := run.ConversationThreadID
 	requestID := run.RequestID
+	sessionID := agent.BuildSessionID(threadID)
+
+	// 启动心跳更新协程
+	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
+	defer heartbeatCancel()
+	go w.updateHeartbeatLoop(heartbeatCtx, sessionID, run.ID)
+
+	// 执行完成时清理心跳
+	defer func() {
+		heartbeatCancel()
+		if w.queue != nil {
+			_ = w.queue.CleanSessionHeartbeat(context.Background(), sessionID)
+		}
+	}()
 
 	// 0. 解析 conversation_id（用于消息持久化）
 	// 前端可能传 Conversation.ThreadID（UUID）或 Conversation.ID（数字），两者都兼容
@@ -459,6 +484,9 @@ func (w *Worker) execute(ctx context.Context, run *entity.AgentRun, item *QueueI
 	if item.ResumeRunID != "" && item.CheckpointID != "" {
 		execOpts = append(execOpts, WithResume(item.CheckpointID, item.Targets))
 	}
+
+	// 将 threadID 写入 context，供 Agent.createRunner 使用
+	ctx = agent.WithThreadID(ctx, threadID)
 
 	assistantMsgs, execErr = w.executor.Execute(ctx, item.AgentSlug, item.Query, history, emit, execOpts...)
 
@@ -783,4 +811,28 @@ func (w *Worker) CancelRun(runID string) bool {
 		return true
 	}
 	return false
+}
+
+// updateHeartbeatLoop 定期更新 session 心跳
+func (w *Worker) updateHeartbeatLoop(ctx context.Context, sessionID, runID string) {
+	if w.queue == nil {
+		return
+	}
+	ticker := time.NewTicker(w.heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := w.queue.UpdateSessionHeartbeat(ctx, sessionID); err != nil {
+				w.logger.Warn("更新 session 心跳失败",
+					zap.String("run_id", runID),
+					zap.String("session_id", sessionID),
+					zap.Error(err),
+				)
+			}
+		}
+	}
 }

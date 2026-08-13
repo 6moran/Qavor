@@ -634,7 +634,7 @@ func (a *App) initDependencies() error {
 
 		executor := run.NewAgentExecutor(agentMgr, modelSvc)
 		todoStore := run.NewTodoStore(a.redis, 24*time.Hour)
-		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, modelSvc, logger.GetLogger(), a.cfg.Run.WorkerCount, tracer)
+		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, modelSvc, logger.GetLogger(), a.cfg.Run.WorkerCount, tracer, a.cfg.Run.HeartbeatIntervalMs, a.cfg.Run.HeartbeatTimeoutSec)
 
 		// 启动 Run Worker 池
 		runWorkerCtx, cancelRunWorker := context.WithCancel(context.Background())
