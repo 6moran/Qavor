@@ -58,9 +58,13 @@ const stats = computed(() => ({
   rerank: statsModels.value.filter((model) => model.model_type === 'rerank').length
 }))
 
-const providerOptions = computed(() =>
-  providers.value.map((p) => ({ label: p.displayName, value: p.name }))
-)
+// 自定义供应商标识：供应商为必填项，用户手动填写时选择「自定义」
+const CUSTOM_PROVIDER = 'custom'
+
+const providerOptions = computed(() => [
+  { label: '自定义配置', value: CUSTOM_PROVIDER },
+  ...providers.value.map((p) => ({ label: p.displayName, value: p.name }))
+])
 
 const remoteModelOptions = computed(() =>
   remoteModels.value.map((m) => ({ label: m, value: m }))
@@ -164,10 +168,10 @@ const openEdit = (model) => {
   showModal.value = true
 }
 
-// 打开弹窗时重置供应商选择与远程模型列表（编辑已有配置不预选供应商，仍可手动填写）
+// 打开弹窗时重置供应商选择与远程模型列表（默认选中「自定义」，编辑已有配置不预选内置供应商）
 const resetProviderState = () => {
   selectedProvider.value = null
-  selectedProviderName.value = null
+  selectedProviderName.value = CUSTOM_PROVIDER
   remoteModels.value = []
   showRemoteSelect.value = false
 }
@@ -182,9 +186,11 @@ const loadProviders = async () => {
   }
 }
 
-// 选中供应商 → 自动填充 Base URL 与协议，并清空远程模型列表
+// 选中供应商 → 自动填充 Base URL 与协议，并清空远程模型列表；选择「自定义」时不自动填充，回到手动填写
 const onProviderChange = (name) => {
-  const provider = providers.value.find((p) => p.name === name)
+  const provider = name && name !== CUSTOM_PROVIDER
+    ? providers.value.find((p) => p.name === name)
+    : null
   selectedProvider.value = provider || null
   remoteModels.value = []
   showRemoteSelect.value = false
@@ -224,6 +230,10 @@ const onRemoteModelChange = (modelName) => {
 }
 
 const save = async () => {
+  if (!selectedProviderName.value) {
+    message.warning('请选择供应商')
+    return
+  }
   if (!form.name.trim() || !form.protocol.trim() || !form.base_url.trim()) {
     message.warning('请填写模型名称、协议和 Base URL')
     return
@@ -405,12 +415,11 @@ onMounted(() => {
     >
       <div class="form-grid">
         <label class="full-width">
-          供应商（可选）
+          供应商 *
           <a-select
             v-model:value="selectedProviderName"
             :options="providerOptions"
-            placeholder="选择供应商模板，自动填充 Base URL 与协议"
-            allow-clear
+            placeholder="选择供应商模板，选「自定义」可手动填写"
             @change="onProviderChange"
           />
         </label>
@@ -424,7 +433,7 @@ onMounted(() => {
           <span class="name-with-fetch">
             <a-input v-model:value="form.name" placeholder="例如 gpt-4o" />
             <a-button
-              v-if="selectedProvider && form.model_type !== 'rerank'"
+              v-if="form.model_type !== 'rerank'"
               :loading="fetchingModels"
               @click="fetchRemoteModels"
             >
