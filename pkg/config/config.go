@@ -16,7 +16,6 @@ type Config struct {
 	JWT            JWTConfig            `mapstructure:"jwt"`
 	Log            LogConfig            `mapstructure:"log"`
 	CORS           CORSConfig           `mapstructure:"cors"`
-	Ollama         OllamaConfig         `mapstructure:"ollama"` // Ollama 配置（可选）
 	RAG            RAGConfig            `mapstructure:"rag"`
 	MCP            MCPConfig            `mapstructure:"mcp"`
 	SSE            SSEConfig            `mapstructure:"sse"`   // SSE 流式服务配置
@@ -242,13 +241,12 @@ type EmbeddingConfig struct {
 
 // RerankerConfig 重排器配置。
 type RerankerConfig struct {
-	Model          string       `mapstructure:"model"`
-	BaseURL        string       `mapstructure:"base_url"`
-	APIKey         string       `mapstructure:"api_key"`
-	TimeoutSeconds int          `mapstructure:"timeout_seconds"`
-	Ollama         OllamaConfig `mapstructure:"ollama"` // Ollama 配置（可选）
-	MCP            MCPConfig    `mapstructure:"mcp"`
-	SSE            SSEConfig    `mapstructure:"sse"` // SSE 流式服务配置
+	Model          string    `mapstructure:"model"`
+	BaseURL        string    `mapstructure:"base_url"`
+	APIKey         string    `mapstructure:"api_key"`
+	TimeoutSeconds int       `mapstructure:"timeout_seconds"`
+	MCP            MCPConfig `mapstructure:"mcp"`
+	SSE            SSEConfig `mapstructure:"sse"` // SSE 流式服务配置
 }
 
 // SSEConfig SSE 流式服务配置
@@ -266,18 +264,11 @@ type MCPConfig struct {
 
 // MCPToolRetrievalConfig MCP 工具向量检索配置
 type MCPToolRetrievalConfig struct {
-	Enabled           bool         `mapstructure:"enabled"`
-	Threshold         int          `mapstructure:"threshold"`
-	TopK              int          `mapstructure:"top_k"`
-	EmbeddingProvider string       `mapstructure:"embedding_provider"`
-	EmbeddingModel    string       `mapstructure:"embedding_model"`
-	Ollama            OllamaConfig `mapstructure:"ollama"` // Ollama 配置（可选）
-}
-
-// OllamaConfig Ollama 配置
-type OllamaConfig struct {
-	BaseURL string `mapstructure:"base_url"` // Ollama 服务地址
-	Model   string `mapstructure:"model"`    // 默认模型
+	Enabled           bool   `mapstructure:"enabled"`
+	Threshold         int    `mapstructure:"threshold"`
+	TopK              int    `mapstructure:"top_k"`
+	EmbeddingProvider string `mapstructure:"embedding_provider"`
+	EmbeddingModel    string `mapstructure:"embedding_model"`
 }
 
 // WebSearchConfig 联网搜索工具配置
