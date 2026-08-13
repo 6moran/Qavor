@@ -393,7 +393,7 @@ func (s *knowledgeFileService) Download(kbID, fileID string) (*FileDownload, err
 	return &FileDownload{Filename: file.OriginalFilename, ContentType: file.ContentType, Size: size, Reader: reader}, nil
 }
 
-// RetryParse 重试解析失败的单个文件。
+// RetryParse 重新解析单个文件（支持解析失败或已解析的文件）。
 func (s *knowledgeFileService) RetryParse(ctx context.Context, kbID, fileID string) (*response.ProcessingJobEnqueueItem, error) {
 	if s.jobRepo == nil || s.queue == nil {
 		return nil, bizerrors.New(bizerrors.CodeServiceUnavailable, "文档处理队列暂不可用")
@@ -405,8 +405,10 @@ func (s *knowledgeFileService) RetryParse(ctx context.Context, kbID, fileID stri
 	if file == nil {
 		return nil, bizerrors.New(bizerrors.CodeResourceNotFound, "文件不存在")
 	}
-	if file.Status != entity.FileParseFailed {
-		return nil, bizerrors.New(bizerrors.CodeConflict, "只有解析失败的文件可以重试解析")
+	switch file.Status {
+	case entity.FileParseFailed, entity.FileParsed, entity.FileIndexFailed, entity.FileIndexed:
+	default:
+		return nil, bizerrors.New(bizerrors.CodeConflict, "只有解析失败或已解析的文件可以重新解析")
 	}
 	job := &entity.DocumentProcessingJob{
 		JobID:       uuid.NewString(),
@@ -417,7 +419,7 @@ func (s *knowledgeFileService) RetryParse(ctx context.Context, kbID, fileID stri
 		MaxAttempts: 1,
 		AvailableAt: time.Now(),
 	}
-	created, err := s.jobRepo.CreateForFileTransition(ctx, job, []string{entity.FileParseFailed}, entity.FileParseQueued)
+	created, err := s.jobRepo.CreateForFileTransition(ctx, job, []string{entity.FileParseFailed, entity.FileParsed, entity.FileIndexFailed, entity.FileIndexed}, entity.FileParseQueued)
 	if err != nil {
 		return nil, err
 	}

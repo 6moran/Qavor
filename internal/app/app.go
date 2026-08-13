@@ -375,6 +375,26 @@ func (a *App) initDependencies() error {
 	mindmapSvc := service.NewMindmapService(knowledgeBaseRepo, knowledgeFileRepo, knowledgeChunkRepo, modelSvc)
 	mindmapCtrl := mindmapctrl.NewController(mindmapSvc)
 
+	// —— 链路追踪 Tracer 装配（提前到 RAG 组装之前创建，供 Runtime/Handler/RAG/Worker 共用）——
+	var tracer *trace.Tracer
+	var traceSpanRepo trace.TraceRepository
+	if a.cfg.Trace.Enabled && a.postgresDB != nil {
+		traceSpanRepo = repository.NewTraceSpanRepository(a.postgresDB)
+		traceWriter := trace.NewWriter(traceSpanRepo, trace.WriterConfig{
+			BufferSize: a.cfg.Trace.WriterBufferSize,
+		})
+		a.traceWriter = traceWriter
+		tracer = trace.NewTracer(traceWriter, trace.Config{
+			Enabled:          a.cfg.Trace.Enabled,
+			ContentMode:      a.cfg.Trace.ContentMode,
+			MaxContentLength: a.cfg.Trace.MaxContentLength,
+			Retention:        time.Duration(a.cfg.Trace.RetentionDays) * 24 * time.Hour,
+			TracedRoutes:     a.cfg.Trace.TracedRoutes,
+		})
+		callbacks.AppendGlobalHandlers(trace.NewHandler(tracer))
+		logger.Info("链路追踪 Tracer 已装配")
+	}
+
 	// 构造按知识库绑定模型解析的 RAG 依赖,由于需要依赖其他模块,所以在这里初始化
 	// 模型连接信息来自模型管理表；RAG 配置文件只提供分块、TopK、超时等算法默认值。
 	var (
@@ -395,7 +415,7 @@ func (a *App) initDependencies() error {
 			a.cfg.RAG.VectorTopK,
 		)
 		keywordRetriever = rag.NewKeywordRetriever(knowledgeChunkRepo, a.cfg.RAG.KeywordTopK)
-		dynamicReranker  = rag.NewDynamicReranker(ragSettingsSvc, modelSvc)
+		dynamicReranker  = rag.NewDynamicReranker(ragSettingsSvc, modelSvc, tracer)
 		hybridRetriever  = rag.NewHybridRetriever(
 			dynamicVectorRetriever,
 			keywordRetriever,
@@ -413,7 +433,7 @@ func (a *App) initDependencies() error {
 		)
 		ragCtrl *ragctrl.Controller
 	)
-	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, hybridRetriever, answerer)
+	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, hybridRetriever, answerer, tracer)
 	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
 	// 检索测试与示例问题服务：复用 RAG 检索链路与模型解析能力。
 	knowledgeQuerySvc := service.NewKnowledgeQueryService(a.cfg.RAG, knowledgeBaseRepo, knowledgeFileRepo, ragSvc, modelSvc)
@@ -514,26 +534,6 @@ func (a *App) initDependencies() error {
 	var checkPointStore adk.CheckPointStore
 	if a.redis != nil {
 		checkPointStore = agentpkg.NewRedisCheckPointStore(a.redis, 24*time.Hour)
-	}
-
-	// —— 链路追踪 Tracer 装配（在 AgentRuntime 之前创建，供 Runtime/Handler/Worker 共用）——
-	var tracer *trace.Tracer
-	var traceSpanRepo trace.TraceRepository
-	if a.cfg.Trace.Enabled && a.postgresDB != nil {
-		traceSpanRepo = repository.NewTraceSpanRepository(a.postgresDB)
-		traceWriter := trace.NewWriter(traceSpanRepo, trace.WriterConfig{
-			BufferSize: a.cfg.Trace.WriterBufferSize,
-		})
-		a.traceWriter = traceWriter
-		tracer = trace.NewTracer(traceWriter, trace.Config{
-			Enabled:          a.cfg.Trace.Enabled,
-			ContentMode:      a.cfg.Trace.ContentMode,
-			MaxContentLength: a.cfg.Trace.MaxContentLength,
-			Retention:        time.Duration(a.cfg.Trace.RetentionDays) * 24 * time.Hour,
-			TracedRoutes:     a.cfg.Trace.TracedRoutes,
-		})
-		callbacks.AppendGlobalHandlers(trace.NewHandler(tracer))
-		logger.Info("链路追踪 Tracer 已装配")
 	}
 
 	agentRuntime := &agentpkg.AgentRuntime{

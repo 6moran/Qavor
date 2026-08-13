@@ -127,6 +127,18 @@ func (t *Tracer) sanitizeText(value string) string {
 	return (Sanitizer{Mode: t.ContentMode(), MaxRunes: t.MaxContentLength()}).Text(value)
 }
 
+// StartSpanIfTraced 仅在 ctx 已携带 SpanContext（即处于某条被追踪的链路内）时创建 Span，
+// 否则返回 no-op Span。用于检索/重排等"手动埋点"场景：不生成无 TraceRecord 的孤立 Span。
+func (t *Tracer) StartSpanIfTraced(ctx context.Context, spec SpanSpec) (context.Context, *Span) {
+	if t == nil || !t.cfg.Enabled || t.writer == nil {
+		return ctx, noopSpan()
+	}
+	if _, ok := SpanContextFromContext(ctx); !ok {
+		return ctx, noopSpan()
+	}
+	return t.StartSpan(ctx, spec)
+}
+
 // UpdateRequestMetadata 在请求体解析后补全 TraceRecord，不让 Middleware 读取或重放请求体。
 func (t *Tracer) UpdateRequestMetadata(ctx context.Context, conversationID uint, query, entryType string) {
 	if t == nil || !t.cfg.Enabled || t.writer == nil {

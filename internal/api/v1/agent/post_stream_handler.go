@@ -229,13 +229,13 @@ func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRun
 
 	// 入队：创建 queue.produce Span，QueueItem.Trace 提取该 Span 的 Context
 	item := run.QueueItem{
-		RunID:         runID,
-		ThreadID:      req.ThreadID,
-		AgentSlug:     req.AgentSlug,
-		RequestID:     requestID,
-		Query:         req.Query,
-		CreatedAt:     now,
-		ApprovalMode:  req.ToolApprovalMode, // 透传审批模式：空则 worker 回落 default（请求审批）
+		RunID:        runID,
+		ThreadID:     req.ThreadID,
+		AgentSlug:    req.AgentSlug,
+		RequestID:    requestID,
+		Query:        req.Query,
+		CreatedAt:    now,
+		ApprovalMode: req.ToolApprovalMode, // 透传审批模式：空则 worker 回落 default（请求审批）
 	}
 	// 旧字段 TraceID 仍保留兼容（从 ctx 读取）
 	item.TraceID = trace.TraceIDFromContext(ctx)

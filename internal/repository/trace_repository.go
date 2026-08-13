@@ -367,7 +367,7 @@ func (r *traceSpanRepo) ListTraces(ctx context.Context, filter trace.TraceFilter
 				(latest_agent.agent_status = ? AND business_run.status = ?) OR
 				(latest_agent.agent_status = ? AND business_run.status = ?) OR
 				(latest_agent.agent_status = ? AND business_run.status IN (?, ?)) OR
-				(latest_agent.agent_status = ? AND business_run.status IN (?, ?))
+				(latest_agent.agent_status = ? AND business_run.status = ?)
 			)`,
 				trace.SpanStatusOK, entity.StatusCompleted,
 				trace.SpanStatusError, entity.StatusFailed,
@@ -377,7 +377,8 @@ func (r *traceSpanRepo) ListTraces(ctx context.Context, filter trace.TraceFilter
 				trace.SpanStatusInterrupted, entity.StatusInterrupted,
 				trace.SpanStatusInterrupted, entity.StatusCancelled,
 				trace.SpanStatusRunning, entity.StatusPending, entity.StatusRunning,
-				trace.SpanStatusTimeout, entity.StatusFailed, entity.StatusCancelled,
+				// timeout 仅与 failed 互认；span 超时但 run 被取消属于异常，应判为不一致
+				trace.SpanStatusTimeout, entity.StatusFailed,
 			)
 		q = q.Where("trace_id IN (?)", mismatchSubquery)
 	}

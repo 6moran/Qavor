@@ -47,6 +47,8 @@ type ModelService interface {
 	ResolveReranker(ctx context.Context, modelID uint) (rag.Reranker, error)
 	// TestConnection 测试未保存的模型配置是否能正常连接。
 	TestConnection(ctx context.Context, req *request.ModelConnectionTestRequest) (*dto.ModelConnectionTestResponse, error)
+	// FetchRemoteModels 远程拉取供应商的模型列表（OpenAI 兼容 /models 或 Ollama /api/tags）。
+	FetchRemoteModels(ctx context.Context, req *request.FetchRemoteModelsRequest) ([]string, error)
 	// SetModelConfigChangeCallback 设置模型配置变更回调
 	SetModelConfigChangeCallback(callback func(modelID string))
 }

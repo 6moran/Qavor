@@ -48,7 +48,8 @@ var plainStringConfigKeys = map[string]bool{
 // OCR 配置项键与配置项定义。
 const (
 	// SettingKeyOCRAPIOpts 通用 OCR API 配置项（JSON：{"base_url": "...", "api_key": "...", "model": "..."}）。
-	SettingKeyOCRAPIOpts = "ocr.api_opts"
+	// 与其他配置项统一使用下划线命名（如 default_ocr_engine），避免前端键名不一致导致更新被拒。
+	SettingKeyOCRAPIOpts = "ocr_api_opts"
 	// EnvOCRAPIBaseURL / EnvOCRAPIKey / EnvOCRAPIModel 通用 OCR API 的环境变量回退。
 	EnvOCRAPIBaseURL = "QAVOR_OCR_API_BASE_URL"
 	EnvOCRAPIKey     = "QAVOR_OCR_API_KEY"

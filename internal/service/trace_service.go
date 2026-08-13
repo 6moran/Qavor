@@ -236,19 +236,22 @@ func extractRunID(spans []*entity.TraceSpan) string {
 //	cancelled ↔ cancelled
 //	interrupted ↔ interrupted
 //	running ↔ pending/running
+//	timeout ↔ failed
 func isStatusMismatch(agentStatus, businessStatus string) bool {
 	if agentStatus == "" || businessStatus == "" {
 		return false
 	}
 	expected := map[string][]string{
-		trace.SpanStatusOK:          {entity.StatusCompleted},
-		trace.SpanStatusError:       {entity.StatusFailed},
+		trace.SpanStatusOK:    {entity.StatusCompleted},
+		trace.SpanStatusError: {entity.StatusFailed},
 		// 用户手动中断：ctx 取消会把 span 落成 cancelled，而业务 run 是 interrupted。
 		// cancelled / interrupted 都是"非错误终态"，互认避免把正常中断误报为状态不一致。
 		trace.SpanStatusCancelled:   {entity.StatusCancelled, entity.StatusInterrupted},
 		trace.SpanStatusInterrupted: {entity.StatusInterrupted, entity.StatusCancelled},
 		trace.SpanStatusRunning:     {entity.StatusPending, entity.StatusRunning},
-		trace.SpanStatusTimeout:     {entity.StatusFailed, entity.StatusCancelled},
+		// 超时 span 与 failed 互认（执行超时以失败收尾）。
+		// 不与 cancelled 互认：cancelled 表示主动取消，span 超时但 run 被取消属于异常，应判为不一致。
+		trace.SpanStatusTimeout: {entity.StatusFailed},
 	}
 	allowed, ok := expected[agentStatus]
 	if !ok {
