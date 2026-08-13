@@ -167,10 +167,11 @@ const applyMindmapResult = async (mindmap, successMsg) => {
   if (!mindmap) return
   mindmapData.value = mindmap
   await nextTick()
+  // 增加延迟确保DOM完全渲染，特别是使用v-if条件渲染时
   setTimeout(() => {
     renderMindmap(mindmap)
     if (successMsg) message.success(successMsg)
-  }, 100)
+  }, 200)
   await checkMindmapDiff()
 }
 
@@ -195,10 +196,10 @@ const loadMindmap = async () => {
     if (mindmap) {
       await nextTick()
 
-      // 延迟渲染，确保DOM完全更新
+      // 延迟渲染，确保DOM完全更新（使用v-if条件渲染时需要更长延迟）
       setTimeout(() => {
         renderMindmap(mindmap)
-      }, 100)
+      }, 200)
     }
 
     await checkMindmapDiff()
@@ -496,15 +497,18 @@ const renderMindmap = async (data, retryCount = 0) => {
   if (!data) return
 
   if (!mindmapSvg.value || !ensureSvgViewportSize()) {
-    // 如果SVG或尺寸还没准备好，最多重试3次
-    if (retryCount < 3) {
+    // 如果SVG或尺寸还没准备好，最多重试5次，增加延迟以适应条件渲染场景
+    if (retryCount < 5) {
       setTimeout(() => {
         renderMindmap(data, retryCount + 1)
-      }, 100)
+      }, 150)
       return
     } else {
-      console.error('无法获取SVG容器，渲染失败')
-      message.error('渲染失败：无法找到SVG容器')
+      console.error('无法获取SVG容器，渲染失败', {
+        svgExists: !!mindmapSvg.value,
+        retryCount
+      })
+      message.error('渲染失败：无法找到SVG容器，请尝试刷新页面')
       return
     }
   }
