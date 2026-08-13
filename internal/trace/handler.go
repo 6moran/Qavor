@@ -16,8 +16,8 @@ import (
 	callbackstpl "github.com/cloudwego/eino/utils/callbacks"
 )
 
-// structuredMessageMax 结构化消息（llm.messages）最多保留条数；
-// 超出时保留首条（通常为 system）+ 最近 N-1 条，避免 attributes 过大。
+// structuredMessageMax 结构化消息（llm.messages）最多保留条数
+// 超出时保留首条（通常为 system）+ 最近 N-1 条，避免 attributes 过大
 const structuredMessageMax = 20
 
 // callbackSpanKey 用于在 context 中存储当前组件 Span 句柄（OnStart 注入，OnEnd/OnError 读取）
@@ -32,8 +32,8 @@ func callbackSpanFromContext(ctx context.Context) *Span {
 	return span
 }
 
-// callbackCollector 基于 Tracer 的组件 Span 采集器。
-// 只创建组件 Span（llm/tool/retriever/agent），不创建根 TraceRecord，不结束父 Span。
+// callbackCollector 基于 Tracer 的组件 Span 采集器
+// 只创建组件 Span（llm/tool/retriever/agent），不创建根 TraceRecord，不结束父 Span
 type callbackCollector struct {
 	tracer    *Tracer
 	sanitizer Sanitizer
@@ -52,7 +52,7 @@ func newCallbackCollector(tracer *Tracer) *callbackCollector {
 	}
 }
 
-// start 创建组件 Span 并注入 ctx。没有 SpanContext 时跳过（不创建根 Trace）。
+// start 创建组件 Span 并注入 ctx，没有 SpanContext 时跳过（不创建根 Trace）
 func (c *callbackCollector) start(ctx context.Context, info *callbacks.RunInfo, kind, operation, displayName, inputSummary string, attrs entity.JSON) context.Context {
 	if c.tracer == nil {
 		return ctx
@@ -74,7 +74,7 @@ func (c *callbackCollector) start(ctx context.Context, info *callbacks.RunInfo, 
 	return withCallbackSpan(newCtx, span)
 }
 
-// end 结束组件 Span（幂等，仅第一次生效）。
+// end 结束组件 Span（幂等，仅第一次生效）
 func (c *callbackCollector) end(ctx context.Context, end SpanEnd) {
 	span := callbackSpanFromContext(ctx)
 	if span == nil {
@@ -83,11 +83,12 @@ func (c *callbackCollector) end(ctx context.Context, end SpanEnd) {
 	span.End(end)
 }
 
-// NewHandler 创建全局采集器（进程启动时经 callbacks.AppendGlobalHandlers 注册一次）。
-// tracer 为 nil 时所有回调为 no-op。
+// NewHandler 创建全局采集器（进程启动时经 callbacks.AppendGlobalHandlers 注册一次）
+// tracer 为 nil 时所有回调为 no-op
 func NewHandler(tracer *Tracer) callbacks.Handler {
 	col := newCallbackCollector(tracer)
 
+	// LLM Span,记录token,结构化消息,工具调用
 	modelH := &callbackstpl.ModelCallbackHandler{
 		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *model.CallbackInput) context.Context {
 			name, summary := "", ""
@@ -194,6 +195,7 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 		},
 	}
 
+	// 工具调用,记录参数和结果
 	toolH := &callbackstpl.ToolCallbackHandler{
 		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *tool.CallbackInput) context.Context {
 			summary := ""
@@ -330,8 +332,8 @@ func callbackTokenUsage(output *model.CallbackOutput) *model.TokenUsage {
 	}
 }
 
-// buildModelSpanEnd 从模型回调输出构造 Span 结束数据（token 用量、输出摘要、工具调用 id）。
-// 非流式 OnEnd 与流式 OnEndWithStreamOutput 共用，避免重复逻辑。
+// buildModelSpanEnd 从模型回调输出构造 Span 结束数据（token 用量、输出摘要、工具调用 id）
+// 非流式 OnEnd 与流式 OnEndWithStreamOutput 共用，避免重复逻辑
 func (c *callbackCollector) buildModelSpanEnd(output *model.CallbackOutput) SpanEnd {
 	end := SpanEnd{Status: SpanStatusOK}
 	if output == nil {
@@ -387,8 +389,8 @@ func (g *graphHandler) Needed(_ context.Context, _ *callbacks.RunInfo, timing ca
 	return timing == callbacks.TimingOnStart || timing == callbacks.TimingOnEnd || timing == callbacks.TimingOnError
 }
 
-// promptSummary 生成输入摘要：优先取最后一条 user 消息文本（用户最新输入），
-// 避免长 system prompt 占满截断额度把用户输入切掉；无 user 消息时回退拼接全部消息文本。
+// promptSummary 生成输入摘要：优先取最后一条 user 消息文本（用户最新输入）
+// 避免长 system prompt 占满截断额度把用户输入切掉，无 user 消息时回退拼接全部消息文本
 func promptSummary(msgs []*schema.Message) string {
 	if len(msgs) == 0 {
 		return ""
@@ -418,9 +420,9 @@ func promptSummary(msgs []*schema.Message) string {
 	return strings.TrimSpace(sb.String())
 }
 
-// messagesToStructured 将 LLM 输入消息转为结构化列表（role + content）。
-// 每条 content 独立脱敏与截断（Sanitizer）；无文本的消息（如仅 tool_call 的占位）跳过；
-// 超过 structuredMessageMax 条时保留首条（通常为 system）+ 最近 N-1 条。
+// messagesToStructured 将 LLM 输入消息转为结构化列表（role + content）
+// 每条 content 独立脱敏与截断（Sanitizer），无文本的消息（如仅 tool_call 的占位）跳过
+// 超过 structuredMessageMax 条时保留首条（通常为 system）+ 最近 N-1 条
 func messagesToStructured(msgs []*schema.Message, s Sanitizer) []map[string]any {
 	if len(msgs) == 0 {
 		return nil

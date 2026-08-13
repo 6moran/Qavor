@@ -9,11 +9,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// Janitor 兜底清理：running Span 超时标记 timeout + 过期数据物理删除
+// Janitor 兜底清理器，解决两个问题：
+//  1. "永远 running"的悬挂 span：正常流程 span 都会被 End，但进程崩溃或极端 bug 会导致悬挂
+//     Janitor 把 running 超过 timeout（默认 30 分钟）的 span 标记为 timeout
+//  2. 数据无限膨胀：按 retention（默认 7 天）物理删除过期的 trace_records，表不会无限增长
+//
+// 定时执行（默认 5 分钟一次），阻塞直到 ctx 取消（优雅关闭时停掉）
 type Janitor struct {
-	repo     TraceRepository
-	interval time.Duration
-	timeout  time.Duration
+	repo     TraceRepository // 数据访问接口
+	interval time.Duration   // 清理间隔（默认 5 分钟）
+	timeout  time.Duration   // running 超时时长（默认 30 分钟）
 }
 
 // NewJanitor 创建清理器

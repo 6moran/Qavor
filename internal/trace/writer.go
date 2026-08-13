@@ -13,8 +13,9 @@ import (
 )
 
 // WriterConfig Writer 异步写入队列配置
+// 控制 channel 缓冲区大小，影响背压策略的触发频率
 type WriterConfig struct {
-	BufferSize int
+	BufferSize int // channel 缓冲区大小（默认 2048），队列满时 Start 事件丢弃，End 事件等待 100ms
 }
 
 // writeEventKind 事件类型
@@ -28,31 +29,35 @@ const (
 )
 
 // writeEvent 写入队列中的单个事件（值拷贝，避免外部指针被修改）
+// 所有事件使用同一个 FIFO channel，保证同一 Span 的 Start 排在 End 前（顺序一致性）
 type writeEvent struct {
-	kind    writeEventKind
-	record  entity.TraceRecord // kindCreateTrace
-	traceID string             // kindUpdateTrace
-	meta    TraceMetadata      // kindUpdateTrace
-	span    entity.TraceSpan   // kindStartSpan
-	spanID  string             // kindEndSpan
-	end     SpanEnd            // kindEndSpan
+	kind    writeEventKind     // 事件类型（CreateTrace / UpdateTrace / StartSpan / EndSpan）
+	record  entity.TraceRecord // kindCreateTrace：TraceRecord 实体
+	traceID string             // kindUpdateTrace：Trace ID
+	meta    TraceMetadata      // kindUpdateTrace：补全的元数据
+	span    entity.TraceSpan   // kindStartSpan：Span 实体
+	spanID  string             // kindEndSpan：Span ID
+	end     SpanEnd            // kindEndSpan：结束数据
 }
 
-// Writer 有界异步写入队列，实现 SpanWriter。
-// 所有事件使用同一 FIFO channel，保证同一 Span 的 Start 排在 End 前。
-// CreateTrace/StartSpan 在队列满时丢弃并增加 dropped；EndSpan 最多等待 100ms。
+// Writer 有界异步写入队列，实现 SpanWriter 接口
+// 核心设计：
+//   - 所有事件使用同一个 FIFO channel，保证同一 Span 的 Start 排在 End 前（顺序一致性）
+//   - 单消费者 goroutine 顺序处理，避免并发写 DB 的锁竞争
+//   - 背压策略：Start 事件队列满时直接丢弃（+1 dropped），End 事件最多等待 100ms
+//   - 优雅关闭：Close() 置标志 → drain 剩余事件 → 关闭 done channel
 type Writer struct {
-	repo    TraceRepository
-	events  chan writeEvent
-	dropped atomic.Uint64
-	closed  atomic.Bool
-	stopCh  chan struct{}
-	done    chan struct{}
-	flushCh chan chan struct{}
-	once    sync.Once
+	repo    TraceRepository    // 数据访问接口（PostgreSQL）
+	events  chan writeEvent    // 有界缓冲 channel（默认 2048）
+	dropped atomic.Uint64      // 丢弃计数（监控指标，暴露给 /metrics）
+	closed  atomic.Bool        // 关闭标志（Close 时置 true，防止新事件入队）
+	stopCh  chan struct{}      // 停止信号（Close 时关闭）
+	done    chan struct{}      // 完成信号（goroutine 退出时关闭）
+	flushCh chan chan struct{} // flush 请求 channel（阻塞等待队列清空）
+	once    sync.Once          // 保证 Close 只执行一次
 }
 
-// NewWriter 创建异步写入器并启动后台 goroutine。
+// NewWriter 创建异步写入器并启动后台 goroutine
 func NewWriter(repo TraceRepository, cfg WriterConfig) *Writer {
 	size := cfg.BufferSize
 	if size <= 0 {
@@ -69,7 +74,7 @@ func NewWriter(repo TraceRepository, cfg WriterConfig) *Writer {
 	return w
 }
 
-// run 后台 goroutine：从 channel 读取事件并写入 repo。
+// run 后台 goroutine：从 channel 读取事件并写入 repo
 func (w *Writer) run() {
 	defer close(w.done)
 	for {
@@ -148,7 +153,7 @@ func (w *Writer) process(event writeEvent) {
 	}
 }
 
-// UpdateTraceMetadata 入队 TraceRecord 元数据补全事件（队列满时丢弃）。
+// UpdateTraceMetadata 入队 TraceRecord 元数据补全事件（队列满时丢弃）
 func (w *Writer) UpdateTraceMetadata(_ context.Context, traceID string, meta TraceMetadata) error {
 	if w.closed.Load() {
 		return nil
