@@ -201,7 +201,7 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 	response.Success(c, nil)
 }
 
-// RetryParse 重新解析单个文件（支持解析失败或已入库的文件）。
+// RetryParse 重新解析单个文件（支持解析失败或已解析的文件）。
 func (ctrl *Controller) RetryParse(c *gin.Context) {
 	result, err := ctrl.service.RetryParse(c.Request.Context(), c.Param("kb_id"), c.Param("doc_id"))
 	if err != nil {
