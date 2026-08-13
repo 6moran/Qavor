@@ -46,6 +46,13 @@ type ModelListRequest struct {
 	ModelType string `form:"model_type" binding:"omitempty,oneof=chat embedding rerank"`
 }
 
+// FetchRemoteModelsRequest 远程拉取模型列表请求
+type FetchRemoteModelsRequest struct {
+	BaseURL  string `json:"base_url" binding:"required,max=500"`
+	APIKey   string `json:"api_key" binding:"omitempty,max=500"`
+	Protocol string `json:"protocol" binding:"omitempty,oneof=openai ollama"`
+}
+
 // ModelConnectionTestRequest 模型连接测试请求
 type ModelConnectionTestRequest struct {
 	ModelID   uint              `json:"model_id" binding:"omitempty,min=1"`

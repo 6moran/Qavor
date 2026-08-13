@@ -253,6 +253,37 @@ func (ctrl *Controller) GetProviderByName(c *gin.Context) {
 	response.Success(c, provider)
 }
 
+// FetchRemoteModels 远程拉取模型列表
+// @Summary 远程拉取模型列表
+// @Description 根据 Base URL 与协议远程拉取供应商的模型列表，供模型配置弹窗选择
+// @Tags 模型
+// @Accept json
+// @Produce json
+// @Param request body request.FetchRemoteModelsRequest true "远程拉取请求"
+// @Success 200 {object} response.Response{data=[]string}
+// @Router /api/v1/models/remote-models [post]
+func (ctrl *Controller) FetchRemoteModels(c *gin.Context) {
+	var req request.FetchRemoteModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		code, message := validator.ErrorHandler(err)
+		response.Error(c, code, message)
+		return
+	}
+
+	result, err := ctrl.modelService.FetchRemoteModels(c.Request.Context(), &req)
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取模型列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取模型列表失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
 // TestConnection 测试模型连接
 // @Summary 测试模型连接
 // @Description 在不保存配置的情况下验证 Chat/Embedding 模型是否可用
