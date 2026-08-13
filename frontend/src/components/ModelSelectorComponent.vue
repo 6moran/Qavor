@@ -105,6 +105,8 @@ const handleOpenChange = async (open) => {
   }
 }
 
+// 挂载时若有已选模型则预加载模型列表，让选中值直接显示模型名而非数字 id；
+// 列表为空时仍保持展开下拉才加载的懒加载行为
 onMounted(() => {
   if (props.model_spec) {
     loadModels()
@@ -127,12 +129,6 @@ const handleClear = () => {
   emit('select-model', '')
   emit('update:model_spec', '')
 }
-
-// 挂载时若有已选模型则预加载模型列表，让选中值直接显示模型名而非数字 id；
-// 列表为空时仍保持展开下拉才加载的懒加载行为
-onMounted(() => {
-  if (props.model_spec) loadModels()
-})
 </script>
 
 <style lang="less" scoped>
