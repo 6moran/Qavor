@@ -10,7 +10,7 @@
     @change="handleSelect"
   >
     <a-select-option v-for="model in models" :key="model.id" :value="String(model.id)">
-      {{ model.name }}
+      {{ model.remark || model.name }}
     </a-select-option>
   </a-select>
 </template>
