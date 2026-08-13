@@ -1,7 +1,7 @@
 <template>
   <div class="chunk-params-config">
     <div class="params-info">
-      <p>调整分块参数可以控制文本的切分方式，影响检索质量和文档加载效率。</p>
+      <p>选个匹配文档结构的分块策略就够了；下方「高级参数」里可以微调段落大小与重叠。</p>
     </div>
     <a-form :model="localParams" name="chunkConfig" autocomplete="off" layout="vertical">
       <a-form-item v-if="showPreset" name="chunk_preset_id">
@@ -25,57 +25,62 @@
         </p>
       </a-form-item>
 
-      <div class="chunk-row">
-        <a-form-item v-if="showChunkSizeOverlap" name="chunk_token_num">
-          <template #label>
-            <span class="chunk-preset-label">
-              最大 Token 数
-              <a-tooltip title="每个文本片段的最大 token 数，留空时使用默认值 512">
-                <QuestionCircleOutlined class="chunk-preset-help-icon" />
-              </a-tooltip>
-            </span>
-          </template>
-          <a-input-number
-            v-model:value="parserConfig.chunk_token_num"
-            :min="100"
-            :max="10000"
-            placeholder="默认 512"
-            style="width: 100%"
-          />
-        </a-form-item>
-        <a-form-item v-if="showChunkSizeOverlap" name="overlapped_percent">
-          <template #label>
-            <span class="chunk-preset-label">
-              重叠比例 (%)
-              <a-tooltip title="相邻文本片段按 token 数计算的重叠比例，留空时使用默认值 0">
-                <QuestionCircleOutlined class="chunk-preset-help-icon" />
-              </a-tooltip>
-            </span>
-          </template>
-          <a-input-number
-            v-model:value="parserConfig.overlapped_percent"
-            :min="0"
-            :max="99"
-            placeholder="默认 0"
-            style="width: 100%"
-          />
-        </a-form-item>
-        <a-form-item v-if="showQaSplit" name="delimiter">
-          <template #label>
-            <span class="chunk-preset-label">
-              分隔符
-              <a-tooltip title="支持 \\n、\\t 等转义字符。留空时使用默认分隔符 \\n">
-                <QuestionCircleOutlined class="chunk-preset-help-icon" />
-              </a-tooltip>
-            </span>
-          </template>
-          <a-input
-            v-model:value="parserConfig.delimiter"
-            placeholder="默认 \\n，可输入 \\n\\n\\n 或 ---"
-            style="width: 100%"
-          />
-        </a-form-item>
-      </div>
+      <a-collapse v-if="hasAdvancedFields" ghost class="chunk-advanced-collapse">
+        <a-collapse-panel key="advanced" header="高级参数（可选）">
+          <div class="chunk-row">
+            <a-form-item v-if="showChunkSizeOverlap" name="chunk_token_num">
+              <template #label>
+                <span class="chunk-preset-label">
+                  最大 Token 数
+                  <a-tooltip title="每个段落最多包含多少 token。值越大每段越长但检索粒度变粗。推荐 256-1024，留空使用默认值 512。">
+                    <QuestionCircleOutlined class="chunk-preset-help-icon" />
+                  </a-tooltip>
+                </span>
+              </template>
+              <a-input-number
+                v-model:value="parserConfig.chunk_token_num"
+                :min="100"
+                :max="10000"
+                placeholder="默认 512"
+                style="width: 100%"
+              />
+            </a-form-item>
+            <a-form-item v-if="showChunkSizeOverlap" name="overlapped_percent">
+              <template #label>
+                <span class="chunk-preset-label">
+                  重叠比例 (%)
+                  <a-tooltip title="相邻段落之间重叠部分占总段长的比例。值越大越不容易切断上下文，但索引会变大。推荐 10-20，留空为 0。">
+                    <QuestionCircleOutlined class="chunk-preset-help-icon" />
+                  </a-tooltip>
+                </span>
+              </template>
+              <a-input-number
+                v-model:value="parserConfig.overlapped_percent"
+                :min="0"
+                :max="99"
+                placeholder="默认 0"
+                style="width: 100%"
+              />
+            </a-form-item>
+            <a-form-item v-if="showQaSplit" name="delimiter">
+              <template #label>
+                <span class="chunk-preset-label">
+                  分隔符
+                  <a-tooltip title="支持 \\n、\\t 等转义字符。留空时使用默认分隔符 \\n">
+                    <QuestionCircleOutlined class="chunk-preset-help-icon" />
+                  </a-tooltip>
+                </span>
+              </template>
+              <a-input
+                v-model:value="parserConfig.delimiter"
+                placeholder="默认 \\n，可输入 \\n\\n\\n 或 ---"
+                style="width: 100%"
+              />
+            </a-form-item>
+          </div>
+          <p class="param-description">一般文档用默认参数即可，留空会让分块器按策略内置值处理。</p>
+        </a-collapse-panel>
+      </a-collapse>
     </a-form>
   </div>
 </template>
@@ -154,6 +159,10 @@ const effectivePresetId = computed(
 )
 const presetDescription = computed(() => getChunkPresetDescription(effectivePresetId.value))
 
+const hasAdvancedFields = computed(
+  () => props.showChunkSizeOverlap || props.showQaSplit
+)
+
 onMounted(() => {
   loadChunkPresetOptions()
 })
@@ -184,6 +193,20 @@ onMounted(() => {
 .chunk-row > .ant-form-item {
   flex: 1;
   margin-bottom: 0;
+}
+
+.chunk-advanced-collapse {
+  margin-top: 4px;
+}
+
+.chunk-advanced-collapse :deep(.ant-collapse-header) {
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--gray-500);
+}
+
+.chunk-advanced-collapse :deep(.ant-collapse-content-box) {
+  padding: 0 0 8px 0;
 }
 
 .param-description {
