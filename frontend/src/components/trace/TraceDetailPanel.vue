@@ -286,6 +286,15 @@ const SpanDetail = defineComponent({
       h('div', { class: 'wf-detail-title' }, title),
       h('pre', { class: ['wf-detail-pre', { 'error-text': error }] }, content)
     ]) : null
+    // LLM span 输入：优先展示结构化消息列表（role + content，后端存于 attributes.llm.messages）
+    const msgRoleLabel = role => ({ system: 'SYSTEM', user: 'USER', assistant: 'ASSISTANT', tool: 'TOOL' }[role] || role || 'MSG')
+    const llmMessages = detailProps.span.kind === 'llm' && Array.isArray(detailProps.span.attributes?.['llm.messages'])
+      ? detailProps.span.attributes['llm.messages']
+      : []
+    const messageNodes = llmMessages.map((m, i) => h('div', { class: 'wf-msg', key: i }, [
+      h('span', { class: ['wf-msg-role', `wf-msg-role-${m.role || 'unknown'}`] }, msgRoleLabel(m.role)),
+      h('pre', { class: 'wf-msg-content' }, m.content || '(无文本内容)')
+    ]))
     return () => h('div', { class: 'span-detail-content' }, [
       h('dl', { class: 'span-fields' }, [
         h('div', null, [h('dt', null, 'Operation'), h('dd', null, detailProps.span.operation || '-')]),
@@ -294,7 +303,12 @@ const SpanDetail = defineComponent({
         h('div', null, [h('dt', null, '开始时间'), h('dd', null, formatTime(detailProps.span.started_at))]),
         h('div', null, [h('dt', null, '结束时间'), h('dd', null, formatTime(detailProps.span.ended_at))])
       ]),
-      block('输入', detailProps.span.input_summary),
+      messageNodes.length
+        ? h('div', { class: 'wf-detail-block' }, [
+            h('div', { class: 'wf-detail-title' }, '输入消息'),
+            h('div', { class: 'wf-msg-list' }, messageNodes)
+          ])
+        : block('输入', detailProps.span.input_summary),
       block('输出', detailProps.span.output_summary),
       block('错误', detailProps.span.error_message, true),
       block('Attributes', detailProps.span.attributes ? JSON.stringify(detailProps.span.attributes, null, 2) : '')
@@ -381,5 +395,6 @@ const TraceTreeNode = defineComponent({
 .trace-span-detail { min-width:0; min-height:0; margin-left:60%; padding:14px; overflow:visible; background:#fbfcfe; }.span-detail-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }.span-detail-heading>div { display:flex; align-items:center; gap:8px; min-width:0; }.span-detail-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .span-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:14px; }.span-metrics>div { padding:9px 10px; border:1px solid #e7eaf0; border-radius:6px; background:#fff; }.span-metrics span { display:block; color:#8b94a8; font-size:11px; }.span-metrics strong { display:block; margin-top:3px; color:#273147; font-size:13px; }
 .span-fields { display:grid; gap:7px; margin:0; }.span-fields>div { display:grid; grid-template-columns:82px minmax(0,1fr); gap:8px; font-size:12px; }.span-fields dt { color:#8b94a8; }.span-fields dd { min-width:0; margin:0; color:#3e485e; word-break:break-all; }.wf-detail-block { margin-top:12px; }.wf-detail-title { margin-bottom:5px; color:#59647a; font-size:12px; font-weight:700; }.wf-detail-pre { max-height:220px; margin:0; padding:9px; overflow:auto; border:1px solid #e5e8ee; border-radius:6px; color:#5a6478; background:#fff; font:12px/1.55 Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
+.wf-msg-list { display:flex; flex-direction:column; gap:8px; }.wf-msg { display:flex; flex-direction:column; gap:4px; }.wf-msg-role { align-self:flex-start; padding:1px 7px; border-radius:4px; color:#fff; font-size:10px; font-weight:700; letter-spacing:.4px; }.wf-msg-role-system { background:#722ed1; }.wf-msg-role-user { background:#1677ff; }.wf-msg-role-assistant { background:#52c41a; }.wf-msg-role-tool { background:#fa8c16; }.wf-msg-role-unknown { background:#8b94a8; }.wf-msg-content { max-height:220px; margin:0; padding:9px; overflow:auto; border:1px solid #e5e8ee; border-radius:6px; color:#5a6478; background:#fff; font:12px/1.55 Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
 @media (max-width:1000px) { .trace-toolbar { flex-wrap:wrap; }.trace-toolbar-spacer { display:none; }.trace-workspace { position:static; min-height:0; }.trace-tree-pane { position:static; width:auto; border-right:0; border-bottom:1px solid #e7eaf0; }.trace-span-detail { margin-left:0; max-height:none; }.timeline-row { grid-template-columns:minmax(150px,42%) 1fr 64px; } }
 </style>
