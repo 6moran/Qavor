@@ -56,7 +56,7 @@ type KnowledgeFileService interface {
 	Search(kbID, query string, offset, limit int) (*response.KnowledgeFileListResponse, error)
 	Preview(kbID, fileID string) (*response.KnowledgeFilePreviewResponse, error)
 	Download(kbID, fileID string) (*FileDownload, error)
-	// RetryParse 重试解析失败的单个文件。
+	// RetryParse 重新解析单个文件（支持解析失败或已入库的文件）。
 	RetryParse(ctx context.Context, kbID, fileID string) (*response.ProcessingJobEnqueueItem, error)
 	// IndexFiles 对指定文件执行手动入库。
 	IndexFiles(ctx context.Context, kbID string, req *request.IndexKnowledgeFilesRequest) (*response.ProcessingJobBatchResponse, error)

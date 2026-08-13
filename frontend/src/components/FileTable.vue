@@ -308,16 +308,16 @@
                     {{ getFilePrimaryAction(row)?.label || '入库' }}
                   </a-button>
 
-                  <!-- Reindex Action -->
+                  <!-- Reparse Action -->
                   <a-button
-                    v-if="canReindexFile(row)"
+                    v-if="canReparseFile(row)"
                     type="text"
                     block
-                    @click="handleReindexFile(row)"
+                    @click="handleParseFile(row)"
                     :disabled="lock"
                   >
                     <template #icon><component :is="h(RotateCw)" size="14" /></template>
-                    重新入库
+                    重新解析
                   </a-button>
 
                   <a-button
@@ -355,7 +355,7 @@ import {
   canIndexFile,
   canOpenFileDetail,
   canParseFile,
-  canReindexFile,
+  canReparseFile,
   canSelectFile,
   getFilePrimaryAction,
   getFileStatusSortWeight,
@@ -910,20 +910,6 @@ const handleIndexFile = async (record) => {
   isPendingIndexOperation.value = false
   pendingIndexTotal.value = 0
   indexConfigModalTitle.value = '入库参数配置'
-
-  const processingParams = await loadRecordProcessingParams(record)
-  resetIndexParams(processingParams)
-
-  indexConfigModalVisible.value = true
-}
-
-const handleReindexFile = async (record) => {
-  closePopover(record.file_id)
-  currentIndexFileIds.value = [record.file_id]
-  isBatchIndexOperation.value = false
-  isPendingIndexOperation.value = false
-  pendingIndexTotal.value = 0
-  indexConfigModalTitle.value = '重新入库参数配置'
 
   const processingParams = await loadRecordProcessingParams(record)
   resetIndexParams(processingParams)

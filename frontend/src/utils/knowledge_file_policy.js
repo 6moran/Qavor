@@ -93,7 +93,7 @@ export const canIndexFile = (record) => {
   return Boolean(record && !record.is_folder && INDEXABLE_STATUSES.has(canonical))
 }
 
-export const canReindexFile = (record) => {
+export const canReparseFile = (record) => {
   const canonical = normalizeStatus(record?.status)
   return Boolean(record && !record.is_folder && canonical === 'indexed')
 }
