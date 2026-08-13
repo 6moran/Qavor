@@ -7,7 +7,11 @@ export const DEFAULT_MODEL_PARAMS = {
   stop: []
 }
 
-export const MODEL_PROTOCOL_OPTIONS = [{ label: 'OpenAI', value: 'openai' }]
+// 协议选项 value 与后端 internal/llm provider 注册名一致（llm.NewClient 按 provider 匹配工厂）
+export const MODEL_PROTOCOL_OPTIONS = [
+  { label: 'OpenAI 兼容', value: 'openai' },
+  { label: 'Ollama', value: 'ollama' }
+]
 
 export const formatJsonText = (value) => JSON.stringify(value ?? {}, null, 2)
 

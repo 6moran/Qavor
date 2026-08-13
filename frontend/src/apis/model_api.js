@@ -35,5 +35,7 @@ export const modelApi = {
   create: (payload) => apiPost('/api/v1/models', payload),
   update: (id, payload) => apiPut(`/api/v1/models/${encodeURIComponent(id)}`, payload),
   remove: (id) => apiDelete(`/api/v1/models/${encodeURIComponent(id)}`),
-  testConnection: (payload) => apiPost('/api/v1/models/test', payload)
+  testConnection: (payload) => apiPost('/api/v1/models/test', payload),
+  getProviders: () => apiGet('/api/v1/models/providers'),
+  fetchRemoteModels: (payload) => apiPost('/api/v1/models/remote-models', payload)
 }
