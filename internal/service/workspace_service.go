@@ -115,15 +115,3 @@ func (s *workspaceService) Upload(ctx context.Context, parentPath string, files 
 	}
 	return entries, nil
 }
-
-func (s *workspaceService) Download(ctx context.Context, path string) ([]byte, string, error) {
-	abs, err := s.backend.ResolvePath(normalizePath(path))
-	if err != nil {
-		return nil, "", err
-	}
-	fc, err := s.backend.Read(ctx, &filesystem.ReadRequest{FilePath: normalizePath(path)})
-	if err != nil {
-		return nil, "", err
-	}
-	return []byte(fc.Content), filepath.Base(abs), nil
-}

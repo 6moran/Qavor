@@ -279,7 +279,6 @@ func (a *App) initDatabase() error {
 			&entity.Message{},
 			&entity.MessageFeedback{},
 			&entity.ToolCall{},
-			&entity.APIKey{},
 			&entity.OperationLog{},
 			&entity.AgentRun{},
 			&entity.SubagentThread{},

@@ -33,6 +33,8 @@ function sortAgents(agents) {
 
 function getPreferredAgentId(agents, persistedId) {
   const chatAgents = agents.filter((agent) => !agent.is_subagent)
+  const defaultAgent = chatAgents.find((agent) => agent.is_default)
+  if (defaultAgent) return defaultAgent.id
   if (persistedId && chatAgents.some((agent) => agent.id === persistedId)) return persistedId
   return chatAgents.find(isBuiltinAgent)?.id || chatAgents[0]?.id || null
 }
@@ -202,6 +204,16 @@ export const useAgentStore = defineStore(
       }
     }
 
+    // 离开对话页时调用：把当前选中的智能体重置回默认智能体，
+    // 避免「去对话」/「手动选择」在 SPA 路由切换后永久污染全局选中状态。
+    // 注意：已绑定会话的绑定关系存于后端 thread，不受此影响——再次打开该 thread 时会重新 selectAgent(thread.agent_id)。
+    async function selectDefaultAgent() {
+      const defaultId = getPreferredAgentId(agents.value, null)
+      if (defaultId) {
+        await selectAgent(defaultId)
+      }
+    }
+
     async function saveAgentConfig() {
       const targetAgentId = selectedAgentId.value
       if (!targetAgentId) return
@@ -308,6 +320,7 @@ export const useAgentStore = defineStore(
       fetchAgentDetail,
       fetchMentionResources,
       selectAgent,
+      selectDefaultAgent,
       saveAgentConfig,
       createAgent,
       updateAgentProfile,

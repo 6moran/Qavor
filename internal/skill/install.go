@@ -65,7 +65,12 @@ func zipLayout(data []byte) (map[string]map[string][]byte, error) {
 
 		var slug, file string
 		if len(parts) < 2 {
-			slug = "root"
+			// 单文件在根目录：用公共顶层目录名作为 slug
+			if top != "" {
+				slug = strings.TrimRight(top, "/")
+			} else {
+				slug = "root"
+			}
 			file = rel
 		} else {
 			slug, file = parts[0], strings.Join(parts[1:], "/")

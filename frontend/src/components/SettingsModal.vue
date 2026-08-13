@@ -21,15 +21,6 @@
         <div class="settings-sider-nav">
           <div
             class="sider-item"
-            :class="{ activesec: activeTab === 'apiKeys' }"
-            @click="activeTab = 'apiKeys'"
-            v-if="userStore.isLoggedIn"
-          >
-            <Key class="icon" :size="18" />
-            <span>API Keys</span>
-          </div>
-          <div
-            class="sider-item"
             :class="{ activesec: activeTab === 'base' }"
             @click="activeTab = 'base'"
           >
@@ -58,25 +49,16 @@
       <div class="settings-mobile-nav">
         <div
           class="nav-item"
-          :class="{ active: activeTab === 'apiKeys' }"
-          @click="activeTab = 'apiKeys'"
-          v-if="userStore.isLoggedIn"
-        >
-          API Keys
-        </div>
-        
-        <div
-          class="nav-item"
           :class="{ active: activeTab === 'base' }"
           @click="activeTab = 'base'"
-        >
+          >
           基本设置
         </div>
         <div
           class="nav-item"
           :class="{ active: activeTab === 'ocr' }"
           @click="activeTab = 'ocr'"
-        >
+          >
           OCR 配置
         </div>
         </div>
@@ -84,12 +66,6 @@
       <!-- 内容区域 -->
       <div class="settings-content-wrapper">
         <div class="settings-content">
-          <div v-if="activeTab === 'apiKeys' && userStore.isLoggedIn">
-            <ApiKeyManagementComponent />
-          </div>
-
-          
-
           <div v-show="activeTab === 'base'">
             <BasicSettingsSection />
           </div>
@@ -110,14 +86,12 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import {
   Settings,
-  Key,
   ScanText,
   X,
   LogOut
 } from 'lucide-vue-next'
 import BasicSettingsSection from '@/components/BasicSettingsSection.vue'
 import OCRSettingsSection from '@/components/OCRSettingsSection.vue'
-import ApiKeyManagementComponent from '@/components/ApiKeyManagementComponent.vue'
 
 const props = defineProps({
   visible: {
@@ -134,7 +108,7 @@ const emit = defineEmits(['update:visible', 'close'])
 
 const userStore = useUserStore()
 const router = useRouter()
-const activeTab = ref('apiKeys')
+const activeTab = ref('base')
 
 const handleLogout = async () => {
   await userStore.logout()
@@ -148,9 +122,8 @@ const visible = computed({
 })
 
 const availableTabs = computed(() => {
-  const tabs = []
-  if (userStore.isLoggedIn) tabs.push('apiKeys')
-  tabs.push('base', 'ocr')
+  const tabs = ['base', 'ocr']
+  if (userStore.isSuperAdmin) tabs.push('department')
   return tabs
 })
 
@@ -398,7 +371,8 @@ watch(
     flex: 1;
     min-height: 0;
 
-    .apikey-management {
+    .user-management,
+    .department-management {
       min-height: auto;
     }
 

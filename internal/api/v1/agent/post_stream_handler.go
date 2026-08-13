@@ -105,6 +105,12 @@ type ResumeParam struct {
 func (h *PostStreamHandler) CreateRunAndStream(c *gin.Context) {
 	var req CreateRunRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		// 诊断：400 的真实原因仅写在响应体 message，而访问日志不打印响应体。
+		// 这里补一条结构化日志，便于复现时直接定位（字段校验 / JSON 解析失败）。
+		h.logger.Warn("CreateRunAndStream 请求绑定失败",
+			zap.String("error", err.Error()),
+			zap.String("content_type", c.GetHeader("Content-Type")),
+		)
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -152,6 +158,11 @@ func (h *PostStreamHandler) CreateRunAndStream(c *gin.Context) {
 	} else {
 		// —— 新建 Run：创建记录并入队 ——
 		if req.Query == "" {
+			// 诊断：空消息（如仅发图片/附件但没打字）会触发此分支。
+			h.logger.Warn("CreateRunAndStream 新建 Run 被拒：query 为空",
+				zap.String("thread_id", req.ThreadID),
+				zap.String("agent_slug", req.AgentSlug),
+			)
 			response.BadRequest(c, "query 不能为空")
 			return
 		}
@@ -218,12 +229,13 @@ func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRun
 
 	// 入队：创建 queue.produce Span，QueueItem.Trace 提取该 Span 的 Context
 	item := run.QueueItem{
-		RunID:     runID,
-		ThreadID:  req.ThreadID,
-		AgentSlug: req.AgentSlug,
-		RequestID: requestID,
-		Query:     req.Query,
-		CreatedAt: now,
+		RunID:        runID,
+		ThreadID:     req.ThreadID,
+		AgentSlug:    req.AgentSlug,
+		RequestID:    requestID,
+		Query:        req.Query,
+		CreatedAt:    now,
+		ApprovalMode: req.ToolApprovalMode, // 透传审批模式：空则 worker 回落 default（请求审批）
 	}
 	// 旧字段 TraceID 仍保留兼容（从 ctx 读取）
 	item.TraceID = trace.TraceIDFromContext(ctx)

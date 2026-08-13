@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"Qavor/internal/agent"
+	"Qavor/internal/agent/localfs/security"
 	"Qavor/internal/eventbus"
 	"Qavor/pkg/logger"
 
@@ -177,9 +178,22 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 				assistantMsgs = append(assistantMsgs, msg)
 			}
 		case schema.Tool:
-			// 工具结果可能是流式（Message 为 nil，内容在 MessageStream 中），
-			// 统一合并完整消息，并保留 ToolCallID 供持久化层关联调用与结果。
-			emit(toolResultEvent(mv))
+			// 安全策略黑名单拦截：工具结果文本携带 SecurityBlockMarker。
+			// 一旦命中即终止本轮 run，向用户说明后停止，从结构上杜绝模型尝试绕过黑名单。
+			// 注意：流式工具结果（IsStreaming=true）的 GetMessage 会消费底层流，
+			// 因此本分支内只获取一次消息，并复用给 toolResultEvent，避免二次消费导致内容丢失。
+			msg, _ := mv.GetMessage()
+			if msg != nil && strings.Contains(msg.Content, security.SecurityBlockMarker) {
+				const finalMsg = "该命令被安全策略阻止执行（不在允许的执行范围内）。已停止本次操作。"
+				finalID := uuid.New().String()
+				emit(StreamEvent{Type: "text_delta", MessageID: finalID, Role: "assistant", Content: finalMsg})
+				emit(StreamEvent{Type: "message_end", MessageID: finalID, Role: "assistant"})
+				assistantMsgs = append(assistantMsgs, &schema.Message{Role: schema.Assistant, Content: finalMsg})
+				return assistantMsgs, nil
+			}
+			// 工具结果可能是流式（Message 为 nil，内容在 MessageStream 中）；
+			// 已在上方通过 GetMessage() 一次性合并完整消息，复用以避免重复消费流。
+			emit(toolResultEvent(mv, msg))
 		}
 	}
 	return assistantMsgs, nil
@@ -356,9 +370,9 @@ func (e *agentExecutor) emitAssistant(ctx context.Context, mv *adk.TypedMessageV
 
 // toolResultEvent 提取工具结果消息，并保留调用 ID 供下游关联。
 // 非流式 Tool 事件内容在 mv.Message 中；流式 Tool 事件（可流式工具）
-// Message 为 nil，需消费 MessageStream 合并。统一经 GetMessage 处理，避免只保存
-// 某一个流式片段，导致历史消息中的知识来源内容不完整。
-func toolResultEvent(mv *adk.MessageVariant) StreamEvent {
+// Message 为 nil，需消费 MessageStream 合并。msg 参数为调用方已合并的完整消息
+// （经一次 GetMessage() 取得并复用），避免在流式场景下二次消费流导致内容丢失。
+func toolResultEvent(mv *adk.MessageVariant, msg *schema.Message) StreamEvent {
 	event := StreamEvent{
 		Type:      "tool_result",
 		MessageID: uuid.New().String(),
@@ -369,7 +383,7 @@ func toolResultEvent(mv *adk.MessageVariant) StreamEvent {
 		return event
 	}
 	event.ToolCall.Name = mv.ToolName
-	if msg, err := mv.GetMessage(); err == nil && msg != nil {
+	if msg != nil {
 		event.Content = msg.Content
 		event.ToolCall.ID = msg.ToolCallID
 		if event.ToolCall.Name == "" {

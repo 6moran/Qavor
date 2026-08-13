@@ -7,6 +7,7 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,10 +36,12 @@ func (s *LocalStreamingShell) ExecuteStreaming(ctx context.Context, req *filesys
 	if req.Command == "" {
 		return nil, fmt.Errorf("命令不能为空")
 	}
-	// 高危命令黑名单：命中立即拒绝，不启动进程
+	// 高危命令黑名单：命中立即拒绝，不启动进程。
+	// 以「工具结果」形式返回拒绝说明，而非以错误中断整个 agent 运行，
+	// 这样模型能拿到结果并向用户解释命令被拦截。
 	if s.sec != nil && s.sec.Command() != nil {
 		if err := s.sec.Command().Check(req.Command); err != nil {
-			return nil, err
+			return s.denialReader(err), nil
 		}
 	}
 	// 超时上下文
@@ -113,6 +116,20 @@ func (s *LocalStreamingShell) ExecuteStreaming(ctx context.Context, req *filesys
 	}()
 
 	return sr, nil
+}
+
+// denialReader 将安全策略拒绝转换为一条「拒绝说明」工具结果流，
+// 让模型能正常接收并向用户解释命令被拦截，而不是让错误中断 agent 运行。
+func (s *LocalStreamingShell) denialReader(err error) *schema.StreamReader[*filesystem.ExecuteResponse] {
+	msg := err.Error()
+	const prefix = "access denied by security policy: "
+	if strings.HasPrefix(msg, prefix) {
+		msg = msg[len(prefix):]
+	}
+	sr, sw := schema.Pipe[*filesystem.ExecuteResponse](1)
+	_ = sw.Send(&filesystem.ExecuteResponse{Output: security.SecurityBlockMarker + " 命令执行被安全策略阻止: " + msg}, nil)
+	sw.Close()
+	return sr
 }
 
 func (s *LocalStreamingShell) maxBytes() int {

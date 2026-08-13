@@ -7,6 +7,7 @@ import { useRouter } from 'vue-router'
 import { agentApi } from '@/apis/agent_api'
 import AgentEditModal from '@/components/model-management/AgentEditModal.vue'
 import { isBuiltinAgent, useAgentStore } from '@/stores/agent'
+import { useChatThreadsStore } from '@/stores/chatThreads'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
@@ -14,6 +15,7 @@ import ExtensionCardGrid from '@/components/extensions/ExtensionCardGrid.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
 
 const agentStore = useAgentStore()
+const chatThreadsStore = useChatThreadsStore()
 const router = useRouter()
 const agentLoading = ref(false)
 const searchQuery = ref('')
@@ -150,6 +152,11 @@ const setDefaultAgent = async (agent) => {
     await agentApi.setDefault(agent.id)
     await refreshAgentLists()
     message.success(`已将 ${agent.name} 设为默认智能体`)
+    // 当前无活动会话时，立即把选中智能体切换为新默认，使新建会话无需刷新即可生效；
+    // 有活动会话时保留「已绑定会话不可切换」机制，不做切换，刷新后按默认选中。
+    if (!chatThreadsStore.currentThreadId) {
+      await agentStore.selectAgent(agent.id)
+    }
   } catch (error) {
     message.error(error.message || '设置默认智能体失败')
   }
