@@ -12,13 +12,18 @@ import (
 	"go.uber.org/zap"
 )
 
-// Span 单个 Span 的句柄，持有创建时的上下文用于幂等结束。
+// Span 单个 Span 的句柄，持有创建时的上下文用于幂等结束
+// 类似 OTel 的 Span，但简化了 API（没有 SetAttributes/SetName 等，直接在 End 时传入 SpanEnd）
+// 设计要点：
+//  - 幂等 End：用 sync.Once 保证只落库一次（agent.run span 可能被 defer 和 tracedIterator 两个路径调用）
+//  - noop 标记：未启用或无父 SpanContext 时返回 noopSpan()，所有操作为空操作
+//  - writeCtx：使用 context.WithoutCancel 防止业务取消导致 span 丢失
 type Span struct {
-	tracer   *Tracer
-	record   entity.TraceSpan
-	writeCtx context.Context
-	once     sync.Once
-	noop     bool
+	tracer   *Tracer          // 所属 Tracer（用于读取配置和调用 Writer）
+	record   entity.TraceSpan // Span 实体（写入 DB 的数据）
+	writeCtx context.Context  // 脱离取消信号的 context（保证 span 写入成功）
+	once     sync.Once        // 幂等 End 的关键（只执行一次）
+	noop     bool             // no-op 标记：true 时所有操作为空操作
 }
 
 // Record 返回 Span 的当前实体快照
@@ -26,8 +31,8 @@ func (s *Span) Record() entity.TraceSpan {
 	return s.record
 }
 
-// End 幂等结束 Span：仅第一次调用生效，后续调用为 no-op。
-// 使用 context.WithoutCancel 保证业务 Context 取消后仍能保存 cancelled 状态。
+// End 幂等结束 Span：仅第一次调用生效，后续调用为 no-op
+// 使用 context.WithoutCancel 保证业务 Context 取消后仍能保存 cancelled 状态
 func (s *Span) End(end SpanEnd) {
 	if s.noop {
 		return
@@ -61,7 +66,7 @@ func newSpan(tracer *Tracer, writeCtx context.Context, record entity.TraceSpan) 
 	}
 }
 
-// NoopSpan 返回不写入的 Span（Tracer 未启用或未注入父 SpanContext 时使用）。
+// NoopSpan 返回不写入的 Span（Tracer 未启用或未注入父 SpanContext 时使用）
 func NoopSpan() *Span {
 	return &Span{noop: true}
 }

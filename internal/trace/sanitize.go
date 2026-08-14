@@ -17,9 +17,16 @@ var sensitiveKeys = []string{
 var bearerRe = regexp.MustCompile(`(?i)Bearer\s+\S+`)
 
 // Sanitizer 内容安全策略：截断 + 敏感键脱敏
+// 用于保护敏感信息（API Key、密码等）和控制存储成本（避免超大 prompt 入库）
+//
+// 两种模式：
+//   - "summary"：脱敏 + 截断（默认，适合生产环境）
+//   - "none"：不存任何内容（适合内容合规要求严格的部署，只存结构信息）
+//
+// 截断按 Unicode rune 计算（中文友好，不会截出半个字），默认 500 字符
 type Sanitizer struct {
-	Mode     string // "none" 或 "summary"
-	MaxRunes int
+	Mode     string // 内容模式："summary"（截断+脱敏）或 "none"（不存任何内容）
+	MaxRunes int    // 最大字符数（默认 500），超出部分被截断
 }
 
 // Text 处理普通文本：none 模式返回空串，summary 模式按 rune 截断 + Bearer 脱敏
@@ -102,8 +109,8 @@ func isSensitiveKey(key string) bool {
 	return false
 }
 
-// MessageTextWithoutReasoning 提取消息文本（Content + MultiContent 的 text part），
-// 不读取 reasoning part。
+// MessageTextWithoutReasoning 提取消息文本（Content + MultiContent 的 text part）
+// 不读取 reasoning part
 func MessageTextWithoutReasoning(m *schema.Message) string {
 	if m == nil {
 		return ""

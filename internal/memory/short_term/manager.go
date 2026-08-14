@@ -111,6 +111,21 @@ func (m *ManagerImpl) GetMemory(ctx context.Context, conversationID uint) (*Sess
 		}
 	}
 
+	// 防御性修复（根因）：Redis 中可能残留旧 schema / 损坏记录，其 Buffer 或 State
+	// 为 nil。若直接传入 AddMessage / UpdateState / GetMessagesByTokens 会触发 nil
+	// 解引用 panic（worker.go:385 → UpdateMemory → AddMessage）。此处统一保证
+	// SessionMemory 的不变式：Buffer 与 State 永远非空，读到残缺数据也自愈。
+	if memory.Buffer == nil {
+		memory.Buffer = &MessageBuffer{
+			Messages:    make([]BufferMessage, 0),
+			MaxSize:     20,
+			TotalTokens: 0,
+		}
+	}
+	if memory.State == nil {
+		memory.State = NewSessionState()
+	}
+
 	return memory, nil
 }
 
