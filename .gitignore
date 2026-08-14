@@ -8,8 +8,6 @@ bin/
 dist/
 build/
 
-# Test binary, built with `go test -c`
-*.test
 
 # Output of the go coverage tool
 *.out
@@ -80,10 +78,6 @@ AGENT.md
 
 .superpowers/
 
-# Test files
-*_test.go
-*_test_helper.go
-internal/testhelper/
 # Python
 __pycache__/
 *.pyc
