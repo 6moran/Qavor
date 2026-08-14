@@ -140,7 +140,7 @@ const expandedBranches = reactive(new Set())
 const selectedSpanId = ref('')
 const filterMode = ref('all')
 
-const kindLabel = kind => ({ llm: 'LLM', tool: '工具', retriever: '检索', agent: 'Agent', http: 'HTTP', queue: '队列', event: '事件', persistence: '持久化' }[kind] || kind)
+const kindLabel = kind => ({ llm: 'LLM', tool: '工具', retriever: '检索', agent: 'Agent', http: 'HTTP', queue: '队列', event: '事件', persistence: '持久化', embedding: '向量化', rerank: '重排' }[kind] || kind)
 const entryLabel = entry => ({ http: 'HTTP', agent: 'Agent' }[entry] || entry || '-')
 const spanName = span => span?.display_name || span?.operation || span?.kind || '-'
 const formatTime = value => (value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-')
@@ -286,6 +286,15 @@ const SpanDetail = defineComponent({
       h('div', { class: 'wf-detail-title' }, title),
       h('pre', { class: ['wf-detail-pre', { 'error-text': error }] }, content)
     ]) : null
+    // LLM span 输入：优先展示结构化消息列表（role + content，后端存于 attributes.llm.messages）
+    const msgRoleLabel = role => ({ system: 'SYSTEM', user: 'USER', assistant: 'ASSISTANT', tool: 'TOOL' }[role] || role || 'MSG')
+    const llmMessages = detailProps.span.kind === 'llm' && Array.isArray(detailProps.span.attributes?.['llm.messages'])
+      ? detailProps.span.attributes['llm.messages']
+      : []
+    const messageNodes = llmMessages.map((m, i) => h('div', { class: 'wf-msg', key: i }, [
+      h('span', { class: ['wf-msg-role', `wf-msg-role-${m.role || 'unknown'}`] }, msgRoleLabel(m.role)),
+      h('pre', { class: 'wf-msg-content' }, m.content || '(无文本内容)')
+    ]))
     return () => h('div', { class: 'span-detail-content' }, [
       h('dl', { class: 'span-fields' }, [
         h('div', null, [h('dt', null, 'Operation'), h('dd', null, detailProps.span.operation || '-')]),
@@ -294,7 +303,12 @@ const SpanDetail = defineComponent({
         h('div', null, [h('dt', null, '开始时间'), h('dd', null, formatTime(detailProps.span.started_at))]),
         h('div', null, [h('dt', null, '结束时间'), h('dd', null, formatTime(detailProps.span.ended_at))])
       ]),
-      block('输入', detailProps.span.input_summary),
+      messageNodes.length
+        ? h('div', { class: 'wf-detail-block' }, [
+            h('div', { class: 'wf-detail-title' }, '输入消息'),
+            h('div', { class: 'wf-msg-list' }, messageNodes)
+          ])
+        : block('输入', detailProps.span.input_summary),
       block('输出', detailProps.span.output_summary),
       block('错误', detailProps.span.error_message, true),
       block('Attributes', detailProps.span.attributes ? JSON.stringify(detailProps.span.attributes, null, 2) : '')
@@ -371,15 +385,16 @@ const TraceTreeNode = defineComponent({
 .timeline-name { display:flex; align-items:center; gap:6px; min-width:0; }.timeline-name-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .timeline-track { position:relative; height:12px; overflow:hidden; border-radius:6px; background:#f0f2f5; }.timeline-duration { color:#8b94a8; text-align:right; font-size:12px; }
 .wf-bar { position:absolute; top:0; bottom:0; min-width:3px; border-radius:6px; }.wf-bar-llm { background:#1677ff; }.wf-bar-tool { background:#52c41a; }.wf-bar-retriever { background:#722ed1; }.wf-bar-agent { background:#fa8c16; }.wf-bar-http { background:#7b8496; }.wf-bar-queue { background:#13c2c2; }.wf-bar-event { background:#eb2f96; }.wf-bar-persistence { background:#2f54eb; }.wf-bar-error { background:#cf1322; }
-.wf-kind-badge { flex:none; min-width:36px; padding:1px 6px; border-radius:4px; color:#fff; font-size:10px; text-align:center; }.wf-kind-llm { background:#1677ff; }.wf-kind-tool { background:#52c41a; }.wf-kind-retriever { background:#722ed1; }.wf-kind-agent { background:#fa8c16; }.wf-kind-http { background:#7b8496; }.wf-kind-queue { background:#13c2c2; }.wf-kind-event { background:#eb2f96; }.wf-kind-persistence { background:#2f54eb; }.wf-kind-context { background:#722ed1; }
+.wf-kind-badge { flex:none; min-width:36px; padding:1px 6px; border-radius:4px; color:#fff; font-size:10px; text-align:center; }.wf-kind-llm { background:#1677ff; }.wf-kind-tool { background:#52c41a; }.wf-kind-retriever { background:#722ed1; }.wf-kind-agent { background:#fa8c16; }.wf-kind-http { background:#7b8496; }.wf-kind-queue { background:#13c2c2; }.wf-kind-event { background:#eb2f96; }.wf-kind-persistence { background:#2f54eb; }.wf-kind-context { background:#722ed1; }.wf-kind-embedding { background:#08979c; }.wf-kind-rerank { background:#d4380d; }
 .trace-workspace { position:relative; flex:1; min-height:790px; }
 .trace-tree-pane { position:absolute; top:0; bottom:0; left:0; width:60%; display:flex; flex-direction:column; min-width:0; border-right:1px solid #e7eaf0; }.tree-body { flex:1; min-height:0; overflow:auto; }.tree-node { border-bottom:1px solid #eef0f3; }.tree-node:last-child { border-bottom:0; }
 .tree-node-row { display:flex; min-width:max-content; align-items:center; gap:6px; min-height:38px; padding:6px 12px 6px 8px; color:#1f2937; cursor:pointer; transition:background .15s ease,box-shadow .15s ease,color .15s ease; }.tree-node-row:hover { background:#edf5ff; }.tree-node-row--error { color:#8f1d1d; background:#fff8f7; }.tree-node-row--selected { color:#0958d9; background:#dbeafe; outline:1px solid #91caff; outline-offset:-1px; box-shadow:inset 3px 0 #1677ff,0 2px 8px rgba(22,119,255,.14); font-weight:600; }
 .tree-branch-toggle,.tree-branch-placeholder { display:inline-flex; flex:0 0 20px; align-items:center; justify-content:center; width:20px; height:20px; }.tree-branch-toggle { padding:0; border:1px solid #c9ced8; border-radius:3px; color:#59647a; background:#fff; cursor:pointer; }
-.tree-node-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.tree-node-kind { flex:none; color:#4b5563; font-size:12px; font-weight:600; }.tree-node-kind::before { display:inline-block; width:7px; height:7px; margin-right:5px; border-radius:50%; background:currentColor; content:''; }.tree-node-kind-llm { color:#1677ff; }.tree-node-kind-tool { color:#52c41a; }.tree-node-kind-retriever { color:#722ed1; }.tree-node-kind-agent { color:#fa8c16; }.tree-node-kind-http { color:#595959; }.tree-node-kind-queue { color:#08979c; }.tree-node-kind-event { color:#c41d7f; }.tree-node-kind-persistence { color:#2f54eb; }
+.tree-node-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.tree-node-kind { flex:none; color:#4b5563; font-size:12px; font-weight:600; }.tree-node-kind::before { display:inline-block; width:7px; height:7px; margin-right:5px; border-radius:50%; background:currentColor; content:''; }.tree-node-kind-llm { color:#1677ff; }.tree-node-kind-tool { color:#52c41a; }.tree-node-kind-retriever { color:#722ed1; }.tree-node-kind-agent { color:#fa8c16; }.tree-node-kind-http { color:#595959; }.tree-node-kind-queue { color:#08979c; }.tree-node-kind-event { color:#c41d7f; }.tree-node-kind-persistence { color:#2f54eb; }.tree-node-kind-embedding { color:#08979c; }.tree-node-kind-rerank { color:#d4380d; }
 .tree-orphan-badge { padding:0 4px; border:1px solid #ffa39e; border-radius:3px; color:#cf1322; background:#fff1f0; font-size:10px; }.tree-children { border-left:1px solid #dbe2ea; background:#fbfcfe; }.wf-error-mark { color:#cf1322; font-weight:800; }.wf-duration-text { margin-left:auto; color:#9aa2b1; font-size:12px; }
 .trace-span-detail { min-width:0; min-height:0; margin-left:60%; padding:14px; overflow:visible; background:#fbfcfe; }.span-detail-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }.span-detail-heading>div { display:flex; align-items:center; gap:8px; min-width:0; }.span-detail-heading strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .span-metrics { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:14px; }.span-metrics>div { padding:9px 10px; border:1px solid #e7eaf0; border-radius:6px; background:#fff; }.span-metrics span { display:block; color:#8b94a8; font-size:11px; }.span-metrics strong { display:block; margin-top:3px; color:#273147; font-size:13px; }
 .span-fields { display:grid; gap:7px; margin:0; }.span-fields>div { display:grid; grid-template-columns:82px minmax(0,1fr); gap:8px; font-size:12px; }.span-fields dt { color:#8b94a8; }.span-fields dd { min-width:0; margin:0; color:#3e485e; word-break:break-all; }.wf-detail-block { margin-top:12px; }.wf-detail-title { margin-bottom:5px; color:#59647a; font-size:12px; font-weight:700; }.wf-detail-pre { max-height:220px; margin:0; padding:9px; overflow:auto; border:1px solid #e5e8ee; border-radius:6px; color:#5a6478; background:#fff; font:12px/1.55 Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
+.wf-msg-list { display:flex; flex-direction:column; gap:8px; }.wf-msg { display:flex; flex-direction:column; gap:4px; }.wf-msg-role { align-self:flex-start; padding:1px 7px; border-radius:4px; color:#fff; font-size:10px; font-weight:700; letter-spacing:.4px; }.wf-msg-role-system { background:#722ed1; }.wf-msg-role-user { background:#1677ff; }.wf-msg-role-assistant { background:#52c41a; }.wf-msg-role-tool { background:#fa8c16; }.wf-msg-role-unknown { background:#8b94a8; }.wf-msg-content { max-height:220px; margin:0; padding:9px; overflow:auto; border:1px solid #e5e8ee; border-radius:6px; color:#5a6478; background:#fff; font:12px/1.55 Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
 @media (max-width:1000px) { .trace-toolbar { flex-wrap:wrap; }.trace-toolbar-spacer { display:none; }.trace-workspace { position:static; min-height:0; }.trace-tree-pane { position:static; width:auto; border-right:0; border-bottom:1px solid #e7eaf0; }.trace-span-detail { margin-left:0; max-height:none; }.timeline-row { grid-template-columns:minmax(150px,42%) 1fr 64px; } }
 </style>

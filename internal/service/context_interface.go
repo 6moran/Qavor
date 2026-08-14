@@ -18,5 +18,6 @@ type ContextManager interface {
 	GetShortMemoryContext(ctx context.Context, conversationID uint, maxTokens int) ([]*schema.Message, error)
 
 	// GetAgentState 获取 Agent 状态面板数据
-	GetAgentState(ctx context.Context, conversationID uint) (*ctxpkg.AgentState, error)
+	// modelID 用于获取模型的上下文窗口大小，0 时使用默认值
+	GetAgentState(ctx context.Context, conversationID uint, modelID uint) (*ctxpkg.AgentState, error)
 }

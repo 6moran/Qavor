@@ -369,6 +369,26 @@ func (a *App) initDependencies() error {
 	mindmapSvc := service.NewMindmapService(knowledgeBaseRepo, knowledgeFileRepo, knowledgeChunkRepo, modelSvc)
 	mindmapCtrl := mindmapctrl.NewController(mindmapSvc)
 
+	// —— 链路追踪 Tracer 装配（提前到 RAG 组装之前创建，供 Runtime/Handler/RAG/Worker 共用）——
+	var tracer *trace.Tracer
+	var traceSpanRepo trace.TraceRepository
+	if a.cfg.Trace.Enabled && a.postgresDB != nil {
+		traceSpanRepo = repository.NewTraceSpanRepository(a.postgresDB)
+		traceWriter := trace.NewWriter(traceSpanRepo, trace.WriterConfig{
+			BufferSize: a.cfg.Trace.WriterBufferSize,
+		})
+		a.traceWriter = traceWriter
+		tracer = trace.NewTracer(traceWriter, trace.Config{
+			Enabled:          a.cfg.Trace.Enabled,
+			ContentMode:      a.cfg.Trace.ContentMode,
+			MaxContentLength: a.cfg.Trace.MaxContentLength,
+			Retention:        time.Duration(a.cfg.Trace.RetentionDays) * 24 * time.Hour,
+			TracedRoutes:     a.cfg.Trace.TracedRoutes,
+		})
+		callbacks.AppendGlobalHandlers(trace.NewHandler(tracer))
+		logger.Info("链路追踪 Tracer 已装配")
+	}
+
 	// 构造按知识库绑定模型解析的 RAG 依赖,由于需要依赖其他模块,所以在这里初始化
 	// 模型连接信息来自模型管理表；RAG 配置文件只提供分块、TopK、超时等算法默认值。
 	var (
@@ -389,7 +409,7 @@ func (a *App) initDependencies() error {
 			a.cfg.RAG.VectorTopK,
 		)
 		keywordRetriever = rag.NewKeywordRetriever(knowledgeChunkRepo, a.cfg.RAG.KeywordTopK)
-		dynamicReranker  = rag.NewDynamicReranker(ragSettingsSvc, modelSvc)
+		dynamicReranker  = rag.NewDynamicReranker(ragSettingsSvc, modelSvc, tracer)
 		hybridRetriever  = rag.NewHybridRetriever(
 			dynamicVectorRetriever,
 			keywordRetriever,
@@ -407,7 +427,7 @@ func (a *App) initDependencies() error {
 		)
 		ragCtrl *ragctrl.Controller
 	)
-	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, hybridRetriever, answerer)
+	ragSvc := service.NewRAGService(a.cfg.RAG, knowledgeBaseRepo, hybridRetriever, answerer, tracer)
 	ragCtrl = ragctrl.NewController(ragSvc, a.cfg.RAG.RequestTimeoutSeconds)
 	// 检索测试与示例问题服务：复用 RAG 检索链路与模型解析能力。
 	knowledgeQuerySvc := service.NewKnowledgeQueryService(a.cfg.RAG, knowledgeBaseRepo, knowledgeFileRepo, ragSvc, modelSvc)
@@ -510,26 +530,6 @@ func (a *App) initDependencies() error {
 		checkPointStore = agentpkg.NewRedisCheckPointStore(a.redis, 24*time.Hour)
 	}
 
-	// —— 链路追踪 Tracer 装配（在 AgentRuntime 之前创建，供 Runtime/Handler/Worker 共用）——
-	var tracer *trace.Tracer
-	var traceSpanRepo trace.TraceRepository
-	if a.cfg.Trace.Enabled && a.postgresDB != nil {
-		traceSpanRepo = repository.NewTraceSpanRepository(a.postgresDB)
-		traceWriter := trace.NewWriter(traceSpanRepo, trace.WriterConfig{
-			BufferSize: a.cfg.Trace.WriterBufferSize,
-		})
-		a.traceWriter = traceWriter
-		tracer = trace.NewTracer(traceWriter, trace.Config{
-			Enabled:          a.cfg.Trace.Enabled,
-			ContentMode:      a.cfg.Trace.ContentMode,
-			MaxContentLength: a.cfg.Trace.MaxContentLength,
-			Retention:        time.Duration(a.cfg.Trace.RetentionDays) * 24 * time.Hour,
-			TracedRoutes:     a.cfg.Trace.TracedRoutes,
-		})
-		callbacks.AppendGlobalHandlers(trace.NewHandler(tracer))
-		logger.Info("链路追踪 Tracer 已装配")
-	}
-
 	agentRuntime := &agentpkg.AgentRuntime{
 		Policies:            sharedPolicies,
 		WorkspaceRoot:       a.cfg.Agent.WorkspaceRoot,
@@ -577,9 +577,9 @@ func (a *App) initDependencies() error {
 		ReserveTokens: 4096,  // 预留给模型回复的 Token
 		SystemPrompt:  "你是 Qavor AI 助手，请始终使用中文回答用户的问题。",
 	}
-	// 上下文压缩用的摘要器（复用 ModelService 适配器，modelID=0 时返回空摘要跳过压缩）
-	ctxSummarizer := contextmgr.NewLLMSummarizer(logger.GetLogger(), &llmClientAdapter{client: nil, modelSvc: modelSvc, modelID: 0})
-	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, ctxSummarizer, logger.GetLogger(), tracer)
+	// 模型解析器适配器，用于根据 modelID 动态创建 LLM 客户端
+	contextModelResolver := &contextModelResolverAdapter{modelSvc: modelSvc}
+	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, nil, contextModelResolver, logger.GetLogger(), tracer)
 
 	// 创建 SSE 模块
 	heartbeatConfig := &sse.HeartbeatConfig{
@@ -626,7 +626,7 @@ func (a *App) initDependencies() error {
 
 		executor := run.NewAgentExecutor(agentMgr, modelSvc)
 		todoStore := run.NewTodoStore(a.redis, 24*time.Hour)
-		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, logger.GetLogger(), a.cfg.Run.WorkerCount, tracer)
+		runWorker := run.NewWorker(reqQueue, pub, runRepo, messageRepo, conversationRepo, executor, contextMgr, longTermMgr, todoStore, modelSvc, logger.GetLogger(), a.cfg.Run.WorkerCount, tracer, a.cfg.Run.HeartbeatIntervalMs, a.cfg.Run.HeartbeatTimeoutSec)
 
 		// 启动 Run Worker 池
 		runWorkerCtx, cancelRunWorker := context.WithCancel(context.Background())
@@ -874,4 +874,20 @@ func ocrEngineForParser(ctx context.Context, settings repository.SystemSettingRe
 		return "rapidocr", "", "", ""
 	}
 	return "api", cfg.BaseURL, cfg.APIKey, cfg.Model
+}
+
+// contextModelResolverAdapter 将 service.ModelService 适配为 context.ModelResolver
+type contextModelResolverAdapter struct {
+	modelSvc service.ModelService
+}
+
+func (a *contextModelResolverAdapter) CreateLLMClient(ctx context.Context, modelID uint) (llm.Client, error) {
+	return a.modelSvc.CreateLLMClient(ctx, modelID)
+}
+
+func (a *contextModelResolverAdapter) GetContextWindow(modelID uint) int {
+	if _, _, contextWindow, ok := a.modelSvc.GetModelInfo(modelID); ok {
+		return contextWindow
+	}
+	return 0
 }

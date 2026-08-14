@@ -368,7 +368,7 @@
               onChange: handlePageChange,
               onShowSizeChange: handlePageSizeChange
             }"
-            :scroll="{ x: resultTableScrollX, y: 'calc(100dvh - 254px)' }"
+            :scroll="{ x: resultTableScrollX, y: 'calc(100dvh - 300px)' }"
             :class="{ 'table-nowrap': !resultAutoWrap }"
             size="small"
             :loading="resultsLoading"
@@ -1599,16 +1599,20 @@ onUnmounted(() => {
   z-index: 1000;
   width: 100vw;
   height: 100dvh;
-  padding: 12px;
+  padding: 40px;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--dark-25);
   overflow: hidden;
 }
 
 :global(.evaluation-detail-panel) {
   width: 100%;
-  height: calc(100dvh - 24px);
-  max-height: calc(100dvh - 24px);
+  max-width: 1200px;
+  height: calc(100dvh - 80px);
+  max-height: calc(100dvh - 80px);
   display: flex;
   flex-direction: column;
   overflow: hidden;

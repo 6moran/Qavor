@@ -104,13 +104,7 @@
         :tool-calls="validToolCalls"
       />
 
-      <div
-        v-if="
-          (message.role == 'received' || message.role == 'assistant') &&
-          message.status == 'finished' &&
-          showRefs
-        "
-      >
+      <div v-if="showRefs">
         <RefsComponent
           :message="message"
           :show-refs="showRefs"

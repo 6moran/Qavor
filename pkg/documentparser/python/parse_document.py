@@ -23,6 +23,7 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from docling.datamodel.base_models import InputFormat
 from docling.document_converter import DocumentConverter
 
 from api_ocr import ocr_image_api, ocr_pdf_api
+from image_alt import build_image_markdown
 from rapid_ocr import IMAGE_EXTENSIONS, ocr_image, ocr_pdf
 
 
@@ -82,7 +84,23 @@ def _parse_data_uri(data_uri: str) -> tuple[bytes, str]:
     return base64.b64decode(base64_data), mime_type
 
 
-def _convert_with_docling(file_path: Path, result: ParseResult) -> str:
+def _build_picture_recognizer(
+    engine: str,
+    api_base_url: str,
+    api_key: str,
+    api_model: str,
+) -> Callable[[Path], str]:
+    """为 Office 内嵌图片创建与命令行配置一致的 OCR 调用器。"""
+    if engine == "api":
+        return lambda path: ocr_image_api(path, api_base_url, api_key, api_model)
+    return lambda path: ocr_image(path)
+
+
+def _convert_with_docling(
+    file_path: Path,
+    result: ParseResult,
+    recognizer: Callable[[Path], str],
+) -> str:
     """使用 Docling 转换 docx/xlsx/pptx,图片导出到输入文件同级 images/ 目录。
 
     导出路径以绝对路径(正斜杠)写入 markdown 引用并加入 picture_paths,
@@ -111,7 +129,7 @@ def _convert_with_docling(file_path: Path, result: ParseResult) -> str:
                 image_path.write_bytes(image_data)
                 posix = image_path.as_posix()
                 result.picture_paths.append(posix)
-                replacements.append(f"![{name}]({posix})")
+                replacements.append(build_image_markdown(image_path, recognizer))
             except Exception as exc:  # noqa: BLE001
                 print(f"图片导出失败: {exc}", file=sys.stderr)
                 replacements.append("[图片: 导出失败]")
@@ -146,9 +164,15 @@ def main() -> None:
         fail("PARSER_OCR_CONFIG_MISSING", "未配置 OCR API 服务地址")
     suffix = path.suffix.lower()
     result = ParseResult(metadata={"file_type": suffix})
+    picture_recognizer = _build_picture_recognizer(
+        args.ocr_engine,
+        args.ocr_api_url,
+        args.ocr_api_key,
+        args.ocr_api_model,
+    )
     try:
         if suffix in (".docx", ".pptx", ".xlsx"):
-            result.markdown = _convert_with_docling(path, result)
+            result.markdown = _convert_with_docling(path, result, picture_recognizer)
             result.metadata["parser"] = "docling"
         elif suffix == ".pdf":
             if args.ocr_engine == "api":

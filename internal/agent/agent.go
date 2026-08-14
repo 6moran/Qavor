@@ -30,7 +30,7 @@ import (
 // Agent Qavor 智能体
 type Agent struct {
 	agent      adk.ResumableAgent
-	runner     *adk.Runner // 审批中断/恢复执行器（带 CheckPointStore）
+	runner     *adk.Runner // 默认 runner（兼容旧代码，但并发场景下应使用 createRunner）
 	mcpManager *mcp.MCPManager
 	config     *AgentConfig
 	runtime    *AgentRuntime // 运行时共享依赖（含 Tracer），用于管理 agent.run Span
@@ -285,9 +285,8 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 	return newAgent(a, mcpManager, cfg, runtime), nil
 }
 
-// newAgent 构造 Agent 实例并创建 runner。
-// runner 带 CheckPointStore（来自 runtime），支持审批中断/恢复。
-// CheckPointStore 为 nil 时 runner 仍可创建（中断不可恢复，仅中断不恢复）。
+// newAgent 构造 Agent 实例并创建默认 runner（兼容旧代码）。
+// 并发场景下应使用 createRunner 方法创建独立的 runner。
 func newAgent(a adk.ResumableAgent, mcpManager *mcp.MCPManager, cfg *AgentConfig, runtime *AgentRuntime) *Agent {
 	ag := &Agent{
 		agent:      a,
@@ -295,29 +294,34 @@ func newAgent(a adk.ResumableAgent, mcpManager *mcp.MCPManager, cfg *AgentConfig
 		config:     cfg,
 		runtime:    runtime,
 	}
+	// 创建默认 runner（用于非并发场景或向后兼容）
+	// 使用固定前缀作为默认 threadID
+	ag.runner = ag.createRunner("default")
+	return ag
+}
+
+// createRunner 创建独立的 Runner（每次执行调用，支持并发）。
+// 基于 threadID 生成 sessionID，确保：
+// - 不同会话（不同 threadID）→ 不同的 sessionID → 支持并发
+// - 同一会话（相同 threadID）→ 相同的 sessionID → 支持中断恢复
+// CheckPointStore 共享（无状态），支持中断恢复。
+func (a *Agent) createRunner(threadID string) *adk.Runner {
 	var store adk.CheckPointStore
-	if runtime != nil {
-		store = runtime.CheckPointStore
+	if a.runtime != nil {
+		store = a.runtime.CheckPointStore
 	}
 
-	// Runner 在非 session 模式下不会保存 checkpoint（checkPointID 始终为 nil），
-	// 因此必须启用 session 模式（SessionEventStore + SessionID）让 Runner 自动
-	// 生成并管理 checkPointID，才能触发 checkpoint 持久化。
-	//
-	// 使用 in-memory session store：session 事件仅用于驱动 checkpoint 生命周期，
-	// 不持久化到外部存储。sessionID 使用固定前缀 + 随机 UUID，每次 newAgent
-	// 创建新 session，避免不同 Agent 实例之间的 session 状态污染。
-	sessionID := "qavor-agent-" + uuid.New().String()
+	// 使用 BuildSessionID 确保 sessionID 生成逻辑一致
+	sessionID := BuildSessionID(threadID)
 	sessionStore := session.NewInMemoryStore[*schema.Message](nil)
 
-	ag.runner = adk.NewRunner(context.Background(), adk.RunnerConfig{
-		Agent:           a,
+	return adk.NewRunner(context.Background(), adk.RunnerConfig{
+		Agent:           a.agent,
 		EnableStreaming: true,
 		CheckPointStore: store,
 		SessionID:       sessionID,
 		SessionStore:    sessionStore,
 	})
-	return ag
 }
 
 // newFilesystemMiddleware 构造带自定义 execute 描述的文件系统中间件。
@@ -367,6 +371,30 @@ func (a *Agent) executionContext(ctx context.Context, query string) context.Cont
 		ctx = tool.WithKnowledgeBaseIDs(ctx, a.config.Knowledges)
 	}
 	return ctx
+}
+
+// threadIDContextKey threadID 的 context key
+type threadIDContextKey struct{}
+
+// WithThreadID 将 threadID 写入 context
+func WithThreadID(ctx context.Context, threadID string) context.Context {
+	return context.WithValue(ctx, threadIDContextKey{}, threadID)
+}
+
+// ThreadIDFromContext 从 context 提取 threadID
+func ThreadIDFromContext(ctx context.Context) string {
+	if v := ctx.Value(threadIDContextKey{}); v != nil {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+// BuildSessionID 根据 threadID 构建 sessionID
+// 确保 sessionID 生成逻辑一致
+func BuildSessionID(threadID string) string {
+	return "qavor-session-" + threadID
 }
 
 // Execute 执行智能体（通过 AgentRuntime 管理 agent.run Span 生命周期）
@@ -443,6 +471,7 @@ func (it *AgentEventIterator) Next() (*adk.AgentEvent, bool) {
 // ExecuteIter 执行智能体并返回事件迭代器（用于流式输出）。
 // 通过 AgentRuntime.StartRun 创建 agent.run Span，由 tracedIterator 在迭代器
 // 真正耗尽/错误/取消/中断时结束 Span（不在返回迭代器时提前结束）。
+// 每次调用创建独立的 Runner，基于 threadID 生成 sessionID，支持多会话并发执行。
 func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schema.Message) *AgentEventIterator {
 	ctx = a.executionContext(ctx, query)
 	meta := buildRunMeta(ctx, a.config, query, "stream")
@@ -470,8 +499,16 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schem
 		runOpts = append(runOpts, adk.WithChatModelOptions(modelOpts))
 	}
 
-	// 使用 runner 执行以支持 CheckPointStore（中断时自动保存 checkpoint）
-	iter := a.runner.Run(runCtx, messages, runOpts...)
+	// 从 context 获取 threadID，用于生成 sessionID
+	threadID := ThreadIDFromContext(ctx)
+	if threadID == "" {
+		// 降级：使用随机 UUID（不支持并发，但兼容旧代码）
+		threadID = uuid.New().String()
+	}
+
+	// 创建独立的 Runner（支持并发执行）
+	runner := a.createRunner(threadID)
+	iter := runner.Run(runCtx, messages, runOpts...)
 	return &AgentEventIterator{iter: newTracedIterator(runCtx, span, iter)}
 }
 
@@ -479,16 +516,72 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schem
 // checkpointID 为中断时保存的 checkpoint key；targets 为 中断地址→用户决定 的映射
 // （approve 放行 / reject 拒绝）。
 // 恢复执行创建新的 agent.run Span，不重新打开中断时的旧 Span。
+// 需要使用原来的 sessionID 才能找到 checkpoint。
 func (a *Agent) Resume(ctx context.Context, checkpointID string, targets map[string]any) (*AgentEventIterator, error) {
 	meta := buildRunMeta(ctx, a.config, "", "resume")
 	runCtx, span := a.runtime.StartRun(ctx, meta)
 
-	iter, err := a.runner.ResumeWithParams(runCtx, checkpointID, &adk.ResumeParams{Targets: targets})
+	// Resume 需要使用原来的 sessionID，从 checkpointID 中提取
+	// checkpointID 格式: "session/{sessionID}/runner_checkpoint"
+	runner := a.createRunnerForResume(checkpointID)
+	iter, err := runner.ResumeWithParams(runCtx, checkpointID, &adk.ResumeParams{Targets: targets})
 	if err != nil {
 		EndRunFromError(span, err, runCtx.Err())
 		return nil, err
 	}
 	return &AgentEventIterator{iter: newTracedIterator(runCtx, span, iter)}, nil
+}
+
+// createRunnerForResume 为 Resume 创建 Runner，尝试从 checkpointID 提取原来的 sessionID。
+// 如果无法提取，使用新的 sessionID（可能导致找不到 checkpoint）。
+func (a *Agent) createRunnerForResume(checkpointID string) *adk.Runner {
+	var store adk.CheckPointStore
+	if a.runtime != nil {
+		store = a.runtime.CheckPointStore
+	}
+
+	// 尝试从 checkpointID 提取 sessionID
+	// checkpointID 格式: "session/{sessionID}/runner_checkpoint"
+	sessionID := extractSessionIDFromCheckpoint(checkpointID)
+	if sessionID == "" {
+		// 无法提取，使用新的 sessionID
+		sessionID = "qavor-session-" + uuid.New().String()
+	}
+
+	sessionStore := session.NewInMemoryStore[*schema.Message](nil)
+
+	return adk.NewRunner(context.Background(), adk.RunnerConfig{
+		Agent:           a.agent,
+		EnableStreaming: true,
+		CheckPointStore: store,
+		SessionID:       sessionID,
+		SessionStore:    sessionStore,
+	})
+}
+
+// extractSessionIDFromCheckpoint 从 checkpointID 提取 sessionID。
+// checkpointID 格式: "session/{sessionID}/runner_checkpoint"
+func extractSessionIDFromCheckpoint(checkpointID string) string {
+	// 查找 "session/" 前缀
+	prefix := "session/"
+	if len(checkpointID) < len(prefix) {
+		return ""
+	}
+	if checkpointID[:len(prefix)] != prefix {
+		return ""
+	}
+	// 查找 "/runner_checkpoint" 后缀
+	suffix := "/runner_checkpoint"
+	idx := len(checkpointID) - len(suffix)
+	if idx < len(prefix) {
+		return ""
+	}
+	if checkpointID[idx:] != suffix {
+		return ""
+	}
+	start := len(prefix)
+	end := idx
+	return checkpointID[start:end]
 }
 
 // GetMCPManager 获取 MCP 管理器

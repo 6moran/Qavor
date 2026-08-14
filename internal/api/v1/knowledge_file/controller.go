@@ -201,15 +201,15 @@ func (ctrl *Controller) Delete(c *gin.Context) {
 	response.Success(c, nil)
 }
 
-// RetryParse 重试解析失败的单个文件。
+// RetryParse 重新解析单个文件（支持解析失败或已解析的文件）。
 func (ctrl *Controller) RetryParse(c *gin.Context) {
 	result, err := ctrl.service.RetryParse(c.Request.Context(), c.Param("kb_id"), c.Param("doc_id"))
 	if err != nil {
 		if errors.IsBizError(err) {
-			logger.Warn("业务错误，重试解析失败", zap.Error(err))
+			logger.Warn("业务错误，重新解析失败", zap.Error(err))
 			response.BizError(c, err)
 		} else {
-			logger.Error("重试解析失败", zap.Error(err))
+			logger.Error("重新解析失败", zap.Error(err))
 			response.InternalServerError(c)
 		}
 		return

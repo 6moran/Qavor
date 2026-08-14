@@ -5,8 +5,10 @@ import (
 	"errors"
 	"strings"
 
+	"Qavor/internal/model/entity"
 	"Qavor/internal/rag"
 	"Qavor/internal/repository"
+	"Qavor/internal/trace"
 	"Qavor/pkg/config"
 	apperrors "Qavor/pkg/errors"
 	"Qavor/pkg/logger"
@@ -31,11 +33,13 @@ type rAGService struct {
 	kbRepo    repository.KnowledgeBaseRepository
 	retriever einoretriever.Retriever
 	answerer  rag.AnswerChain
+	tracer    *trace.Tracer
 }
 
 // NewRAGService 创建 RAG 服务。retriever 或 answerer 缺失时对应能力返回 RAG_NOT_CONFIGURED。
-func NewRAGService(cfg config.RAGConfig, kbRepo repository.KnowledgeBaseRepository, retriever einoretriever.Retriever, answerer rag.AnswerChain) RAGService {
-	return &rAGService{cfg: cfg, kbRepo: kbRepo, retriever: retriever, answerer: answerer}
+// tracer 用于手动埋点检索 Span（retriever.search），可为 nil（不追踪）。
+func NewRAGService(cfg config.RAGConfig, kbRepo repository.KnowledgeBaseRepository, retriever einoretriever.Retriever, answerer rag.AnswerChain, tracer *trace.Tracer) RAGService {
+	return &rAGService{cfg: cfg, kbRepo: kbRepo, retriever: retriever, answerer: answerer, tracer: tracer}
 }
 
 // validateRequest 校验请求参数，并返回实际可用的知识库 ID 列表及 kb_id→名称映射。
@@ -198,8 +202,12 @@ func (s *rAGService) RetrieveTest(ctx context.Context, kbIDs []string, query str
 
 // retrieveCore 执行检索并转换为结构化分块结果。
 func (s *rAGService) retrieveCore(ctx context.Context, query string, validKBIDs []string, kbNames map[string]string, opts ...einoretriever.Option) (*RAGRetrieveResult, error) {
+	// 手动埋点：检索 Span（仅当 ctx 处于被追踪链路时创建，否则 no-op）。
+	// 放在 service 层而非 HybridRetriever 内部：避免未来将检索器作为 Eino Retriever 节点编排时双触发。
+	ctx, span := s.startRetrieveSpan(ctx, query, validKBIDs, opts...)
 	docs, err := s.retriever.Retrieve(ctx, query, opts...)
 	if err != nil {
+		span.End(trace.SpanEnd{Status: trace.SpanStatusError, ErrorMessage: err.Error()})
 		if mapped := mapRAGRetrievalError(err); mapped != nil {
 			return nil, mapped
 		}
@@ -208,6 +216,7 @@ func (s *rAGService) retrieveCore(ctx context.Context, query string, validKBIDs 
 		}
 		return nil, apperrors.NewWithErr(CodeRAGRetrievalFailed, "向量检索失败", err)
 	}
+	span.End(trace.SpanEnd{Status: trace.SpanStatusOK, Attributes: entity.JSON{"retriever.hit_count": len(docs)}})
 
 	chunks := rag.BuildRetrievedChunks(docs)
 	result := &RAGRetrieveResult{QueryText: query, Chunks: make([]RAGChunk, 0, len(chunks))}
@@ -220,6 +229,28 @@ func (s *rAGService) retrieveCore(ctx context.Context, query string, validKBIDs 
 		})
 	}
 	return result, nil
+}
+
+// startRetrieveSpan 创建检索 Span（手动埋点）。ctx 无 SpanContext 时返回 no-op Span。
+func (s *rAGService) startRetrieveSpan(ctx context.Context, query string, kbIDs []string, opts ...einoretriever.Option) (context.Context, *trace.Span) {
+	if s == nil || s.tracer == nil {
+		return ctx, trace.NoopSpan()
+	}
+	topK := 0
+	if common := einoretriever.GetCommonOptions(&einoretriever.Options{}, opts...); common.TopK != nil {
+		topK = *common.TopK
+	}
+	attrs := entity.JSON{
+		"retriever.kb_count": len(kbIDs),
+		"retriever.top_k":    topK,
+	}
+	return s.tracer.StartSpanIfTraced(ctx, trace.SpanSpec{
+		Kind:         entity.SpanKindRetriever,
+		Operation:    "retriever.search",
+		DisplayName:  "retriever.search",
+		InputSummary: query,
+		Attributes:   attrs,
+	})
 }
 
 // Answer 执行问答

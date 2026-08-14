@@ -35,6 +35,13 @@ const advancedOpen = ref(false)
 const form = reactive(createDefaultModelForm())
 // suppressTestResultReset 用于在 resetForm 期间暂停 watch，避免重复清空。
 const suppressTestResultReset = ref(false)
+// 供应商选择与远程模型列表
+const providers = ref([])
+const selectedProvider = ref(null)
+const selectedProviderName = ref(null)
+const remoteModels = ref([])
+const showRemoteSelect = ref(false)
+const fetchingModels = ref(false)
 
 const typeOptions = [
   { label: '全部类型', value: '' },
@@ -50,6 +57,18 @@ const stats = computed(() => ({
   embedding: statsModels.value.filter((model) => model.model_type === 'embedding').length,
   rerank: statsModels.value.filter((model) => model.model_type === 'rerank').length
 }))
+
+// 自定义供应商标识：供应商为必填项，用户手动填写时选择「自定义」
+const CUSTOM_PROVIDER = 'custom'
+
+const providerOptions = computed(() => [
+  { label: '自定义配置', value: CUSTOM_PROVIDER },
+  ...providers.value.map((p) => ({ label: p.displayName, value: p.name }))
+])
+
+const remoteModelOptions = computed(() =>
+  remoteModels.value.map((m) => ({ label: m, value: m }))
+)
 
 // 拉取全量模型用于顶部类型统计（不受分页影响）
 const loadStats = async () => {
@@ -100,6 +119,17 @@ watch(
   }
 )
 
+// 切换到 Rerank 时隐藏远程模型列表（该类型没有 /models 接口）
+watch(
+  () => form.model_type,
+  () => {
+    if (form.model_type === 'rerank') {
+      remoteModels.value = []
+      showRemoteSelect.value = false
+    }
+  }
+)
+
 const loadModels = async () => {
   loading.value = true
   try {
@@ -127,16 +157,83 @@ const searchModels = () => {
 const openCreate = () => {
   editingId.value = null
   resetForm()
+  resetProviderState()
   showModal.value = true
 }
 
 const openEdit = (model) => {
   editingId.value = model.id
   resetForm(model)
+  resetProviderState()
   showModal.value = true
 }
 
+// 打开弹窗时重置供应商选择与远程模型列表（默认选中「自定义」，编辑已有配置不预选内置供应商）
+const resetProviderState = () => {
+  selectedProvider.value = null
+  selectedProviderName.value = CUSTOM_PROVIDER
+  remoteModels.value = []
+  showRemoteSelect.value = false
+}
+
+// 拉取内置供应商列表（后端 llm.ProviderRegistry）
+const loadProviders = async () => {
+  try {
+    const response = await modelApi.getProviders()
+    providers.value = Array.isArray(response?.data) ? response.data : []
+  } catch {
+    // 供应商列表加载失败不阻塞表单（仍可手动填写）
+  }
+}
+
+// 选中供应商 → 自动填充 Base URL 与协议，并清空远程模型列表；选择「自定义」时不自动填充，回到手动填写
+const onProviderChange = (name) => {
+  const provider = name && name !== CUSTOM_PROVIDER
+    ? providers.value.find((p) => p.name === name)
+    : null
+  selectedProvider.value = provider || null
+  remoteModels.value = []
+  showRemoteSelect.value = false
+  if (provider) {
+    form.base_url = provider.baseURL
+    form.protocol = provider.protocol
+  }
+}
+
+// 远程拉取模型列表（后端代理 {base_url}/models 或 Ollama /api/tags）
+const fetchRemoteModels = async () => {
+  if (!form.base_url.trim()) {
+    message.warning('请填写 Base URL')
+    return
+  }
+  fetchingModels.value = true
+  try {
+    const response = await modelApi.fetchRemoteModels({
+      base_url: form.base_url.trim(),
+      api_key: form.api_key,
+      protocol: form.protocol
+    })
+    const items = response?.data || []
+    remoteModels.value = items
+    showRemoteSelect.value = items.length > 0
+    if (!items.length) message.info('未获取到模型列表')
+  } catch (error) {
+    message.error(error.message || '获取模型列表失败')
+  } finally {
+    fetchingModels.value = false
+  }
+}
+
+// 从远程模型列表选择后回填模型名称
+const onRemoteModelChange = (modelName) => {
+  if (modelName) form.name = modelName
+}
+
 const save = async () => {
+  if (!selectedProviderName.value) {
+    message.warning('请选择供应商')
+    return
+  }
   if (!form.name.trim() || !form.protocol.trim() || !form.base_url.trim()) {
     message.warning('请填写模型名称、协议和 Base URL')
     return
@@ -243,6 +340,7 @@ defineExpose({ loading, stats, loadModels })
 onMounted(() => {
   loadModels()
   loadStats()
+  loadProviders()
 })
 </script>
 
@@ -316,13 +414,44 @@ onMounted(() => {
       :width="680"
     >
       <div class="form-grid">
+        <label class="full-width">
+          供应商 *
+          <a-select
+            v-model:value="selectedProviderName"
+            :options="providerOptions"
+            placeholder="选择供应商模板，选「自定义」可手动填写"
+            @change="onProviderChange"
+          />
+        </label>
+        <div v-if="selectedProvider" class="provider-hint">
+          {{ selectedProvider.displayName }} · 已自动填充官方请求地址，{{
+            selectedProvider.protocol === 'ollama' ? '本地服务无需 API Key，可直接获取模型列表' : '请填写 API Key 后获取模型列表'
+          }}
+        </div>
         <label>
           模型名称 *
-          <a-input v-model:value="form.name" placeholder="例如 gpt-4o" />
+          <span class="name-with-fetch">
+            <a-input v-model:value="form.name" placeholder="例如 gpt-4o" />
+            <a-button
+              v-if="form.model_type !== 'rerank'"
+              :loading="fetchingModels"
+              @click="fetchRemoteModels"
+            >
+              获取模型列表
+            </a-button>
+          </span>
         </label>
         <label>
           备注
           <a-input v-model:value="form.remark" placeholder="便于识别此模型配置" />
+        </label>
+        <label v-if="showRemoteSelect" class="full-width">
+          选择模型
+          <a-select
+            :options="remoteModelOptions"
+            placeholder="从远程列表选择模型"
+            @change="onRemoteModelChange"
+          />
         </label>
         <label v-if="form.model_type !== 'rerank'">
           协议 *
@@ -480,6 +609,25 @@ onMounted(() => {
   }
 
   .full-width { grid-column: 1 / -1; }
+}
+
+.provider-hint {
+  grid-column: 1 / -1;
+  margin-top: -8px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  color: var(--gray-700);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.name-with-fetch {
+  display: flex;
+  gap: 8px;
+
+  .ant-input { flex: 1; min-width: 0; }
 }
 
 .enabled-field {

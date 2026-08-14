@@ -8,12 +8,17 @@ import (
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/callbacks"
+	"github.com/cloudwego/eino/components/embedding"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/retriever"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
 	callbackstpl "github.com/cloudwego/eino/utils/callbacks"
 )
+
+// structuredMessageMax 结构化消息（llm.messages）最多保留条数；
+// 超出时保留首条（通常为 system）+ 最近 N-1 条，避免 attributes 过大。
+const structuredMessageMax = 20
 
 // callbackSpanKey 用于在 context 中存储当前组件 Span 句柄（OnStart 注入，OnEnd/OnError 读取）
 type callbackSpanKey struct{}
@@ -110,6 +115,11 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 				}
 				if input.ToolChoice != nil {
 					attrs["tool_choice"] = string(*input.ToolChoice)
+				}
+				// 结构化保存完整输入消息（role + content），前端按 role 分组展示。
+				// input_summary 只留纯文本摘要（保尾取最后一条 user），system 提示词等结构从这里看。
+				if msgs := messagesToStructured(input.Messages, col.sanitizer); len(msgs) > 0 {
+					attrs["llm.messages"] = msgs
 				}
 				if len(attrs) == 0 {
 					attrs = nil
@@ -237,6 +247,39 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 		},
 	}
 
+	// Embedding 回调：捕获向量化调用（检索 query 向量化、索引批次向量化）。
+	// eino-ext openai/ark 的 EmbedStrings 内部已触发 OnStart/OnEnd/OnError 且 OnEnd 带 TokenUsage，
+	// 因此这里只需注册 handler，无需改 embedding 调用方。
+	// 索引等后台任务 ctx 无 SpanContext 时由 col.start 自动跳过（不产生孤立 Span）。
+	embeddingH := &callbackstpl.EmbeddingCallbackHandler{
+		OnStart: func(ctx context.Context, info *callbacks.RunInfo, input *embedding.CallbackInput) context.Context {
+			name, summary := "", ""
+			attrs := entity.JSON{}
+			if input != nil {
+				if input.Config != nil {
+					name = input.Config.Model
+				}
+				if len(input.Texts) > 0 {
+					attrs["embedding.text_count"] = len(input.Texts)
+				}
+				summary = col.sanitizer.Text(strings.Join(input.Texts, "\n"))
+			}
+			return col.start(ctx, info, "embedding", "embedding.generate", name, summary, attrs)
+		},
+		OnEnd: func(ctx context.Context, info *callbacks.RunInfo, output *embedding.CallbackOutput) context.Context {
+			end := SpanEnd{Status: SpanStatusOK}
+			if output != nil && output.TokenUsage != nil {
+				end.TokensIn = output.TokenUsage.PromptTokens
+			}
+			col.end(ctx, end)
+			return ctx
+		},
+		OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+			col.end(ctx, SpanEnd{Status: SpanStatusError, ErrorMessage: err.Error()})
+			return ctx
+		},
+	}
+
 	// Agent callback：不再创建 agent.invoke span。
 	// eino 的 AgentCallbackOutput 是异步 Events 迭代器，OnEnd 在子 Agent 实际执行完成前
 	// 就被触发，导致 agent.invoke span 时长恒为 0ms（而真实执行发生在子 Agent 内部的
@@ -258,6 +301,7 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 		ChatModel(modelH).
 		Tool(toolH).
 		Retriever(retrieverH).
+		Embedding(embeddingH).
 		Agent(agentH).
 		Graph(graphH).
 		Handler()
@@ -343,10 +387,23 @@ func (g *graphHandler) Needed(_ context.Context, _ *callbacks.RunInfo, timing ca
 	return timing == callbacks.TimingOnStart || timing == callbacks.TimingOnEnd || timing == callbacks.TimingOnError
 }
 
-// promptSummary 拼接主要消息文本
+// promptSummary 生成输入摘要：优先取最后一条 user 消息文本（用户最新输入），
+// 避免长 system prompt 占满截断额度把用户输入切掉；无 user 消息时回退拼接全部消息文本。
 func promptSummary(msgs []*schema.Message) string {
 	if len(msgs) == 0 {
 		return ""
+	}
+	var lastUser string
+	for _, m := range msgs {
+		if m == nil || m.Role != schema.User {
+			continue
+		}
+		if text := MessageTextWithoutReasoning(m); text != "" {
+			lastUser = text
+		}
+	}
+	if lastUser != "" {
+		return lastUser
 	}
 	var sb strings.Builder
 	for _, m := range msgs {
@@ -359,4 +416,34 @@ func promptSummary(msgs []*schema.Message) string {
 		}
 	}
 	return strings.TrimSpace(sb.String())
+}
+
+// messagesToStructured 将 LLM 输入消息转为结构化列表（role + content）。
+// 每条 content 独立脱敏与截断（Sanitizer）；无文本的消息（如仅 tool_call 的占位）跳过；
+// 超过 structuredMessageMax 条时保留首条（通常为 system）+ 最近 N-1 条。
+func messagesToStructured(msgs []*schema.Message, s Sanitizer) []map[string]any {
+	if len(msgs) == 0 {
+		return nil
+	}
+	items := make([]map[string]any, 0, len(msgs))
+	for _, m := range msgs {
+		if m == nil {
+			continue
+		}
+		content := s.Text(MessageTextWithoutReasoning(m))
+		if content == "" {
+			continue
+		}
+		items = append(items, map[string]any{"role": string(m.Role), "content": content})
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	if len(items) > structuredMessageMax {
+		kept := make([]map[string]any, 0, structuredMessageMax)
+		kept = append(kept, items[0])
+		kept = append(kept, items[len(items)-(structuredMessageMax-1):]...)
+		return kept
+	}
+	return items
 }

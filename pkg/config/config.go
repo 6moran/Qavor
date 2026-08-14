@@ -123,11 +123,13 @@ func (c *AgentConfig) ApplyDefaults() {
 
 // RunConfig Run 执行器与请求队列配置
 type RunConfig struct {
-	WorkerCount    int   `mapstructure:"worker_count"`     // Worker 池大小
-	StreamMaxLen   int64 `mapstructure:"stream_max_len"`   // Redis Stream 近似最大长度
-	LockTTLSeconds int   `mapstructure:"lock_ttl_seconds"` // 每线程执行锁 TTL（秒）
-	BlockSeconds   int   `mapstructure:"block_seconds"`    // XREAD/BRPOP 阻塞时长（秒）
-	RetentionHours int   `mapstructure:"retention_hours"`  // Run 事件流保留时长（小时）
+	WorkerCount         int   `mapstructure:"worker_count"`          // Worker 池大小
+	StreamMaxLen        int64 `mapstructure:"stream_max_len"`        // Redis Stream 近似最大长度
+	LockTTLSeconds      int   `mapstructure:"lock_ttl_seconds"`      // 每线程执行锁 TTL（秒）
+	BlockSeconds        int   `mapstructure:"block_seconds"`         // XREAD/BRPOP 阻塞时长（秒）
+	RetentionHours      int   `mapstructure:"retention_hours"`       // Run 事件流保留时长（小时）
+	HeartbeatIntervalMs int64 `mapstructure:"heartbeat_interval_ms"` // session 心跳更新间隔（毫秒）
+	HeartbeatTimeoutSec int   `mapstructure:"heartbeat_timeout_sec"` // session 心跳超时时间（秒）
 }
 
 // ApplyDefaults 为 Run 配置设置安全默认值
@@ -146,6 +148,12 @@ func (c *RunConfig) ApplyDefaults() {
 	}
 	if c.RetentionHours <= 0 {
 		c.RetentionHours = 24
+	}
+	if c.HeartbeatIntervalMs <= 0 {
+		c.HeartbeatIntervalMs = 15000 // 默认15秒
+	}
+	if c.HeartbeatTimeoutSec <= 0 {
+		c.HeartbeatTimeoutSec = 30 // 默认30秒
 	}
 }
 
