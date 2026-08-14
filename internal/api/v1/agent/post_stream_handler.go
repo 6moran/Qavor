@@ -400,13 +400,6 @@ func (h *PostStreamHandler) approvalResume(ctx context.Context, req *CreateRunRe
 	return r, nil
 }
 
-// isAskUserResume 判断 approval_decision 是否为 ask_user 问答回复（JSON 对象）。
-// ask_user 提交前的前端将 answers（map[string]string）序列化为 JSON 字符串；
-// 工具审批的 decision 为 "approve"/"reject" 纯字符串。
-func isAskUserResume(decision string) bool {
-	return len(decision) > 0 && decision[0] == '{'
-}
-
 func (h *PostStreamHandler) setSSEHeaders(c *gin.Context) {
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -431,6 +424,9 @@ func (h *PostStreamHandler) subscribeLoop(ctx context.Context, c *gin.Context, r
 	var writeMu sync.Mutex
 	heartbeatCtx, cancelHeartbeat := context.WithCancel(ctx)
 	defer cancelHeartbeat()
+
+	// 客户端断开时释放 session 锁
+	defer h.releaseSessionLockOnDisconnect(run)
 
 	// 心跳 goroutine
 	go func() {
@@ -479,6 +475,36 @@ func (h *PostStreamHandler) subscribeLoop(ctx context.Context, c *gin.Context, r
 		}
 		writeMu.Unlock()
 	}
+}
+
+// releaseSessionLockOnDisconnect 客户端断开时释放 session 锁
+func (h *PostStreamHandler) releaseSessionLockOnDisconnect(run *entity.AgentRun) {
+	if h.queue == nil || run == nil {
+		return
+	}
+
+	threadID := run.ConversationThreadID
+	if threadID == "" {
+		return
+	}
+
+	// 构建 sessionID（与 Worker 生成逻辑一致）
+	sessionID := "qavor-session-" + threadID
+
+	// 释放 session 心跳
+	if err := h.queue.CleanSessionHeartbeat(context.Background(), sessionID); err != nil {
+		h.logger.Warn("清理 session 心跳失败",
+			zap.String("run_id", run.ID),
+			zap.String("session_id", sessionID),
+			zap.Error(err),
+		)
+	}
+
+	h.logger.Info("SSE 连接断开，已清理 session 心跳",
+		zap.String("run_id", run.ID),
+		zap.String("thread_id", threadID),
+		zap.String("session_id", sessionID),
+	)
 }
 
 // writeSSEEvent 写入一个 SSE 事件，返回 true 表示终态事件（end/error）

@@ -19,10 +19,11 @@ const (
 )
 
 const (
-	queueKey     = "qavor:run:queue"            // 全局排队列表（run_id）
-	queuedHash   = "qavor:run:queued:%s"        // 排队请求元数据 hash
-	threadLock   = "qavor:run:thread:%s:lock"   // 每线程执行锁
-	threadPaused = "qavor:run:thread:%s:paused" // 线程队列暂停标志
+	queueKey         = "qavor:run:queue"            // 全局排队列表（run_id）
+	queuedHash       = "qavor:run:queued:%s"        // 排队请求元数据 hash
+	threadLock       = "qavor:run:thread:%s:lock"   // 每线程执行锁
+	threadPaused     = "qavor:run:thread:%s:paused" // 线程队列暂停标志
+	sessionHeartbeat = "qavor:session:%s:heartbeat" // session 心跳（值为 last_heartbeat_time）
 )
 
 // QueueItem 排队请求元数据
@@ -290,4 +291,26 @@ func (q *RequestQueue) QueueLength(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return v, nil
+}
+
+// UpdateSessionHeartbeat 更新 session 心跳时间
+func (q *RequestQueue) UpdateSessionHeartbeat(ctx context.Context, sessionID string) error {
+	key := fmt.Sprintf(sessionHeartbeat, sessionID)
+	return q.client.Set(ctx, key, time.Now().Unix(), q.lockTTL).Err()
+}
+
+// IsSessionAlive 检查 session 是否存活（心跳未超时）
+func (q *RequestQueue) IsSessionAlive(ctx context.Context, sessionID string) (bool, error) {
+	key := fmt.Sprintf(sessionHeartbeat, sessionID)
+	exists, err := q.client.Exists(ctx, key).Result()
+	if err != nil {
+		return false, err
+	}
+	return exists > 0, nil
+}
+
+// CleanSessionHeartbeat 清理 session 心跳
+func (q *RequestQueue) CleanSessionHeartbeat(ctx context.Context, sessionID string) error {
+	key := fmt.Sprintf(sessionHeartbeat, sessionID)
+	return q.client.Del(ctx, key).Err()
 }
