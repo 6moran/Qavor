@@ -135,6 +135,21 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 	// 需要用户交互的任务（如询问、确认、收集信息）可以完整委托给子智能体，
 	// 主智能体无需在派发前代为提问。
 	cfg.Instruction += "\n\n子智能体具备向用户提问的能力（通过 report_need_input 工具，而非 ask_user）。当你需要让子智能体执行包含用户交互的任务时（例如询问用户信息、确认问题等），子智能体会自动通过 report_need_input 工具向用户提问并等待回答。注意：子智能体使用的是 report_need_input 工具而不是 ask_user，两者功能完全相同只是名称不同。你无需在派发前代为提问，直接在派发给子智能体的任务描述中写明「请使用 report_need_input 工具向用户提问」即可。"
+	cfg.Instruction = `
+  ## 工具使用优先级（必须严格遵守）
+
+  1. **优先使用 query_kb 工具**：当用户的问题可能涉及已有知识时，必须先调用 query_kb 查询知识库   
+  2. **仅在以下情况使用 web_search**：
+     - query_kb 返回结果为空或不相关
+     - 用户明确要求联网搜索
+     - 问题涉及实时信息（如当前天气、股价、新闻等）
+
+  ## 决策流程
+
+  对于每个用户问题，按以下顺序思考：
+  1. 这个问题是否可能在知识库中有答案？→ 是 → 调用 query_kb
+  2. query_kb 的结果是否足够回答？→ 是 → 基于知识库回答
+  3. 否则 → 调用 web_search 获取实时信息`
 
 	// 获取工具（主智能体）
 	builtinTools, mcpTools := resolveAgentTools(cfg, mcpManager, toolRegistry)

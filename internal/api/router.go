@@ -16,7 +16,6 @@ import (
 	ocrctrl "Qavor/internal/api/v1/ocr"
 	processingjob "Qavor/internal/api/v1/processing_job"
 	ragctrl "Qavor/internal/api/v1/rag"
-	ssectrl "Qavor/internal/api/v1/sse"
 	systemctrl "Qavor/internal/api/v1/system"
 	toolctrl "Qavor/internal/api/v1/tool"
 	tracectrl "Qavor/internal/api/v1/trace"
@@ -46,7 +45,6 @@ type Router struct {
 	systemCtrl        *systemctrl.Controller
 	toolCtrl          *toolctrl.Controller
 	skillCtrl         *skillapi.Controller
-	sseCtrl           *ssectrl.Controller
 	mcpServerCtrl     *mcpserverctrl.Controller
 	ocrCtrl           *ocrctrl.Controller
 	postStreamHandler *agentctrl.PostStreamHandler
@@ -75,7 +73,6 @@ func NewRouter(
 	systemCtrl *systemctrl.Controller,
 	toolRegistry *tool.Registry,
 	skillCtrl *skillapi.Controller,
-	sseCtrl *ssectrl.Controller,
 	mcpServerCtrl *mcpserverctrl.Controller,
 	postStreamHandler *agentctrl.PostStreamHandler,
 	runController *agentctrl.RunController,
@@ -102,7 +99,6 @@ func NewRouter(
 		ragCtrl:           ragCtrl,
 		systemCtrl:        systemCtrl,
 		toolCtrl:          toolctrl.NewController(toolRegistry),
-		sseCtrl:           sseCtrl,
 		skillCtrl:         skillCtrl,
 		mcpServerCtrl:     mcpServerCtrl,
 		postStreamHandler: postStreamHandler,
@@ -186,9 +182,6 @@ func (r *Router) Setup(engine *gin.Engine) {
 
 		// MCP 服务器路由
 		r.mcpServerCtrl.RegisterRoutes(v1)
-
-		// SSE 流式服务路由
-		ssectrl.RegisterRoutes(v1, r.sseCtrl)
 
 		// 工作区路由
 		r.workspaceCtrl.RegisterRoutes(v1)

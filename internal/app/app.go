@@ -12,7 +12,6 @@ import (
 	mindmapctrl "Qavor/internal/api/v1/mindmap"
 	ocrctrl "Qavor/internal/api/v1/ocr"
 	ragctrl "Qavor/internal/api/v1/rag"
-	ssectrl "Qavor/internal/api/v1/sse"
 	systemctrl "Qavor/internal/api/v1/system"
 	workspaceapi "Qavor/internal/api/v1/workspace"
 	contextmgr "Qavor/internal/context"
@@ -273,16 +272,11 @@ func (a *App) initDatabase() error {
 		logger.Info("开始数据库迁移...")
 		if err := a.postgresDB.AutoMigrate(
 			&entity.Agent{},
-			&entity.AgentEnv{},
 			&entity.Conversation{},
-			&entity.ConversationStats{},
 			&entity.Message{},
-			&entity.MessageFeedback{},
 			&entity.ToolCall{},
-			&entity.OperationLog{},
 			&entity.AgentRun{},
 			&entity.SubagentThread{},
-			&entity.TaskRecord{},
 			&entity.Model{},
 			&entity.SystemSetting{},
 			&entity.Skill{},
@@ -606,8 +600,6 @@ func (a *App) initDependencies() error {
 	sseManager.StartCleaner(context.Background())
 
 	// 创建 SSE API Controller (HTTP 处理)
-	sseAPICtrl := ssectrl.NewController(sseManager, logger.GetLogger())
-
 	// 创建 Chat Service
 	chatSvc := service.NewChatService(agentMgr, contextMgr, modelSvc, sseManager, messageRepo, conversationRepo, logger.GetLogger())
 
@@ -678,7 +670,7 @@ func (a *App) initDependencies() error {
 	a.evaluationSvc = evaluationSvc
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, sseAPICtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl, mindmapCtrl, ocrCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl, mindmapCtrl, ocrCtrl)
 
 	return nil
 }

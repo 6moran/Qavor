@@ -2,15 +2,16 @@ package request
 
 // CreateConversationRequest 创建对话请求
 type CreateConversationRequest struct {
-	AgentID string `json:"agent_id" binding:"required,max=64"`
-	Title   string `json:"title" binding:"omitempty,max=255"`
+	AgentID          string `json:"agent_id" binding:"required,max=64"`
+	Title            string `json:"title" binding:"omitempty,max=255"`
+	ToolApprovalMode string `json:"tool_approval_mode" binding:"omitempty,oneof=default always_trust"`
 }
 
 // UpdateConversationRequest 更新对话请求
 type UpdateConversationRequest struct {
-	Title             string `json:"title" binding:"omitempty,max=255"`
-	IsPinned          *bool  `json:"is_pinned" binding:"omitempty"`
-	ToolApprovalMode  string `json:"tool_approval_mode" binding:"omitempty,oneof=default always_trust"`
+	Title            string `json:"title" binding:"omitempty,max=255"`
+	IsPinned         *bool  `json:"is_pinned" binding:"omitempty"`
+	ToolApprovalMode string `json:"tool_approval_mode" binding:"omitempty,oneof=default always_trust"`
 }
 
 // ConversationListRequest 对话列表请求
