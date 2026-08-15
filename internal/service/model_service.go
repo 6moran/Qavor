@@ -51,6 +51,8 @@ type ModelService interface {
 	FetchRemoteModels(ctx context.Context, req *request.FetchRemoteModelsRequest) ([]string, error)
 	// SetModelConfigChangeCallback 设置模型配置变更回调
 	SetModelConfigChangeCallback(callback func(modelID string))
+	// GetModelInfo 获取模型基本信息，用于动态调整上下文窗口
+	GetModelInfo(modelID uint) (provider, name string, contextWindow int, ok bool)
 }
 
 // modelService 模型服务实现
@@ -286,6 +288,16 @@ func (s *modelService) GetModelWithDecryptedKey(id uint) (*entity.Model, error) 
 	}
 
 	return model, nil
+}
+
+// GetModelInfo 获取模型基本信息，用于动态调整上下文窗口
+// 返回 provider、name、context_window 和是否成功
+func (s *modelService) GetModelInfo(modelID uint) (provider, name string, contextWindow int, ok bool) {
+	model, err := s.modelRepo.FindByID(modelID)
+	if err != nil || model == nil {
+		return "", "", 0, false
+	}
+	return model.Protocol, model.Name, model.ContextWindow, true
 }
 
 // CreateLLMClient 创建 LLM Client

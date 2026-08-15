@@ -158,6 +158,9 @@ func (m *querySvcModelService) FetchRemoteModels(context.Context, *request.Fetch
 	return nil, errors.New("not used")
 }
 func (m *querySvcModelService) SetModelConfigChangeCallback(func(modelID string)) {}
+func (m *querySvcModelService) GetModelInfo(uint) (string, string, int, bool) {
+	return "", "", 0, false
+}
 
 // ---------- mock: Eino ChatModel ----------
 
