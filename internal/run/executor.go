@@ -23,6 +23,8 @@ import (
 // ModelResolver 根据模型 ID 解析出 Eino ChatModel（由 service.ModelService 实现）
 type ModelResolver interface {
 	ResolveChatModel(ctx context.Context, modelID uint) (model.ToolCallingChatModel, error)
+	// GetModelInfo 获取模型基本信息，用于动态调整上下文窗口
+	GetModelInfo(modelID uint) (provider, name string, contextWindow int, ok bool)
 }
 
 // ApprovalRequest 待审批的工具调用（供前端展示 + SSE 发布）。

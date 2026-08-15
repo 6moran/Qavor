@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"Qavor/internal/llm"
 	longterm "Qavor/internal/memory/long_term"
 	shortterm "Qavor/internal/memory/short_term"
 	"Qavor/internal/model/entity"
@@ -17,18 +18,36 @@ import (
 	"go.uber.org/zap"
 )
 
+// ModelResolver 用于根据模型 ID 解析 LLM 客户端
+type ModelResolver interface {
+	// CreateLLMClient 创建 LLM 客户端
+	CreateLLMClient(ctx context.Context, modelID uint) (llm.Client, error)
+	// GetContextWindow 获取模型的上下文窗口大小，0 表示使用默认值
+	GetContextWindow(modelID uint) int
+}
+
+// llmClientAdapter 将 llm.Client 适配为 LLMClient 接口
+type llmClientAdapter struct {
+	client llm.Client
+}
+
+func (a *llmClientAdapter) Generate(ctx context.Context, input []*schema.Message) (*schema.Message, error) {
+	return a.client.Generate(ctx, input)
+}
+
 // contextManager 上下文管理器实现
 type contextManager struct {
-	config       *ContextConfig
-	fetcher      *historyReader
-	tokenizer    *ContextTokenizer
-	builder      *ContextBuilder
-	persister    *ContextPersister
-	shortTermMgr shortterm.Manager
-	longTermMgr  *longterm.Manager
-	summarizer   Summarizer
-	logger       *zap.Logger
-	tracer       *trace.Tracer
+	config        *ContextConfig
+	fetcher       *historyReader
+	tokenizer     *ContextTokenizer
+	builder       *ContextBuilder
+	persister     *ContextPersister
+	shortTermMgr  shortterm.Manager
+	longTermMgr   *longterm.Manager
+	summarizer    Summarizer    // 默认摘要器（可为 nil）
+	modelResolver ModelResolver // 用于动态创建摘要器
+	logger        *zap.Logger
+	tracer        *trace.Tracer
 }
 
 // NewContextManager 创建上下文管理器
@@ -39,26 +58,38 @@ func NewContextManager(
 	shortTermMgr shortterm.Manager,
 	longTermMgr *longterm.Manager,
 	summarizer Summarizer,
+	modelResolver ModelResolver,
 	logger *zap.Logger,
 	tracer *trace.Tracer,
 ) ContextManager {
 	return &contextManager{
-		config:       config,
-		fetcher:      NewHistoryReader(messageRepo),
-		tokenizer:    NewContextTokenizer(config.MaxTokens, config.ReserveTokens),
-		builder:      NewContextBuilder(config),
-		persister:    NewContextPersister(messageRepo, logger),
-		shortTermMgr: shortTermMgr,
-		longTermMgr:  longTermMgr,
-		summarizer:   summarizer,
-		logger:       logger,
-		tracer:       tracer,
+		config:        config,
+		fetcher:       NewHistoryReader(messageRepo),
+		tokenizer:     NewContextTokenizer(config.MaxTokens, config.ReserveTokens),
+		builder:       NewContextBuilder(config),
+		persister:     NewContextPersister(messageRepo, logger),
+		shortTermMgr:  shortTermMgr,
+		longTermMgr:   longTermMgr,
+		summarizer:    summarizer,
+		modelResolver: modelResolver,
+		logger:        logger,
+		tracer:        tracer,
 	}
 }
 
 // LoadHistory 加载对话历史（含短期记忆摘要），返回裁剪后的消息列表
+// maxTokens 为该请求对应的模型上下文窗口大小，0 时使用默认值
+// modelID 为当前使用的模型 ID，用于摘要生成，0 时不生成摘要
 // 实现 run.ContextProvider 接口
-func (m *contextManager) LoadHistory(ctx context.Context, conversationID uint) ([]*schema.Message, error) {
+func (m *contextManager) LoadHistory(ctx context.Context, conversationID uint, maxTokens int, modelID uint) ([]*schema.Message, error) {
+	// 如果指定了 maxTokens，使用该值裁剪；否则使用默认值
+	var tokenizer *ContextTokenizer
+	if maxTokens > 0 {
+		tokenizer = NewContextTokenizer(maxTokens, m.config.ReserveTokens)
+	} else {
+		tokenizer = m.tokenizer
+	}
+
 	window, err := m.FetchContext(ctx, &ContextHistoryQuery{
 		ConversationID: conversationID,
 		Limit:          50,
@@ -66,10 +97,35 @@ func (m *contextManager) LoadHistory(ctx context.Context, conversationID uint) (
 	if err != nil {
 		return nil, err
 	}
-	window, err = m.CompressContext(ctx, window)
-	if err != nil {
-		return nil, err
+
+	// 计算总 token 数
+	totalTokens := tokenizer.CountAllTokens(window.Messages)
+
+	// 判断是否需要摘要：总 token 超过上下文窗口的 80%
+	summaryThreshold := int(float64(tokenizer.maxTokens) * 0.8)
+	needSummary := totalTokens > summaryThreshold && modelID > 0 && m.modelResolver != nil
+
+	if needSummary {
+		// 根据 modelID 动态创建 LLM 客户端和摘要器
+		llmClient, err := m.modelResolver.CreateLLMClient(ctx, modelID)
+		if err == nil {
+			// 使用适配器将 llm.Client 转换为 LLMClient 接口
+			summarySummarizer := NewLLMSummarizer(m.logger, &llmClientAdapter{client: llmClient})
+			window, err = m.CompressWithSummary(ctx, window, summarySummarizer)
+			if err != nil {
+				m.logger.Warn("LLM 摘要压缩失败，降级为硬切片", zap.Error(err))
+			}
+		} else {
+			m.logger.Warn("创建 LLM 客户端失败，跳过摘要", zap.Error(err))
+		}
+	} else {
+		// token 未超限或无可用模型，直接硬切片
+		systemTokens := m.builder.EstimateSystemTokens(window)
+		window.Messages = tokenizer.TrimMessages(window.Messages, systemTokens)
+		window.TrimmedCount = len(window.Messages)
+		window.TotalTokens = tokenizer.CountAllTokens(window.Messages)
 	}
+
 	return window.Messages, nil
 }
 
@@ -177,18 +233,18 @@ func (m *contextManager) CompressContext(ctx context.Context, window *ContextWin
 }
 
 // CompressWithSummary 使用 LLM 摘要压缩上下文
-func (m *contextManager) CompressWithSummary(ctx context.Context, window *ContextWindow) (*ContextWindow, error) {
+// summarizer 为当前请求使用的摘要器
+func (m *contextManager) CompressWithSummary(ctx context.Context, window *ContextWindow, summarizer Summarizer) (*ContextWindow, error) {
 	start := time.Now()
 
 	spanCtx, span := trace.StartSpan(m.tracer, ctx, entity.SpanKindContext, "CompressWithSummary",
 		fmt.Sprintf("msg_count=%d", len(window.Messages)))
 
-	// 检查是否需要摘要（消息数 > 阈值）
-	summaryThreshold := 20 // 默认阈值
+	// 使用传入的 summarizer 生成摘要
 	summaryGenerated := false
-	if len(window.Messages) > summaryThreshold && m.summarizer != nil {
+	if summarizer != nil {
 		// 调用 LLM 生成摘要
-		summary, err := m.summarizer.Generate(spanCtx, window.Messages)
+		summary, err := summarizer.Generate(spanCtx, window.Messages)
 		if err != nil {
 			m.logger.Warn("LLM 摘要生成失败，降级为硬切片", zap.Error(err))
 			span.End(spanCtx, entity.SpanStatusError, "", err.Error(), 0, 0)
@@ -211,7 +267,7 @@ func (m *contextManager) CompressWithSummary(ctx context.Context, window *Contex
 		}
 	} else {
 		span.End(spanCtx, entity.SpanStatusSuccess,
-			fmt.Sprintf("skipped (msg_count=%d <= threshold=%d)", len(window.Messages), summaryThreshold),
+			fmt.Sprintf("skipped (summarizer=nil)"),
 			"", 0, 0)
 	}
 
@@ -309,7 +365,15 @@ func renderShortTermState(state *shortterm.SessionState) string {
 
 // GetAgentState 获取 Agent 状态面板数据
 // 聚合 token_usage（上下文使用）、todos（待办）、files（文件）、subagent_runs（子Agent运行）
-func (m *contextManager) GetAgentState(ctx context.Context, conversationID uint) (*AgentState, error) {
+// modelID 用于获取模型的上下文窗口大小，0 时使用默认值
+func (m *contextManager) GetAgentState(ctx context.Context, conversationID uint, modelID uint) (*AgentState, error) {
+	// 根据 modelID 获取上下文窗口大小
+	contextWindow := m.config.MaxTokens // 默认值
+	if modelID > 0 && m.modelResolver != nil {
+		if cw := m.modelResolver.GetContextWindow(modelID); cw > 0 {
+			contextWindow = cw
+		}
+	}
 	state := &AgentState{
 		Todos:        []AgentTodo{},
 		Files:        map[string]AgentFile{},
@@ -368,8 +432,6 @@ func (m *contextManager) GetAgentState(ctx context.Context, conversationID uint)
 	llmMessagesTokens := contentTokens + toolTokens + summaryTokens
 	llmInputTokens := systemTokens + llmMessagesTokens // tools_tokens 暂未追踪
 
-	// 上下文窗口上限（裁剪阈值）
-	contextWindow := m.config.MaxTokens
 	// 摘要触发阈值：在上下文窗口 80% 时触发，确保摘要先于裁剪生成
 	summaryTriggerTokens := int(float64(contextWindow) * 0.8)
 	remainingContextTokens := contextWindow - llmInputTokens
