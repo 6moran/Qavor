@@ -374,7 +374,7 @@ func (s *modelService) ResolveChatModelWithTimeout(ctx context.Context, modelID 
 }
 
 // ResolveReranker 根据模型管理中的配置创建重排客户端。
-func (s *modelService) ResolveReranker(ctx context.Context, modelID uint) (rag.Reranker, error) {
+func (s *modelService) ResolveReranker(_ context.Context, modelID uint) (rag.Reranker, error) {
 	model, err := s.GetModelWithDecryptedKey(modelID)
 	if err != nil {
 		return nil, err
