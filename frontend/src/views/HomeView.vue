@@ -29,11 +29,11 @@
       <header class="glass-header">
         <div class="logo">
           <img
-            :src="infoStore.organization.logo"
-            :alt="infoStore.organization.name"
+            :src="organization.logo"
+            :alt="organization.name"
             class="logo-img"
           />
-          <span class="logo-text">{{ infoStore.organization.name }}</span>
+          <span class="logo-text">{{ organization.name }}</span>
         </div>
         <div class="header-actions">
           <UserInfoComponent :show-button="true" />
@@ -59,7 +59,7 @@
               </template>
               <template v-else>{{ typedBadge }}</template>
             </p>
-            <h1 class="title reveal-up delay-1">{{ infoStore.branding.title }}</h1>
+            <h1 class="title reveal-up delay-1">{{ branding.title }}</h1>
             <Transition name="subtitle-switch" mode="out-in">
               <p v-if="currentSubtitle" class="subtitle" :key="currentSubtitle">
                 {{ currentSubtitle }}
@@ -172,7 +172,7 @@
       <footer class="footer">
         <div class="footer-content">
           <p class="copyright">
-            {{ infoStore.footer?.copyright || '© 2025 All rights reserved' }}
+            {{ '© 2025 All rights reserved' }}
           </p>
         </div>
       </footer>
@@ -184,7 +184,6 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { useInfoStore } from '@/stores/info'
 import { healthApi } from '@/apis/system_api'
 import UserInfoComponent from '@/components/UserInfoComponent.vue'
 import {
@@ -200,7 +199,8 @@ import {
 
 const router = useRouter()
 const userStore = useUserStore()
-const infoStore = useInfoStore()
+const branding = { name: 'Qavor', title: 'Qavor', subtitle: '智能体平台', subtitles: [] }
+const organization = { name: 'Qavor', logo: '' }
 const repoUrl = ''
 const faqUrl = ''
 
@@ -227,7 +227,7 @@ const formatStars = (count) => {
 const subtitleIndex = ref(0)
 
 const subtitleOptions = computed(() => {
-  const subtitles = infoStore.branding?.subtitles
+  const subtitles = branding?.subtitles
   if (Array.isArray(subtitles)) {
     const list = subtitles
       .map((item) => (typeof item === 'string' ? item.trim() : ''))
@@ -237,7 +237,7 @@ const subtitleOptions = computed(() => {
     }
   }
 
-  const fallback = (infoStore.branding?.subtitle || '').trim()
+  const fallback = (branding?.subtitle || '').trim()
   return fallback ? [fallback] : []
 })
 
@@ -372,8 +372,6 @@ const loadData = async () => {
   try {
     // 先检查健康状态
     await checkHealth()
-    // 健康检查通过后加载配置
-    await infoStore.loadInfoConfig()
     startSubtitleCarousel()
     const repo = await fetchGithubRepo()
     githubStats.value = repo
