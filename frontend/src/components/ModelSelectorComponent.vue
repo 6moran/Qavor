@@ -3,9 +3,10 @@
     trigger="click"
     :open="dropdownOpen"
     :disabled="props.disabled"
+    destroy-popup-on-hide
     @open-change="handleOpenChange"
   >
-    <div class="model-select" :class="modelSelectClasses" @click.prevent.stop>
+    <div ref="triggerRef" class="model-select" :class="modelSelectClasses" @click.prevent.stop>
       <span class="model-text">{{ displayModelText }}</span>
       <button
         v-if="props.clearable && props.model_spec && !props.disabled"
@@ -16,7 +17,7 @@
       </button>
     </div>
     <template #overlay>
-      <div class="model-dropdown" @click.stop>
+      <div class="model-dropdown" :style="overlayStyle" @click.stop>
         <a-input v-model:value="keyword" placeholder="搜索模型" allow-clear />
         <a-menu class="scrollable-menu">
           <a-menu-item v-if="loading" key="loading" disabled>加载中...</a-menu-item>
@@ -47,9 +48,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { getEnabledModels } from '@/apis/model_api'
+import { modelApi } from '@/apis/model_api'
+import { useDropdownWidth } from '@/composables/useDropdownWidth'
+
+const dropdownOpen = ref(false)
+const { triggerRef, overlayStyle } = useDropdownWidth(dropdownOpen, 280)
 
 const props = defineProps({
   model_spec: { type: String, default: '' },
@@ -64,7 +70,6 @@ const emit = defineEmits(['select-model', 'update:model_spec'])
 const models = ref([])
 const keyword = ref('')
 const loading = ref(false)
-const dropdownOpen = ref(false)
 let loaded = false
 
 const filteredModels = computed(() => {
@@ -129,6 +134,10 @@ const handleClear = () => {
   emit('select-model', '')
   emit('update:model_spec', '')
 }
+
+onBeforeUnmount(() => {
+  dropdownOpen.value = false
+})
 </script>
 
 <style lang="less" scoped>
@@ -137,7 +146,7 @@ const handleClear = () => {
 .model-select { display: flex; align-items: center; justify-content: space-between; }
 .model-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-clear-btn { margin-left: 8px; border: 0; background: transparent; cursor: pointer; }
-.model-dropdown { width: 320px; padding: 8px; }
+.model-dropdown { padding: 8px; }
 .model-option { display: flex; justify-content: space-between; gap: 12px; }
 .model-type { color: var(--gray-500); font-size: 11px; }
 .model-config-link { padding: 8px 4px 2px; color: var(--gray-500); font-size: 11px; }

@@ -138,20 +138,6 @@ export const refreshMcpServerTools = async (name) => {
   return { success: result?.code === 0, data: result?.data || [], message: result?.message }
 }
 
-/**
- * 切换单个工具的启用状态
- * @param {string} serverName - 服务器名称
- * @param {string} toolName - 工具名称
- * @returns {Promise} - 切换结果
- */
-export const toggleMcpServerTool = async (serverName, toolName) => {
-  const result = await apiPut(
-    `${BASE_URL}/${encodeURIComponent(serverName)}/tools/${encodeURIComponent(toolName)}/toggle`,
-    {}
-  )
-  return { success: result?.code === 0, data: result?.data, message: result?.message }
-}
-
 export const mcpApi = {
   getMcpServers,
   getMcpServer,
@@ -162,8 +148,7 @@ export const mcpApi = {
   testMcpServerConfig,
   updateMcpServerStatus,
   getMcpServerTools,
-  refreshMcpServerTools,
-  toggleMcpServerTool
+  refreshMcpServerTools
 }
 
 export default mcpApi

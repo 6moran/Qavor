@@ -370,8 +370,7 @@ import {
   isThreadWaitingForUserAction,
   isToolApprovalMode,
   readToolApprovalModePreference,
-  resolveToolApprovalMode,
-  writeToolApprovalModePreference
+  resolveToolApprovalMode
 } from '@/utils/toolApproval'
 
 // ==================== PROPS & EMITS ====================
@@ -431,6 +430,11 @@ const getSubagentThreadIdByToolCall = (toolCallId) =>
 const setCurrentThreadId = (threadId) => {
   chatState.currentThreadId = threadId || null
   chatThreadsStore.setCurrentThreadId(threadId || null)
+  // 进入草稿态（新建对话）时清空临时审批模式选择，让下拉默认回到「请求审批」；
+  // 已存在会话与「草稿带选择创建」两条链路不受影响。
+  if (!threadId) {
+    draftToolApprovalMode.value = null
+  }
 }
 const streamSmoother = useStreamSmoother({
   getThreadState: (threadId) => chatState.threadStates[threadId] || null
@@ -685,6 +689,34 @@ const currentChatId = computed(() => currentThreadId.value)
 const DRAFT_MODEL_KEY = '__draft__'
 const selectedModelByThread = reactive({})
 const savedToolApprovalMode = ref(readToolApprovalModePreference())
+// 新建会话（草稿态）时用户临时选择的审批模式；不持久化，避免上次选择影响下次新建的默认值
+const draftToolApprovalMode = ref(null)
+const agentDefaultModel = computed(
+  () =>
+    agentConfig.value?.model ||
+    currentAgent.value?.config_json?.context?.model ||
+    configStore.config?.default_model ||
+    ''
+)
+const currentModelSpec = computed(
+  () => selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] || agentDefaultModel.value
+)
+const handleModelSelect = (spec) => {
+  if (typeof spec === 'string') {
+    if (spec) {
+      selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] = spec
+    } else {
+      delete selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY]
+    }
+  }
+}
+
+const handleAgentSelect = (slug) => {
+  if (slug) {
+    agentStore.selectAgent(slug)
+  }
+}
+
 const configuredAgentToolApprovalMode = computed(() => {
   const configJson = currentAgent.value?.config_json
   return configJson?.context?.tool_approval_mode || configJson?.tool_approval_mode || null
@@ -694,7 +726,7 @@ const currentToolApprovalMode = computed(() =>
     hasThread: Boolean(currentChatId.value),
     threadMode: currentThread.value?.metadata?.tool_approval_mode,
     agentMode: configuredAgentToolApprovalMode.value,
-    savedMode: savedToolApprovalMode.value
+    savedMode: draftToolApprovalMode.value || undefined
   })
 )
 const handleToolApprovalModeSelect = async (mode) => {
@@ -702,8 +734,8 @@ const handleToolApprovalModeSelect = async (mode) => {
 
   const thread = currentThread.value
   if (!thread) {
-    savedToolApprovalMode.value = mode
-    writeToolApprovalModePreference(mode)
+    // 新建会话（草稿态）：仅记录本次临时选择，不持久化，避免影响下次新建的默认值
+    draftToolApprovalMode.value = mode
     return
   }
 
@@ -711,8 +743,6 @@ const handleToolApprovalModeSelect = async (mode) => {
   thread.metadata = { ...(thread.metadata || {}), tool_approval_mode: mode }
   try {
     await chatThreadsStore.updateThread(thread.id, null, undefined, mode)
-    savedToolApprovalMode.value = mode
-    writeToolApprovalModePreference(mode)
   } catch {
     thread.metadata = previousMetadata
     message.error('审批模式保存失败')
@@ -1824,7 +1854,12 @@ const { handleStreamChunk } = useAgentStreamHandler({
   supportsFiles,
   streamSmoother
 })
-const { startRunStream, startNewRun, resumeActiveRunForThread, stopRunStreamSubscription } = useAgentRunStream({
+const {
+  startRunStream,
+  startNewRun,
+  resumeActiveRunForThread,
+  stopRunStreamSubscription
+} = useAgentRunStream({
   getThreadState,
   currentAgentId,
   handleStreamChunk,
@@ -2222,42 +2257,6 @@ const handleDeleteMessage = async (msg) => {
   }
 }
 
-// 后台轮询线程活跃 Run，获取 runId 后执行取消
-// 用于用户点击停止时 metadata 事件尚未到达（activeRunId 为空）的场景
-const pollAndCancelThreadActiveRun = async (threadId, maxWaitMs = 15000) => {
-  const intervalMs = 500
-  const maxAttempts = Math.ceil(maxWaitMs / intervalMs)
-  let attempts = 0
-  while (attempts < maxAttempts) {
-    attempts++
-    const ts = getThreadState(threadId)
-    // 线程已被其他逻辑收尾或用户已开始新 Run，退出
-    if (!ts || !ts.pendingCancel || ts.activeRunId) {
-      return
-    }
-    try {
-      const active = await agentApi.getThreadActiveRun(threadId)
-      const run = active?.run || active?.data?.run || active?.data
-      if (run?.id) {
-        const runId = run.id
-        ts.activeRunId = runId
-        try {
-          await agentApi.cancelAgentRun(runId)
-        } catch {
-          // 忽略：用户主动停止，静默兜底
-        }
-        ts.pendingCancel = false
-        return
-      }
-    } catch {
-      // getThreadActiveRun 未实现或失败，继续下一轮尝试
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs))
-  }
-  const ts = getThreadState(threadId)
-  if (ts) ts.pendingCancel = false
-}
-
 // 发送或中断
 const handleSendOrStop = async (payload) => {
   if (sendCooldownActive.value) {
@@ -2267,32 +2266,13 @@ const handleSendOrStop = async (payload) => {
   const threadId = currentChatId.value
   const threadState = getThreadState(threadId)
   const hasNewInput = Boolean(String(userInput.value || '').trim() || payload?.image)
-  // 关键修复：仅以 isStreaming 作为停止判定条件，不依赖 activeRunId
-  // 这样用户在 metadata 事件到达前点击停止也能正确触发取消流程
   if (threadState?.isStreaming && !hasNewInput) {
-    const runId = threadState.activeRunId
-    // 1. 先断开 SSE 订阅，立即停止接收新 chunk（不再显示新内容）
-    stopRunStreamSubscription(threadId)
-    if (runId) {
-      // 已知 runId：直接调用取消接口
-      try {
-        await agentApi.cancelAgentRun(runId)
-      } catch (error) {
-        // 用户主动停止不弹错误提示，仅控制台输出
-        console.warn('[Stop] cancelAgentRun failed (ignored):', error?.message)
-      }
-    } else {
-      // runId 尚未收到（metadata 事件未到）：设置 pendingCancel 标记 + 后台轮询线程活跃 Run 兜底取消
-      threadState.pendingCancel = true
-      pollAndCancelThreadActiveRun(threadId).catch(() => {})
-    }
-    // 2. 立即更新 UI 状态（零延迟体感）
+    // 停止：仅复位流式标志；若已知 runId 则尽力取消后端 Run（保持原始行为，不做 finalize）
     threadState.isStreaming = false
-    threadState.replyLoadingVisible = false
-    threadState.activeRunSteerable = false
-    threadState.pendingInterrupt = null
-    if (approvalState.threadId === threadId) {
-      hideApprovalState()
+    if (threadState.activeRunId) {
+      agentApi.cancelAgentRun(threadState.activeRunId).catch((e) =>
+        console.warn('[Stop] cancelAgentRun failed (ignored):', e?.message)
+      )
     }
     return
   }
