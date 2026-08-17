@@ -44,6 +44,18 @@
               </div>
             </div>
           </div>
+          <div class="card card-select">
+            <span class="label">MCP 工具向量检索模型</span>
+            <div class="setting-control">
+              <EmbeddingModelSelector
+                :value="configStore.config?.mcp_retrieval_embed_model"
+                @change="handleChange('mcp_retrieval_embed_model', $event)"
+              />
+              <div class="setting-hint setting-hint-red">
+                切换模型会清空已构建的向量索引，下次检索时自动重建。
+              </div>
+            </div>
+          </div>
         </div>
 
       <div class="section-title">内容审查配置</div>
@@ -172,6 +184,10 @@ onMounted(loadRagSettings)
     margin-top: 5px;
     color: var(--gray-500);
     font-size: 11px;
+  }
+
+  .setting-hint-red {
+    color: #cf1322;
   }
 
   .card {

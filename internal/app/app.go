@@ -1,6 +1,8 @@
 package app
 
 import (
+	"strconv"
+
 	agentpkg "Qavor/internal/agent"
 	"Qavor/internal/agent/localfs"
 	"Qavor/internal/agent/localfs/security"
@@ -15,6 +17,7 @@ import (
 	systemctrl "Qavor/internal/api/v1/system"
 	workspaceapi "Qavor/internal/api/v1/workspace"
 	contextmgr "Qavor/internal/context"
+	"Qavor/internal/embedding"
 	"Qavor/internal/eventbus"
 	"Qavor/internal/ingestion"
 	"Qavor/internal/mcp"
@@ -481,8 +484,33 @@ func (a *App) initDependencies() error {
 	whitelist := a.buildMCPWhitelist(agentRepo)
 	go mcpManager.Preheat(whitelist)
 
-	// 创建 ToolVectorizer（预留，embedder 为 nil 时不启用向量检索）
-	vectorizer := mcp.NewToolVectorizer(mcpManager, nil)
+	// 创建 ToolVectorizer：注入 provider 懒创建工厂。
+	// 工厂每次检索时从数据库 system_settings 解析当前配置的向量模型
+	// （前端设置页"基本设置 → 向量检索模型"），检测到模型切换会自动清空索引
+	// 并释放旧 provider，下次检索懒重建（热重载）。未配置 → 不激活（全量注入）。
+	vectorizer := mcp.NewToolVectorizer(mcpManager, func(ctx context.Context) (embedding.Client, string, error) {
+		sysCfg, err := systemConfigSvc.Get(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		if sysCfg.MCPRetrievalEmbedModel == "" {
+			// 未配置 → 不激活
+			return nil, "", nil
+		}
+		key := "db:" + sysCfg.MCPRetrievalEmbedModel
+		id, perr := strconv.ParseUint(sysCfg.MCPRetrievalEmbedModel, 10, 32)
+		if perr != nil {
+			return nil, key, perr
+		}
+		embClient, cerr := modelSvc.CreateEmbeddingClient(ctx, uint(id))
+		return embClient, key, cerr
+	})
+
+	// 热重载：系统配置更新 mcp_retrieval_embed_model 后清空向量索引，
+	// 下次 SelectTools 懒重建（provider 工厂会重新解析新模型）。
+	systemConfigSvc.SetMCPRetrievalModelChangeCallback(func() {
+		vectorizer.Clear()
+	})
 
 	// 创建 WebSearch 工具
 	// 按 config.App.Mode 与 API Key 决定：真实 Provider / Mock（debug 无 Key）/ 不注册（release 无 Key）
@@ -670,7 +698,7 @@ func (a *App) initDependencies() error {
 	a.evaluationSvc = evaluationSvc
 
 	// 创建 Router
-	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl, mindmapCtrl, ocrCtrl)
+	a.router = api.NewRouter(authSvc, knowledgeBaseSvc, knowledgeFileSvc, processingJobSvc, modelSvc, conversationSvc, messageSvc, agentSvc, agentOpts, agentMgr, mcpManager, chatCtrl, ragCtrl, systemCtrl, toolRegistry, skillCtrl, mcpServerCtrl, postStreamHandler, runController, traceCtrl, dashboardSvc, workspaceCtrl, knowledgeQuerySvc, tracer, evaluationCtrl, mindmapCtrl, ocrCtrl)
 
 	return nil
 }

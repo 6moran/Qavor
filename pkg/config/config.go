@@ -265,19 +265,8 @@ type SSEConfig struct {
 	TaskTTL            int `mapstructure:"task_ttl"`             // 任务过期时间（秒），默认3600
 }
 
-// MCPConfig MCP 配置
-type MCPConfig struct {
-	ToolRetrieval MCPToolRetrievalConfig `mapstructure:"tool_retrieval"`
-}
-
-// MCPToolRetrievalConfig MCP 工具向量检索配置
-type MCPToolRetrievalConfig struct {
-	Enabled           bool   `mapstructure:"enabled"`
-	Threshold         int    `mapstructure:"threshold"`
-	TopK              int    `mapstructure:"top_k"`
-	EmbeddingProvider string `mapstructure:"embedding_provider"`
-	EmbeddingModel    string `mapstructure:"embedding_model"`
-}
+// MCPConfig MCP 配置（当前无全局配置项；工具向量检索模型在系统设置中配置）
+type MCPConfig struct{}
 
 // WebSearchConfig 联网搜索工具配置
 // 所有字段优先从环境变量获取，其次 config.yaml

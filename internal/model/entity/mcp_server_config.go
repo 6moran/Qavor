@@ -15,7 +15,6 @@ type MCPServerConfig struct {
 	Timeout        *int              `json:"timeout,omitempty"`
 	SSEReadTimeout *int              `json:"sseReadTimeout,omitempty"`
 	Enabled        bool              `json:"enabled"`
-	DisabledTools  []string          `json:"disabledTools,omitempty"`
 	CreatedAt      time.Time         `json:"createdAt"`
 	UpdatedAt      time.Time         `json:"updatedAt"`
 }

@@ -168,9 +168,6 @@ func (s *MCPServerFileStoreImpl) Update(name string, updates *entity.MCPServerCo
 	if updates.Enabled != existing.Enabled {
 		existing.Enabled = updates.Enabled
 	}
-	if updates.DisabledTools != nil {
-		existing.DisabledTools = updates.DisabledTools
-	}
 	existing.UpdatedAt = time.Now().UTC()
 	return s.save()
 }

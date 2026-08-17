@@ -29,6 +29,8 @@
     "katex": "^0.16.45",
     "less": "^4.6.4",
     "lucide-vue-next": "^1.0.0",
+    "markmap-lib": "^0.18.12",
+    "markmap-view": "^0.18.12",
     "markdown-it": "^14.2.0",
     "markdown-it-task-lists": "^2.1.1",
     "pinia": "^3.0.4",
