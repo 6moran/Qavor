@@ -369,6 +369,7 @@ import { makeChildThreadId } from '@/utils/subagentThread'
 import {
   isThreadWaitingForUserAction,
   isToolApprovalMode,
+  readToolApprovalModePreference,
   resolveToolApprovalMode
 } from '@/utils/toolApproval'
 
