@@ -1,4 +1,4 @@
-import { apiGet, apiDelete, apiPost, apiPut } from './base'
+import { apiGet, apiDelete, apiPost } from './base'
 
 /**
  * 解包 Go 后端统一响应信封 {code, message, data}，返回 data。

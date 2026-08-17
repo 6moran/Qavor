@@ -317,7 +317,6 @@
 
 <script setup>
 import {
-  h,
   ref,
   reactive,
   onMounted,
@@ -331,26 +330,14 @@ import {
 } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import {
-  ChevronDown,
   CornerDownRight,
   FolderKanban,
   Play,
-  RefreshCw,
   Trash2
 } from 'lucide-vue-next'
-import { formatFileSize } from '@/utils/file_utils'
-import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
-import {
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
-  QuestionCircleOutlined,
-  SyncOutlined
-} from '@ant-design/icons-vue'
 import AgentInputArea from '@/components/AgentInputArea.vue'
 import ToolApprovalModeSelector from '@/components/ToolApprovalModeSelector.vue'
-import AgentSelectorComponent from '@/components/AgentSelectorComponent.vue'
 import AgentMessageComponent from '@/components/AgentMessageComponent.vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
 import { handleChatError, handleValidationError } from '@/utils/errorHandler'
@@ -376,7 +363,6 @@ import AgentPanel from '@/components/AgentPanel.vue'
 import AttachmentTmpUploadModal from '@/components/AttachmentTmpUploadModal.vue'
 import SubagentThreadModal from '@/components/SubagentThreadModal.vue'
 import TokenUsageBar from '@/components/TokenUsageBar.vue'
-import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 import { enrichTaskToolCalls, parseToolCallArgs } from '@/components/ToolCallingResult/toolRegistry'
 import { getConversationDisplayItems } from '@/utils/messageGrouping'
 import { makeChildThreadId } from '@/utils/subagentThread'
@@ -498,17 +484,10 @@ const agentPanelActivePreviewPath = ref('')
 const agentPanelViewMode = ref('tree')
 const chatContentContainerRef = ref(null)
 const panelWrapperRef = ref(null) // 直接操作 DOM
-const TODO_NAME_MAX_LENGTH = 20
 let resizeStartX = 0
 let resizeStartWidth = 0
 let panelContainerWidth = 0
 let streamingStateRefreshTimer = null
-
-const formatTodoName = (content) => {
-  return Array.from(String(content || ''))
-    .slice(0, TODO_NAME_MAX_LENGTH)
-    .join('')
-}
 
 const getPanelContainerWidth = () => {
   const container = chatContentContainerRef.value || panelWrapperRef.value?.parentElement
@@ -576,13 +555,6 @@ const getPanelFileName = (file) => {
   return '未知文件'
 }
 
-const getArtifactMetaLabel = (path) => {
-  const filename = getPanelFileName({ path })
-  if (!filename.includes('.')) return '交付文件'
-  const extension = filename.split('.').pop()
-  return extension ? `交付文件 · ${extension.toUpperCase()}` : '交付文件'
-}
-
 const getSubagentRunName = (run) => {
   const subagentSlug = run?.subagent_slug ? String(run.subagent_slug) : ''
   return (
@@ -603,11 +575,6 @@ const getSubagentIconSrc = (run) => {
 
 const getSubagentDefaultIconSrc = (run) =>
   run?.subagent_slug ? generatePixelAvatar(run.subagent_slug) : ''
-
-const getSubagentRunMeta = (run) => {
-  const artifacts = Array.isArray(run?.artifacts) ? run.artifacts.length : 0
-  return artifacts ? `${artifacts} 个产物` : run?.id || ''
-}
 
 const normalizePanelPath = (path) => String(path || '').replace(/\/+$/, '')
 
@@ -718,32 +685,6 @@ const currentChatId = computed(() => currentThreadId.value)
 const DRAFT_MODEL_KEY = '__draft__'
 const selectedModelByThread = reactive({})
 const savedToolApprovalMode = ref(readToolApprovalModePreference())
-const agentDefaultModel = computed(
-  () =>
-    agentConfig.value?.model ||
-    currentAgent.value?.config_json?.context?.model ||
-    configStore.config?.default_model ||
-    ''
-)
-const currentModelSpec = computed(
-  () => selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] || agentDefaultModel.value
-)
-const handleModelSelect = (spec) => {
-  if (typeof spec === 'string') {
-    if (spec) {
-      selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] = spec
-    } else {
-      delete selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY]
-    }
-  }
-}
-
-const handleAgentSelect = (slug) => {
-  if (slug) {
-    agentStore.selectAgent(slug)
-  }
-}
-
 const configuredAgentToolApprovalMode = computed(() => {
   const configJson = currentAgent.value?.config_json
   return configJson?.context?.tool_approval_mode || configJson?.tool_approval_mode || null
@@ -805,180 +746,9 @@ const supportsFiles = computed(() => {
 const currentAgentState = computed(() => {
   return currentChatId.value ? getThreadState(currentChatId.value)?.agentState || null : null
 })
-const toFiniteNumber = (value) => {
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : null
-}
-const TOKEN_COUNT_K_UNIT = 1024
-const formatTokenCount = (value) => {
-  const numeric = toFiniteNumber(value)
-  if (numeric === null) return '-'
-  if (numeric >= TOKEN_COUNT_K_UNIT) {
-    const digits = numeric >= TOKEN_COUNT_K_UNIT * 10 ? 1 : 2
-    return `${(numeric / TOKEN_COUNT_K_UNIT).toFixed(digits).replace(/\.0+$/, '')}k`
-  }
-  return String(Math.round(numeric))
-}
 const currentTokenUsage = computed(() => {
   const usage = currentAgentState.value?.token_usage
   return usage && typeof usage === 'object' && !Array.isArray(usage) ? usage : null
-})
-const tokenUsageSegments = computed(() => {
-  const usage = currentTokenUsage.value
-  if (!usage) return []
-
-  const summaryTokens = usage.summary_active
-    ? Math.max(toFiniteNumber(usage.summary_message_tokens) || 0, 0)
-    : 0
-  const llmMessageTokens = Math.max(toFiniteNumber(usage.llm_messages_tokens) || 0, 0)
-  const hasSplitMessageTokens =
-    toFiniteNumber(usage.llm_content_message_tokens) !== null ||
-    toFiniteNumber(usage.llm_tool_message_tokens) !== null
-  const contentMessageTokens = hasSplitMessageTokens
-    ? Math.max(toFiniteNumber(usage.llm_content_message_tokens) || 0, 0)
-    : Math.max(llmMessageTokens - summaryTokens, 0)
-  const toolMessageTokens = Math.max(toFiniteNumber(usage.llm_tool_message_tokens) || 0, 0)
-  const stateMessageTokensBeforeCall = Math.max(
-    toFiniteNumber(usage.state_messages_tokens_before_call ?? usage.state_messages_tokens) || 0,
-    0
-  )
-  const cutMessageTokens = Math.max(stateMessageTokensBeforeCall - llmMessageTokens, 0)
-  const llmMessageCount = Math.max(toFiniteNumber(usage.llm_message_count) || 0, 0)
-  const contentMessageCount = hasSplitMessageTokens
-    ? Math.max(toFiniteNumber(usage.llm_content_message_count) || 0, 0)
-    : Math.max(llmMessageCount - (usage.summary_active ? 1 : 0), 0)
-  const toolMessageCount = Math.max(toFiniteNumber(usage.llm_tool_message_count) || 0, 0)
-  const stateMessageCountBeforeCall = Math.max(
-    toFiniteNumber(usage.state_message_count_before_call ?? usage.state_message_count) || 0,
-    0
-  )
-  const cutMessageCount = Math.max(stateMessageCountBeforeCall - llmMessageCount, 0)
-  const systemTokens = Math.max(toFiniteNumber(usage.system_tokens) || 0, 0)
-  const toolsTokens = Math.max(toFiniteNumber(usage.tools_tokens) || 0, 0)
-  const inputTokens = Math.max(toFiniteNumber(usage.llm_input_tokens) || 0, 0)
-  const rawSegments = [
-    {
-      key: 'system',
-      label: '系统提示',
-      value: systemTokens,
-      tone: 'is-system'
-    },
-    {
-      key: 'tools',
-      label: `工具定义 (${usage.tool_count || 0})`,
-      value: toolsTokens,
-      tone: 'is-tools'
-    },
-    {
-      key: 'messages',
-      label: '内容消息',
-      value: contentMessageTokens,
-      messageCount: contentMessageCount,
-      tone: 'is-messages'
-    },
-    {
-      key: 'toolMessages',
-      label: '工具消息',
-      value: toolMessageTokens,
-      messageCount: toolMessageCount,
-      tone: 'is-tool-messages'
-    },
-    {
-      key: 'summary',
-      label: '摘要',
-      value: summaryTokens,
-      messageCount: usage.summary_active ? 1 : 0,
-      tone: 'is-summary'
-    },
-    {
-      key: 'cut',
-      label: '已压缩',
-      value: cutMessageTokens,
-      messageCount: cutMessageCount,
-      tone: 'is-cut'
-    }
-  ].filter((segment) => segment.value > 0)
-
-  const accountedInputTokens = llmMessageTokens + systemTokens + toolsTokens
-  if (inputTokens > accountedInputTokens) {
-    rawSegments.push({
-      key: 'overhead',
-      label: '其他',
-      value: inputTokens - accountedInputTokens,
-      tone: 'is-overhead'
-    })
-  }
-
-  const segmentTotal = rawSegments.reduce((sum, segment) => sum + segment.value, 0)
-  const total = Math.max(cutMessageTokens + inputTokens, segmentTotal, 1)
-  return rawSegments.map((segment) => {
-    const ratio = segment.value / total
-    return {
-      ...segment,
-      percent: `${Math.max(0, Math.min(ratio * 100, 100)).toFixed(2)}%`,
-      valueLabel: segment.messageCount
-        ? `${formatTokenCount(segment.value)} (${segment.messageCount}条)`
-        : formatTokenCount(segment.value)
-    }
-  })
-})
-const tokenUsageStackTotal = computed(() => {
-  const inputTokens = toFiniteNumber(currentTokenUsage.value?.llm_input_tokens)
-  if (inputTokens !== null) return Math.max(inputTokens, 0)
-  return tokenUsageSegments.value
-    .filter((segment) => segment.key !== 'cut')
-    .reduce((sum, segment) => sum + segment.value, 0)
-})
-const tokenUsageStackLimit = computed(() => {
-  // 统一用 context_window 作为总额上限，与 TokenUsageBar 保持一致
-  const contextWindow = toFiniteNumber(currentTokenUsage.value?.context_window)
-  if (contextWindow && contextWindow > 0) return contextWindow
-
-  const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
-  if (summaryTriggerTokens && summaryTriggerTokens > 0) return summaryTriggerTokens
-
-  return Math.max(tokenUsageStackTotal.value, 1)
-})
-const tokenUsageHeaderPercentLabel = computed(() => {
-  const limit = Math.max(tokenUsageStackLimit.value, 1)
-  const percent = Math.max(0, Math.min((tokenUsageStackTotal.value / limit) * 100, 100))
-  if (percent > 0 && percent < 1) return '<1%'
-  return `${Math.round(percent)}%`
-})
-const tokenUsageStackHeadLabel = computed(() => {
-  const lim = tokenUsageStackLimit.value
-  if (lim > 0) {
-    return `${formatTokenCount(tokenUsageStackTotal.value)} / ${formatTokenCount(lim)} Token`
-  }
-  return `${formatTokenCount(tokenUsageStackTotal.value)} Token`
-})
-const tokenUsageBarSegments = computed(() => {
-  const limit = Math.max(tokenUsageStackLimit.value, 1)
-  let remaining = limit
-  return tokenUsageSegments.value
-    .filter((segment) => segment.key !== 'cut')
-    .map((segment) => {
-      const value = Math.min(segment.value, Math.max(remaining, 0))
-      remaining -= value
-      return {
-        ...segment,
-        percent: `${Math.max(0, Math.min((value / limit) * 100, 100)).toFixed(2)}%`
-      }
-    })
-    .filter((segment) => segment.value > 0 && segment.percent !== '0.00%')
-})
-const tokenUsageMetaRows = computed(() => {
-  const usage = currentTokenUsage.value
-  if (!usage) return []
-  const rows = []
-  if (toFiniteNumber(usage.context_window)) {
-    rows.push({
-      key: 'context',
-      label: '窗口/剩余',
-      value: `${formatTokenCount(usage.context_window)} / ${formatTokenCount(usage.remaining_context_tokens)}`
-    })
-  }
-  return rows
 })
 const currentThreadAttachments = computed(() => {
   if (!currentChatId.value) return []
@@ -987,32 +757,6 @@ const currentThreadAttachments = computed(() => {
 const currentPendingThreadAttachments = computed(() =>
   currentThreadAttachments.value.filter((attachment) => !attachment?.request_id)
 )
-const currentArtifacts = computed(() => {
-  const artifacts = currentAgentState.value?.artifacts
-  return Array.isArray(artifacts) ? artifacts : []
-})
-const currentArtifactFiles = computed(() =>
-  currentArtifacts.value
-    .map((path) => String(path || '').trim())
-    .filter(Boolean)
-    .map((path) => ({
-      path,
-      name: getPanelFileName({ path }),
-      meta: getArtifactMetaLabel(path)
-    }))
-)
-const currentTodos = computed(() => {
-  const todos = currentAgentState.value?.todos
-  if (!Array.isArray(todos)) return []
-  return todos.map((todo) => {
-    const fullContent = String(todo?.content || '')
-    return {
-      ...todo,
-      fullContent,
-      displayContent: formatTodoName(fullContent)
-    }
-  })
-})
 const currentSubagentRuns = computed(() => {
   const runs = currentAgentState.value?.subagent_runs
   return Array.isArray(runs) ? runs : []
@@ -1049,46 +793,6 @@ const subagentThreadModal = reactive({
   subagentAvatar: '',
   subagentDefaultAvatar: ''
 })
-const openSubagentThread = (run) => {
-  if (!run?.child_thread_id) return
-  subagentThreadModal.childThreadId = String(run.child_thread_id)
-  subagentThreadModal.runId = run.run_id ? String(run.run_id) : ''
-  subagentThreadModal.runStatus = run.status ? String(run.status) : ''
-  subagentThreadModal.subagentName = getSubagentRunName(run)
-  subagentThreadModal.subagentAvatar = getSubagentIconSrc(run)
-  subagentThreadModal.subagentDefaultAvatar = getSubagentDefaultIconSrc(run)
-  subagentThreadModal.open = true
-}
-const currentStateFiles = computed(() => {
-  const files = []
-  const seenPaths = new Set()
-  const pushFile = (entry, fallbackName = '文件') => {
-    const path = String(entry?.path || entry?.file_path || entry?.file_name || entry?.name || '')
-    if (!path || seenPaths.has(path)) return
-    seenPaths.add(path)
-    const name = entry?.file_name || entry?.name || getPanelFileName({ path }) || fallbackName
-    const sizeLabel = formatFileSize(entry?.file_size ?? entry?.size)
-    const status = entry?.status || ''
-    files.push({
-      key: path,
-      path,
-      name,
-      meta: [status, sizeLabel === '-' ? '' : sizeLabel, path].filter(Boolean).join(' · ')
-    })
-  }
-
-  const rawFiles = currentAgentState.value?.files || {}
-  if (typeof rawFiles === 'object' && !Array.isArray(rawFiles)) {
-    Object.entries(rawFiles).forEach(([path, fileData]) => pushFile({ path, ...fileData }))
-  }
-  currentThreadAttachments.value.forEach((attachment) => pushFile(attachment, '附件'))
-
-  return files
-})
-const totalTodoCount = computed(() => currentTodos.value.length)
-const completedTodoCount = computed(
-  () => currentTodos.value.filter((todo) => todo?.status === 'completed').length
-)
 const showFileEntry = computed(() => Boolean(currentChatId.value))
 
 const { mentionConfig } = useAgentMentionConfig({
@@ -1141,16 +845,6 @@ const isConversationSettled = (conv) => {
   }
   return !(isProcessing.value || isReplyLoading.value)
 }
-
-// 计算是否显示Refs组件的条件
-const shouldShowRefs = computed(() => {
-  return (conv) => {
-    if (!getLastMessage(conv) || conv.status === 'streaming' || shouldSuppressRefsForApproval()) {
-      return false
-    }
-    return isConversationSettled(conv)
-  }
-})
 
 // 当前线程状态的computed属性
 const currentThreadState = computed(() => {

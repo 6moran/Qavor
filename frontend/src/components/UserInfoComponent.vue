@@ -60,7 +60,7 @@
 </template>
 
 <script setup>
-import { computed, ref, inject, useSlots } from 'vue'
+import { computed, inject, useSlots } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { message } from 'ant-design-vue'

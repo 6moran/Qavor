@@ -163,7 +163,7 @@
 import { computed, ref, onUnmounted } from 'vue'
 import { CaretRightOutlined } from '@ant-design/icons-vue'
 import RefsComponent from '@/components/RefsComponent.vue'
-import { Copy, Check, X, Pencil, RotateCcw, Trash2, Share2, MoreHorizontal } from 'lucide-vue-next'
+import { Copy, X, Pencil, RotateCcw, Trash2, Share2, MoreHorizontal } from 'lucide-vue-next'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import MentionTextRenderer from '@/components/common/MentionTextRenderer.vue'

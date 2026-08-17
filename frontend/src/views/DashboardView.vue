@@ -13,7 +13,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onUnmounted } from 'vue'
 
 // 导入子组件
 import StatusBar from '@/components/StatusBar.vue'

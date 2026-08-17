@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiDelete, apiPut, apiRequest, normalizeApiUrl } from './base'
+import { apiGet, apiPost, apiDelete, apiPut, normalizeApiUrl } from './base'
 import { useUserStore } from '@/stores/user'
 
 /**
@@ -195,7 +195,7 @@ export const agentApi = {
    * @param {string|null} reason - 不喜欢的原因
    * @returns {Promise} - 反馈响应（后端未实现，返回成功）
    */
-  submitMessageFeedback: (messageId, rating, reason = null) => {
+  submitMessageFeedback: () => {
     // 后端未实现此接口，返回成功
     console.warn('submitMessageFeedback: 后端未实现此接口')
     return Promise.resolve({ success: true })
@@ -206,7 +206,7 @@ export const agentApi = {
    * @param {number} messageId - 消息ID
    * @returns {Promise} - 反馈状态（后端未实现，返回空）
    */
-  getMessageFeedback: (messageId) => {
+  getMessageFeedback: () => {
     // 后端未实现此接口，返回空
     return Promise.resolve({ data: null })
   },
@@ -375,7 +375,7 @@ export const multimodalApi = {
    * @param {File} file - 图片文件
    * @returns {Promise} - 上传结果（后端未实现，返回空）
    */
-  uploadImage: (file) => {
+  uploadImage: () => {
     // 后端未实现此接口，返回空
     console.warn('uploadImage: 后端未实现此接口')
     return Promise.resolve({ data: null })
@@ -442,7 +442,7 @@ export const threadApi = {
    * @param {Object} metadata - 元数据
    * @returns {Promise} - 创建结果
    */
-  createThread: (agentId, title, metadata) => {
+  createThread: (agentId, title) => {
     return apiPost('/api/v1/conversations', {
       agent_id: agentId,
       title: title || '新的对话'
@@ -484,7 +484,7 @@ export const threadApi = {
    * @param {string} threadId - 对话线程ID
    * @returns {Promise}（后端未实现，返回空数组）
    */
-  getThreadAttachments: (threadId) => {
+  getThreadAttachments: () => {
     console.warn('getThreadAttachments: 后端未实现此接口')
     return Promise.resolve({ data: [] })
   },
@@ -496,7 +496,7 @@ export const threadApi = {
    * @param {boolean} recursive
    * @returns {Promise}（后端未实现，返回空数组）
    */
-  listThreadFiles: (threadId, path = '/home/gem/user-data', recursive = false) => {
+  listThreadFiles: () => {
     console.warn('listThreadFiles: 后端未实现此接口')
     return Promise.resolve({ data: [] })
   },
@@ -509,7 +509,7 @@ export const threadApi = {
    * @param {number} limit
    * @returns {Promise}（后端未实现，返回空）
    */
-  readThreadFile: (threadId, path, offset = 0, limit = 2000) => {
+  readThreadFile: () => {
     console.warn('readThreadFile: 后端未实现此接口')
     return Promise.resolve({ data: null })
   },
@@ -521,7 +521,7 @@ export const threadApi = {
    * @param {boolean} download
    * @returns {string}（后端未实现，返回空字符串）
    */
-  getThreadArtifactUrl: (threadId, path, download = false) => {
+  getThreadArtifactUrl: () => {
     console.warn('getThreadArtifactUrl: 后端未实现此接口')
     return ''
   },
@@ -532,7 +532,7 @@ export const threadApi = {
    * @param {string} path
    * @returns {Promise}（后端未实现，返回空）
    */
-  downloadThreadArtifact: (threadId, path) => {
+  downloadThreadArtifact: () => {
     console.warn('downloadThreadArtifact: 后端未实现此接口')
     return Promise.resolve(null)
   },
@@ -543,7 +543,7 @@ export const threadApi = {
    * @param {string} path
    * @returns {Promise}（后端未实现，返回成功）
    */
-  saveThreadArtifactToWorkspace: (threadId, path) => {
+  saveThreadArtifactToWorkspace: () => {
     console.warn('saveThreadArtifactToWorkspace: 后端未实现此接口')
     return Promise.resolve({ success: true })
   },
@@ -553,7 +553,7 @@ export const threadApi = {
    * @param {File} file
    * @returns {Promise}（后端未实现，返回空）
    */
-  uploadTmpAttachment: (file) => {
+  uploadTmpAttachment: () => {
     console.warn('uploadTmpAttachment: 后端未实现此接口')
     return Promise.resolve({ data: null })
   },
@@ -563,7 +563,7 @@ export const threadApi = {
    * @param {Object} payload
    * @returns {Promise}（后端未实现，返回空）
    */
-  parseTmpAttachment: (payload) => {
+  parseTmpAttachment: () => {
     console.warn('parseTmpAttachment: 后端未实现此接口')
     return Promise.resolve({ data: null })
   },
@@ -574,7 +574,7 @@ export const threadApi = {
    * @param {Array} attachments
    * @returns {Promise}（后端未实现，返回成功）
    */
-  confirmTmpThreadAttachments: (threadId, attachments) => {
+  confirmTmpThreadAttachments: () => {
     console.warn('confirmTmpThreadAttachments: 后端未实现此接口')
     return Promise.resolve({ success: true })
   },
@@ -585,7 +585,7 @@ export const threadApi = {
    * @param {File} file
    * @returns {Promise}（后端未实现，返回空）
    */
-  uploadThreadAttachment: (threadId, file) => {
+  uploadThreadAttachment: () => {
     console.warn('uploadThreadAttachment: 后端未实现此接口')
     return Promise.resolve({ data: null })
   },
@@ -596,7 +596,7 @@ export const threadApi = {
    * @param {string} fileId
    * @returns {Promise}（后端未实现，返回成功）
    */
-  deleteThreadAttachment: (threadId, fileId) => {
+  deleteThreadAttachment: () => {
     console.warn('deleteThreadAttachment: 后端未实现此接口')
     return Promise.resolve({ success: true })
   }
