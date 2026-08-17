@@ -86,10 +86,6 @@ func (m *MCPManager) Preheat(whitelist []string) {
 		if !config.Enabled || !allowSet[name] {
 			continue
 		}
-		m.mu.Lock()
-		m.status[name] = StatusConnecting
-		m.mu.Unlock()
-
 		go m.connect(name, config)
 		count++
 	}
@@ -107,7 +103,7 @@ func (m *MCPManager) EnsureConnected(names []string) {
 		s := m.status[name]
 		m.mu.RUnlock()
 
-		if s == StatusConnected {
+		if s == StatusConnected || s == StatusConnecting {
 			continue
 		}
 
@@ -151,13 +147,15 @@ func (m *MCPManager) newClient(config *entity.MCPServerConfig) (*client.Client, 
 }
 
 // connect 连接单个 MCP 服务器（只建连接，不获取工具）
+// 内部持有锁做二阶段检查：已连接/连接中 → 跳过，未连接 → 设 Connecting 后继续
 func (m *MCPManager) connect(name string, config *entity.MCPServerConfig) error {
-	m.mu.RLock()
-	if m.status[name] == StatusConnected {
-		m.mu.RUnlock()
+	m.mu.Lock()
+	if m.status[name] == StatusConnected || m.status[name] == StatusConnecting {
+		m.mu.Unlock()
 		return nil
 	}
-	m.mu.RUnlock()
+	m.status[name] = StatusConnecting
+	m.mu.Unlock()
 
 	logger.Info("连接 MCP 服务器", zap.String("name", name))
 
@@ -168,6 +166,18 @@ func (m *MCPManager) connect(name string, config *entity.MCPServerConfig) error 
 		m.mu.Unlock()
 		return err
 	}
+
+	// 注册通知处理器：检测 tools/list_changed → 清除工具缓存
+	// 下次 GetToolsByServers 会重新 tools/list 获取最新列表
+	c.OnNotification(func(notification mcp.JSONRPCNotification) {
+		if notification.Method == "notifications/tools/list_changed" {
+			m.mu.Lock()
+			delete(m.serverTools, name)
+			m.mu.Unlock()
+			logger.Info("MCP 工具列表已变更，缓存已清除",
+				zap.String("name", name))
+		}
+	})
 
 	// 启动 transport 并完成 MCP 握手：Start -> Initialize 后才能请求工具等接口
 	ctx := context.Background()
@@ -305,6 +315,16 @@ func (m *MCPManager) GetAllStatus() map[string]string {
 		result[k] = v.String()
 	}
 	return result
+}
+
+// ClearToolsCache 清除指定 MCP 服务器的工具缓存。
+// 下次 GetToolsByServers 会重新 tools/list 获取最新列表。
+// 适用于：MCP 服务器配置变更、工具开关切换、增删服务器后等场景。
+func (m *MCPManager) ClearToolsCache(name string) {
+	m.mu.Lock()
+	delete(m.serverTools, name)
+	m.mu.Unlock()
+	logger.Info("MCP 工具缓存已清除", zap.String("name", name))
 }
 
 // Has 检查 MCP 服务器是否存在

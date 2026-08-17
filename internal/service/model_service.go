@@ -36,6 +36,8 @@ type ModelService interface {
 	GetModelWithDecryptedKey(id uint) (*entity.Model, error)
 	// CreateLLMClient 根据模型 ID 创建 LLM 客户端。
 	CreateLLMClient(ctx context.Context, modelID uint) (llm.Client, error)
+	// CreateEmbeddingClient 根据模型 ID 创建 Embedding 客户端。
+	CreateEmbeddingClient(ctx context.Context, modelID uint) (embedding.Client, error)
 	// ResolveEmbedding 根据模型管理中的 ID 创建原生 Eino Embedder。
 	ResolveEmbedding(ctx context.Context, modelID uint) (einoEmbedding.Embedder, error)
 	// ResolveChatModel 根据模型管理中的 ID 创建原生 Eino ChatModel。

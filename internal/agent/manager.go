@@ -125,6 +125,18 @@ func (m *AgentManager) buildSubagentSpecs(ctx context.Context, parentCfg *AgentC
 			logger.Warn("获取子智能体配置失败，跳过", zap.String("sub_slug", subSlug), zap.Error(err))
 			continue
 		}
+		// 子智能体的 Skill L1 渐进式披露（与主智能体 GetOrCreate 中逻辑一致）
+		if len(subCfg.Skills) > 0 && m.skillsMiddleware != nil {
+			var skills []*skill.SkillMeta
+			for _, slug := range subCfg.Skills {
+				meta, err := m.skillsMiddleware.GetLoader().LoadMeta(slug)
+				if err != nil {
+					continue
+				}
+				skills = append(skills, meta)
+			}
+			subCfg.Instruction, _ = m.skillsMiddleware.BuildPrompt(ctx, subCfg.Instruction, skills)
+		}
 		subLLM, err := m.resolveSubagentLLM(ctx, subCfg)
 		if err != nil {
 			logger.Warn("解析子智能体 LLM 失败，跳过", zap.String("sub_slug", subSlug), zap.Error(err))
