@@ -1,6 +1,5 @@
-import { apiGet, apiPost, apiDelete, apiPut, apiRequest } from './base'
+import { apiGet, apiPost, apiDelete, apiPut, normalizeApiUrl } from './base'
 import { useUserStore } from '@/stores/user'
-import { USE_MOCK, mockResponse, mockAgents, mockThreads, mockThreadHistory, mockChatResponse } from '@/mock'
 
 /**
  * 智能体API模块
@@ -23,140 +22,230 @@ ${String(requestContent || '').slice(0, 2000)}
 
 只输出一个概括该请求主题的简短标题，最多 30 个字符；不要添加引号、句号、解释或 Markdown 标记。`
 
+/**
+ * 将前端审批决策归一化为后端期望的纯字符串 "approve"/"reject"。
+ * 后端审批恢复链路（post_stream_handler.approvalResume）只认纯字符串决策，
+ * 并用它填充 eino 的 resume target；中间件以 data == "approve" 判断是否放行。
+ * 前端 HumanApprovalModal 提交的是 {decisions:[{type:'approve'}]} 或 {type:'approve'} 结构，
+ * 这里统一提取为纯字符串，避免被 JSON.stringify 成对象字符串后比对失败，
+ * 导致"允许"被误判为"拒绝"（模型报"执行请求被拒绝了"）。
+ * 对于 ask_user 的答案对象（无 type/decisions 字段），原样返回交由外层序列化，不受影响。
+ */
+const normalizeApprovalDecision = (decision) => {
+  if (decision == null) return null
+  if (typeof decision === 'string') return decision
+  if (Array.isArray(decision)) {
+    return decision.length > 0 && decision.every((d) => d && d.type === 'approve')
+      ? 'approve'
+      : 'reject'
+  }
+  if (Array.isArray(decision.decisions)) {
+    return decision.decisions.length > 0 &&
+      decision.decisions.every((d) => d && d.type === 'approve')
+      ? 'approve'
+      : 'reject'
+  }
+  if (decision.type === 'approve' || decision.type === 'reject') {
+    return decision.type
+  }
+  // ask_user 的答案对象（如 {questionId: answer}）必须序列化为 JSON 字符串：
+  // 后端 ApprovalDecision 为 string 字段，且以首字符 '{' 识别 ask_user 回复。
+  // 原样返回对象会导致请求体 approval_decision 变成嵌套对象，ShouldBindJSON 失败返回 400。
+  return JSON.stringify(decision)
+}
+
 export const agentApi = {
   /**
    * 简单聊天调用（非流式）
    * @param {string} query - 查询内容
+   * @param {Object} options - 可选参数
+   * @param {string} options.agentSlug - 智能体 slug
+   * @param {number} options.conversationId - 会话 ID
    * @returns {Promise} - 聊天响应
    */
-  simpleCall: (query) => {
-    if (USE_MOCK) {
-      return mockResponse({
-        ...mockChatResponse,
-        response: `收到您的问题："${query.slice(0, 50)}"。这是一个模拟响应。`
-      })
-    }
-    return apiPost('/api/chat/call', { query })
+  simpleCall: (query, options = {}) => {
+    return apiPost('/api/v1/chat', {
+      message: query,
+      agent_slug: options.agentSlug || undefined,
+      conversation_id: options.conversationId || 0
+    }).then(res => {
+      // 统一返回格式
+      if (res?.code === 0 && res?.data) {
+        return {
+          success: true,
+          data: res.data,
+          content: res.data.content,
+          messageId: res.data.message_id,
+          conversationId: res.data.conversation_id
+        }
+      }
+      return { success: false, error: res?.message || '请求失败' }
+    })
   },
 
   /**
    * 生成对话标题
    * @param {string} query - 查询内容
    * @param {Object} modelSpec - 模型配置
+   * @param {string} agentSlug - 智能体 slug
    * @returns {Promise<string>} - 生成的标题
    */
-  generateTitle: async (query, modelSpec) => {
-    const response = await apiPost('/api/chat/call', {
-      query: buildConversationTitlePrompt(query),
-      meta: { model_spec: modelSpec }
+  generateTitle: async (query, modelSpec, agentSlug) => {
+    const response = await apiPost('/api/v1/chat', {
+      message: buildConversationTitlePrompt(query),
+      agent_slug: agentSlug || undefined
     })
-    return response.response
+    return response?.data?.content || ''
   },
 
   /**
    * 获取智能体列表
    * @returns {Promise} - 智能体列表
    */
-  getAgents: ({ includeSubagents = false } = {}) => {
-    if (USE_MOCK) {
-      return mockResponse({ agents: mockAgents })
+  getAgents: async () => {
+    const url = normalizeApiUrl(`/api/agent/list?page=1&page_size=100`)
+    const result = await apiGet(url)
+    if (result?.data?.list) {
+      return { success: result.code === 0, data: result.data.list, message: result.message }
     }
-    const params = new URLSearchParams()
-    if (includeSubagents) params.set('include_subagents', 'true')
-    const query = params.toString()
-    return apiGet(query ? `/api/agent?${query}` : '/api/agent')
-  },
-
-  getAgentBackends: () => {
-    if (USE_MOCK) {
-      return mockResponse(mockAgentBackends)
-    }
-    return apiGet('/api/agent/backends')
+    return { success: result?.code === 0, data: result?.data || [], message: result?.message }
   },
 
   /**
    * 获取单个智能体详情
-   * @param {string} agentId - 智能体ID
+   * @param {string} agentId - 智能体ID（slug）
    * @returns {Promise} - 智能体详情
    */
-  getAgentDetail: (agentId) => {
-    if (USE_MOCK) {
-      const agent = mockAgents.find(a => a.id === agentId || a.agent_id === agentId)
-      return mockResponse({ agent: agent || mockAgents[0] })
+  getAgentDetail: async (agentId) => {
+    const result = await apiGet(normalizeApiUrl(`/api/agent/${encodeURIComponent(agentId)}`))
+    if (result?.data) {
+      return { success: result.code === 0, data: result.data, message: result.message }
     }
-    return apiGet(`/api/agent/${agentId}`)
+    return { success: result?.code === 0, data: null, message: result?.message }
   },
 
   /**
    * 获取智能体历史消息
-   * @param {string} agentId - 智能体ID
-   * @param {string} threadId - 会话ID
+   * @param {string} conversationId - 会话ID
    * @returns {Promise} - 历史消息
    */
-  getAgentHistory: (threadId) => {
-    if (USE_MOCK) {
-      return mockResponse({ history: mockThreadHistory.filter(m => m.thread_id === threadId) })
-    }
-    return apiGet(`/api/chat/thread/${threadId}/history`)
+  // 后端 tool_calls 字段格式 → 前端期望格式
+  _normalizeToolCalls(toolCalls) {
+    if (!Array.isArray(toolCalls)) return toolCalls
+    return toolCalls.map((tc) => {
+      // 已经是前端格式（有 function.name）则直接返回
+      if (tc.function?.name || tc.name) return tc
+      // 后端格式（tool_name / tool_input / langgraph_tool_call_id）→ 转换为前端格式
+      return {
+        id: tc.langgraph_tool_call_id || String(tc.id),
+        name: tc.tool_name,
+        function: {
+          name: tc.tool_name,
+          arguments:
+            typeof tc.tool_input === 'object' && tc.tool_input !== null
+              ? JSON.stringify(tc.tool_input)
+              : tc.tool_input || ''
+        },
+        tool_call_result: tc.tool_output ? { content: tc.tool_output } : null,
+        status: tc.status,
+        error_message: tc.error_message,
+        message_id: tc.message_id
+      }
+    })
   },
+
+  getAgentHistory: (conversationId) => {
+    return apiGet(`/api/v1/conversations/${conversationId}/messages`).then((res) => {
+      const data = res?.data
+      const items = (data?.items || []).map((item) => ({
+        ...item,
+        type: item.type || (item.role === 'user' ? 'human' : item.role === 'assistant' ? 'ai' : item.role),
+        tool_calls: agentApi._normalizeToolCalls(item.tool_calls)
+      }))
+      return { history: items }
+    })
+  },
+
+  /**
+   * 删除消息
+   * @param {string|number} threadId - 会话ID
+   * @param {string|number} messageId - 消息ID
+   * @returns {Promise} - 删除结果
+   */
+  deleteMessage: (threadId, messageId) =>
+    apiDelete(`/api/v1/conversations/${threadId}/messages/${messageId}`),
 
   /**
    * 获取指定会话的 AgentState
-   * @param {string} agentId - 智能体ID
    * @param {string} threadId - 会话ID
-   * @returns {Promise} - AgentState
+   * @param {Object} options - { includeMessages }
+   * @returns {Promise} - AgentState 数据（含 agent_state 字段）
    */
   getAgentState: (threadId, { includeMessages = false } = {}) => {
-    if (USE_MOCK) {
-      return mockResponse({
-        agent_state: {
-          thread_id: threadId,
-          status: 'idle',
-          token_usage: { prompt: 256, completion: 198, total: 454, llm_input_tokens: 256, llm_output_tokens: 198 },
-          files: {
-            '/user-data/documents/技术文档/API文档.md': { name: 'API文档.md', type: 'file', size: 12560 },
-            '/user-data/documents/技术文档/系统架构设计.md': { name: '系统架构设计.md', type: 'file', size: 28900 }
-          },
-          artifacts: [
-            { path: '/user-data/scripts/generated_report.py', name: 'generated_report.py', size: 4096, type: 'file' }
-          ],
-          todos: [
-            { id: 'todo-1', content: '完成 API 文档编写', status: 'completed' },
-            { id: 'todo-2', content: '优化 Vue 组件性能', status: 'in_progress' },
-            { id: 'todo-3', content: '编写单元测试', status: 'pending' }
-          ],
-          subagent_runs: []
-        }
-      })
-    }
-    return apiGet(`/api/chat/thread/${threadId}/state${includeMessages ? '?include_messages=true' : ''}`)
+    const params = new URLSearchParams()
+    if (includeMessages) params.set('include_messages', 'true')
+    const query = params.toString() ? `?${params.toString()}` : ''
+    return apiGet(`/api/agent/thread/${threadId}/agent-state${query}`).then((res) => res?.data || {})
   },
 
   /**
-   * Submit feedback for a message
-   * @param {number} messageId - Message ID
+   * 提交消息反馈
+   * @param {number} messageId - 消息ID
    * @param {string} rating - 'like' or 'dislike'
-   * @param {string|null} reason - Optional reason for dislike
-   * @returns {Promise} - Feedback response
+   * @param {string|null} reason - 不喜欢的原因
+   * @returns {Promise} - 反馈响应（后端未实现，返回成功）
    */
-  submitMessageFeedback: (messageId, rating, reason = null) =>
-    apiPost(`/api/chat/message/${messageId}/feedback`, { rating, reason }),
+  submitMessageFeedback: () => {
+    // 后端未实现此接口，返回成功
+    console.warn('submitMessageFeedback: 后端未实现此接口')
+    return Promise.resolve({ success: true })
+  },
 
   /**
-   * Get feedback status for a message
-   * @param {number} messageId - Message ID
-   * @returns {Promise} - Feedback status
+   * 获取消息反馈状态
+   * @param {number} messageId - 消息ID
+   * @returns {Promise} - 反馈状态（后端未实现，返回空）
    */
-  getMessageFeedback: (messageId) => apiGet(`/api/chat/message/${messageId}/feedback`),
+  getMessageFeedback: () => {
+    // 后端未实现此接口，返回空
+    return Promise.resolve({ data: null })
+  },
 
-  createAgent: (payload) => apiPost('/api/agent', payload),
+  createAgent: async (payload) => {
+    const result = await apiPost(normalizeApiUrl('/api/agent'), payload)
+    return { success: result?.code === 0, data: result?.data, message: result?.message }
+  },
 
-  updateAgent: (agentId, payload) => apiPut(`/api/agent/${agentId}`, payload),
+  updateAgent: async (agentId, payload) => {
+    const result = await apiPut(
+      normalizeApiUrl(`/api/agent/${encodeURIComponent(agentId)}`),
+      payload
+    )
+    return { success: result?.code === 0, data: result?.data, message: result?.message }
+  },
 
-  deleteAgent: (agentId) => apiDelete(`/api/agent/${agentId}`),
+  deleteAgent: async (agentId) => {
+    const result = await apiDelete(normalizeApiUrl(`/api/agent/${encodeURIComponent(agentId)}`))
+    return { success: result?.code === 0, data: result?.data, message: result?.message }
+  },
 
   /**
-   * 创建异步运行任务（Run）
+   * 设为默认智能体
+   * @param {string} agentId - 智能体ID（slug）
+   * @returns {Promise} - 设置结果
+   */
+  setDefault: async (agentId) => {
+    const result = await apiPost(
+      normalizeApiUrl(`/api/agent/${encodeURIComponent(agentId)}/default`),
+      {}
+    )
+    return { success: result?.code === 0, data: result?.data, message: result?.message }
+  },
+
+  /**
+   * 创建异步运行任务（Run）（非流式，仅用于不需要 SSE 流的场景）
+   * 注意：后端 POST /api/v1/agent/runs 现已统一为 SSE 流式响应，
+   * 若需要同时创建 Run 并接收流式事件，请使用 createAgentRunStream。
    * @param {Object} data - run 请求体
    * @returns {Promise<Object>}
    */
@@ -171,8 +260,44 @@ export const agentApi = {
       tool_approval_mode: data.tool_approval_mode ?? null,
       resume: data.resume ?? null,
       created_by_run_id: data.created_by_run_id || null,
+      approval_decision: normalizeApprovalDecision(data.approval_decision),
       queue_policy: data.queue_policy || 'enqueue'
     }),
+
+  /**
+   * POST /api/v1/agent/runs 创建 Run 或断线重连，返回 SSE 流（Response 对象）。
+   * 调用方需使用 fetch + ReadableStream 解析 SSE 帧（浏览器原生 EventSource 不支持 POST）。
+   * - 创建新 Run：data 携带 query/agent_slug/thread_id 等字段（不传 resume）
+   * - 断线重连：data 携带 resume: { run_id, last_seq }，后端从 Redis Stream 续传事件
+   * @param {Object} data - 请求体，结构与后端 CreateRunRequest 对齐
+   * @param {Object} options - { signal }
+   * @returns {Promise<Response>}
+   */
+  createAgentRunStream: (data, options = {}) => {
+    const { signal } = options
+    const headers = {
+      ...useUserStore().getAuthHeaders(),
+      'Content-Type': 'application/json'
+    }
+    return fetch(normalizeApiUrl('/api/agent/runs'), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        query: data.query ?? null,
+        agent_slug: data.agent_slug || 'default',
+        thread_id: data.thread_id != null ? String(data.thread_id) : null,
+        meta: data.meta || null,
+        image_content: data.image_content || null,
+        model_spec: data.model_spec || null,
+        tool_approval_mode: data.tool_approval_mode ?? null,
+        resume: data.resume ?? null,
+        created_by_run_id: data.created_by_run_id || null,
+        approval_decision: normalizeApprovalDecision(data.approval_decision),
+        queue_policy: data.queue_policy || 'enqueue'
+      }),
+      signal
+    })
+  },
 
   /**
    * 获取请求详情
@@ -211,7 +336,7 @@ export const agentApi = {
   streamRequestEvents: (requestId, options = {}) => {
     const { signal } = options
     const headers = { ...useUserStore().getAuthHeaders() }
-    return fetch(`/api/agent/requests/${requestId}/events`, {
+    return fetch(normalizeApiUrl(`/api/agent/requests/${requestId}/events`), {
       method: 'GET',
       headers,
       signal
@@ -237,31 +362,7 @@ export const agentApi = {
    * @param {string} threadId - 线程ID
    * @returns {Promise<Object>}
    */
-  getThreadActiveRun: (threadId) => apiGet(`/api/agent/thread/${threadId}/active_run`),
-
-  /**
-   * 打开 Run 事件 SSE 连接（调用方负责关闭）
-   * @param {string} runId - run ID
-   * @param {string} afterSeq - 起始 seq/cursor
-   * @param {Object} options - { signal, verbose }
-   * @returns {Promise<Response>}
-   */
-  streamAgentRunEvents: (runId, afterSeq = '0-0', options = {}) => {
-    const { signal, verbose = false } = options
-    const headers = {
-      ...useUserStore().getAuthHeaders()
-    }
-    const cursor = String(afterSeq || '0-0')
-    if (cursor && cursor !== '0-0') {
-      headers['Last-Event-ID'] = cursor
-    }
-    const params = new URLSearchParams({ verbose: String(verbose) })
-    return fetch(`/api/agent/runs/${runId}/events?${params.toString()}`, {
-      method: 'GET',
-      headers,
-      signal
-    })
-  }
+  getThreadActiveRun: (threadId) => apiGet(`/api/agent/thread/${threadId}/active_run`)
 }
 
 // =============================================================================
@@ -272,20 +373,12 @@ export const multimodalApi = {
   /**
    * 上传图片并获取base64编码
    * @param {File} file - 图片文件
-   * @returns {Promise} - 上传结果
+   * @returns {Promise} - 上传结果（后端未实现，返回空）
    */
-  uploadImage: (file) => {
-    const formData = new FormData()
-    formData.append('file', file)
-
-    return apiRequest(
-      '/api/chat/image/upload',
-      {
-        method: 'POST',
-        body: formData
-      },
-      true
-    )
+  uploadImage: () => {
+    // 后端未实现此接口，返回空
+    console.warn('uploadImage: 后端未实现此接口')
+    return Promise.resolve({ data: null })
   }
 }
 
@@ -302,22 +395,16 @@ export const threadApi = {
    * @returns {Promise} - 对话线程列表
    */
   getThreads: (agentId = null, limit = 100, offset = 0) => {
-    if (USE_MOCK) {
-      let threads = [...mockThreads]
-      if (agentId) {
-        threads = threads.filter(t => t.agent_id === agentId)
-      }
-      return mockResponse(threads.slice(offset, offset + limit))
-    }
+    const page = Math.floor(offset / limit) + 1
     const params = new URLSearchParams({
-      limit: String(limit),
-      offset: String(offset)
+      page: String(page),
+      page_size: String(limit)
     })
     if (agentId) {
       params.set('agent_id', agentId)
     }
-    const url = `/api/chat/threads?${params.toString()}`
-    return apiGet(url)
+    const url = `/api/v1/conversations?${params.toString()}`
+    return apiGet(url).then((res) => res?.data?.items || [])
   },
 
   /**
@@ -330,15 +417,22 @@ export const threadApi = {
    * @returns {Promise} - 搜索结果
    */
   searchThreads: (query, { agentId = null, limit = 20, offset = 0 } = {}) => {
+    const page = Math.floor(offset / limit) + 1
     const params = new URLSearchParams({
       q: query,
-      limit: String(limit),
-      offset: String(offset)
+      page: String(page),
+      page_size: String(limit)
     })
     if (agentId) {
       params.set('agent_id', agentId)
     }
-    return apiGet(`/api/chat/threads/search?${params.toString()}`)
+    return apiGet(`/api/v1/conversations?${params.toString()}`).then((res) => {
+      const data = res?.data
+      return {
+        items: data?.items || [],
+        has_more: data?.total ? page * limit < data.total : false
+      }
+    })
   },
 
   /**
@@ -348,26 +442,11 @@ export const threadApi = {
    * @param {Object} metadata - 元数据
    * @returns {Promise} - 创建结果
    */
-  createThread: (agentId, title, metadata) => {
-    if (USE_MOCK) {
-      const newThread = {
-        id: `thread-${Date.now()}`,
-        agent_id: agentId,
-        title: title || '新的对话',
-        metadata: metadata || {},
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_pinned: false,
-        message_count: 0
-      }
-      mockThreads.unshift(newThread)
-      return mockResponse(newThread)
-    }
-    return apiPost('/api/chat/thread', {
+  createThread: (agentId, title) => {
+    return apiPost('/api/v1/conversations', {
       agent_id: agentId,
-      title: title || '新的对话',
-      metadata: metadata || {}
-    })
+      title: title || '新的对话'
+    }).then((res) => res?.data)
   },
 
   /**
@@ -379,37 +458,48 @@ export const threadApi = {
    * @returns {Promise} - 更新结果
    */
   updateThread: (threadId, title, is_pinned, toolApprovalMode) =>
-    apiPut(`/api/chat/thread/${threadId}`, {
+    apiPut(`/api/v1/conversations/${threadId}`, {
       title,
       is_pinned,
       tool_approval_mode: toolApprovalMode
-    }),
+    }).then((res) => res?.data),
 
   /**
    * 删除对话线程
    * @param {string} threadId - 对话线程ID
    * @returns {Promise} - 删除结果
    */
-  deleteThread: (threadId) => apiDelete(`/api/chat/thread/${threadId}`),
+  deleteThread: (threadId) => apiDelete(`/api/v1/conversations/${threadId}`),
+
+  /**
+   * 清空会话上下文（轻量重置：清除短期记忆和上下文窗口，保留会话本身）
+   * @param {string} threadId - 对话线程ID
+   * @returns {Promise}
+   */
+  clearThreadContext: (threadId) =>
+    apiPost(`/api/v1/conversations/${threadId}/clear-context`, {}),
 
   /**
    * 获取线程附件列表
    * @param {string} threadId - 对话线程ID
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回空数组）
    */
-  getThreadAttachments: (threadId) => apiGet(`/api/chat/thread/${threadId}/attachments`),
+  getThreadAttachments: () => {
+    console.warn('getThreadAttachments: 后端未实现此接口')
+    return Promise.resolve({ data: [] })
+  },
 
   /**
    * 列出线程文件（目录）
    * @param {string} threadId
    * @param {string} path
    * @param {boolean} recursive
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回空数组）
    */
-  listThreadFiles: (threadId, path = '/home/gem/user-data', recursive = false) =>
-    apiGet(
-      `/api/chat/thread/${threadId}/files?path=${encodeURIComponent(path)}&recursive=${recursive}`
-    ),
+  listThreadFiles: () => {
+    console.warn('listThreadFiles: 后端未实现此接口')
+    return Promise.resolve({ data: [] })
+  },
 
   /**
    * 读取线程文本文件内容（分页）
@@ -417,99 +507,97 @@ export const threadApi = {
    * @param {string} path
    * @param {number} offset
    * @param {number} limit
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回空）
    */
-  readThreadFile: (threadId, path, offset = 0, limit = 2000) =>
-    apiGet(
-      `/api/chat/thread/${threadId}/files/content?path=${encodeURIComponent(path)}&offset=${offset}&limit=${limit}`
-    ),
+  readThreadFile: () => {
+    console.warn('readThreadFile: 后端未实现此接口')
+    return Promise.resolve({ data: null })
+  },
 
   /**
    * 获取线程文件下载/预览 URL
    * @param {string} threadId
    * @param {string} path
    * @param {boolean} download
-   * @returns {string}
+   * @returns {string}（后端未实现，返回空字符串）
    */
-  getThreadArtifactUrl: (threadId, path, download = false) => {
-    const encodedPath = path
-      .split('/')
-      .filter(Boolean)
-      .map((segment) => encodeURIComponent(segment))
-      .join('/')
-    const query = download ? '?download=true' : ''
-    return `/api/chat/thread/${threadId}/artifacts/${encodedPath}${query}`
+  getThreadArtifactUrl: () => {
+    console.warn('getThreadArtifactUrl: 后端未实现此接口')
+    return ''
   },
 
   /**
    * 下载线程文件（带鉴权）
    * @param {string} threadId
    * @param {string} path
-   * @returns {Promise<Response>}
+   * @returns {Promise}（后端未实现，返回空）
    */
-  downloadThreadArtifact: (threadId, path) =>
-    apiGet(threadApi.getThreadArtifactUrl(threadId, path, true), {}, true, 'blob'),
+  downloadThreadArtifact: () => {
+    console.warn('downloadThreadArtifact: 后端未实现此接口')
+    return Promise.resolve(null)
+  },
 
   /**
    * 保存交付物到 workspace/saved_artifacts
    * @param {string} threadId
    * @param {string} path
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回成功）
    */
-  saveThreadArtifactToWorkspace: (threadId, path) =>
-    apiPost(`/api/chat/thread/${threadId}/artifacts/save`, { path }),
+  saveThreadArtifactToWorkspace: () => {
+    console.warn('saveThreadArtifactToWorkspace: 后端未实现此接口')
+    return Promise.resolve({ success: true })
+  },
 
   /**
    * 上传临时附件
    * @param {File} file
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回空）
    */
-  uploadTmpAttachment: (file) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    return apiRequest('/api/chat/attachments/tmp', {
-      method: 'POST',
-      body: formData
-    })
+  uploadTmpAttachment: () => {
+    console.warn('uploadTmpAttachment: 后端未实现此接口')
+    return Promise.resolve({ data: null })
   },
 
   /**
    * 解析临时附件
    * @param {Object} payload
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回空）
    */
-  parseTmpAttachment: (payload) => apiPost('/api/chat/attachments/tmp/parse', payload),
+  parseTmpAttachment: () => {
+    console.warn('parseTmpAttachment: 后端未实现此接口')
+    return Promise.resolve({ data: null })
+  },
 
   /**
    * 确认添加临时附件到线程
    * @param {string} threadId
    * @param {Array} attachments
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回成功）
    */
-  confirmTmpThreadAttachments: (threadId, attachments) =>
-    apiPost(`/api/chat/thread/${threadId}/attachments/confirm`, { attachments }),
+  confirmTmpThreadAttachments: () => {
+    console.warn('confirmTmpThreadAttachments: 后端未实现此接口')
+    return Promise.resolve({ success: true })
+  },
 
   /**
    * 上传附件
    * @param {string} threadId
    * @param {File} file
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回空）
    */
-  uploadThreadAttachment: (threadId, file) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    return apiRequest(`/api/chat/thread/${threadId}/attachments`, {
-      method: 'POST',
-      body: formData
-    })
+  uploadThreadAttachment: () => {
+    console.warn('uploadThreadAttachment: 后端未实现此接口')
+    return Promise.resolve({ data: null })
   },
 
   /**
    * 删除附件
    * @param {string} threadId
    * @param {string} fileId
-   * @returns {Promise}
+   * @returns {Promise}（后端未实现，返回成功）
    */
-  deleteThreadAttachment: (threadId, fileId) =>
-    apiDelete(`/api/chat/thread/${threadId}/attachments/${fileId}`)
+  deleteThreadAttachment: () => {
+    console.warn('deleteThreadAttachment: 后端未实现此接口')
+    return Promise.resolve({ success: true })
+  }
 }

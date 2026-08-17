@@ -3,7 +3,7 @@
     <div
       v-if="visible"
       class="approval-modal"
-      :class="{ 'is-tool-approval': isToolApproval }"
+      :class="{ 'is-tool-approval': isToolApproval, 'is-question-approval': !isToolApproval }"
       :role="isToolApproval ? 'dialog' : undefined"
       :aria-labelledby="isToolApproval ? 'tool-approval-question' : undefined"
       :aria-describedby="isToolApproval ? 'tool-approval-summary' : undefined"
@@ -535,7 +535,8 @@ const formattedToolArgs = computed(() => formatToolApprovalArgs(activeToolReques
   width: fit-content;
   border: 1px solid var(--gray-200);
 
-  &.is-tool-approval {
+  &.is-tool-approval,
+  &.is-question-approval {
     align-self: stretch;
     display: flex;
     flex-direction: column;
@@ -972,7 +973,8 @@ const formattedToolArgs = computed(() => formatToolApprovalArgs(activeToolReques
     min-width: 0;
   }
 
-  .approval-modal.is-tool-approval {
+  .approval-modal.is-tool-approval,
+  .approval-modal.is-question-approval {
     width: 100%;
   }
 

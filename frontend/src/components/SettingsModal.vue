@@ -21,27 +21,8 @@
         <div class="settings-sider-nav">
           <div
             class="sider-item"
-            :class="{ activesec: activeTab === 'account' }"
-            @click="activeTab = 'account'"
-            v-if="userStore.isLoggedIn"
-          >
-            <CircleUser class="icon" :size="18" />
-            <span>账户设置</span>
-          </div>
-          <div
-            class="sider-item"
-            :class="{ activesec: activeTab === 'apiKeys' }"
-            @click="activeTab = 'apiKeys'"
-            v-if="userStore.isLoggedIn"
-          >
-            <Key class="icon" :size="18" />
-            <span>API Keys</span>
-          </div>
-          <div
-            class="sider-item"
             :class="{ activesec: activeTab === 'base' }"
             @click="activeTab = 'base'"
-            v-if="userStore.isAdmin"
           >
             <Settings class="icon" :size="18" />
             <span>基本设置</span>
@@ -50,94 +31,49 @@
             class="sider-item"
             :class="{ activesec: activeTab === 'ocr' }"
             @click="activeTab = 'ocr'"
-            v-if="userStore.isAdmin"
           >
             <ScanText class="icon" :size="18" />
             <span>OCR 配置</span>
           </div>
-          <div
-            class="sider-item"
-            :class="{ activesec: activeTab === 'user' }"
-            @click="activeTab = 'user'"
-            v-if="userStore.isSuperAdmin"
-          >
-            <User class="icon" :size="18" />
-            <span>用户管理</span>
-          </div>
-          </div>
+        </div>
 
-        
+        <div class="settings-sider-footer">
+          <div class="sider-item logout-item" @click="handleLogout">
+            <LogOut class="icon" :size="18" />
+            <span>退出登录</span>
+          </div>
+        </div>
       </div>
 
       <!-- 顶部导航 (Mobile) -->
       <div class="settings-mobile-nav">
         <div
           class="nav-item"
-          :class="{ active: activeTab === 'account' }"
-          @click="activeTab = 'account'"
-          v-if="userStore.isLoggedIn"
-        >
-          账户设置
-        </div>
-        <div
-          class="nav-item"
-          :class="{ active: activeTab === 'apiKeys' }"
-          @click="activeTab = 'apiKeys'"
-          v-if="userStore.isLoggedIn"
-        >
-          API Keys
-        </div>
-        
-        <div
-          class="nav-item"
           :class="{ active: activeTab === 'base' }"
           @click="activeTab = 'base'"
-          v-if="userStore.isAdmin"
-        >
+          >
           基本设置
         </div>
         <div
           class="nav-item"
           :class="{ active: activeTab === 'ocr' }"
           @click="activeTab = 'ocr'"
-          v-if="userStore.isAdmin"
-        >
+          >
           OCR 配置
-        </div>
-        <div
-          class="nav-item"
-          :class="{ active: activeTab === 'user' }"
-          @click="activeTab = 'user'"
-          v-if="userStore.isSuperAdmin"
-        >
-          用户管理
         </div>
         </div>
 
       <!-- 内容区域 -->
       <div class="settings-content-wrapper">
         <div class="settings-content">
-          <div v-show="activeTab === 'account'" v-if="userStore.isLoggedIn">
-            <AccountSettingsComponent />
-          </div>
-
-          <div v-if="activeTab === 'apiKeys' && userStore.isLoggedIn">
-            <ApiKeyManagementComponent />
-          </div>
-
-          
-
-          <div v-show="activeTab === 'base'" v-if="userStore.isAdmin">
+          <div v-show="activeTab === 'base'">
             <BasicSettingsSection />
           </div>
 
-          <div v-show="activeTab === 'ocr'" v-if="userStore.isAdmin">
+          <div v-show="activeTab === 'ocr'">
             <OCRSettingsSection />
           </div>
 
-          <div v-show="activeTab === 'user'" v-if="userStore.isSuperAdmin">
-            <UserManagementComponent />
-          </div>
         </div>
       </div>
     </div>
@@ -145,21 +81,17 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import {
-  CircleUser,
   Settings,
-  Key,
   ScanText,
-  User,
-  X
+  X,
+  LogOut
 } from 'lucide-vue-next'
-import AccountSettingsComponent from '@/components/AccountSettingsComponent.vue'
 import BasicSettingsSection from '@/components/BasicSettingsSection.vue'
 import OCRSettingsSection from '@/components/OCRSettingsSection.vue'
-import ApiKeyManagementComponent from '@/components/ApiKeyManagementComponent.vue'
-import UserManagementComponent from '@/components/UserManagementComponent.vue'
 
 const props = defineProps({
   visible: {
@@ -175,7 +107,14 @@ const props = defineProps({
 const emit = defineEmits(['update:visible', 'close'])
 
 const userStore = useUserStore()
-const activeTab = ref('account')
+const router = useRouter()
+const activeTab = ref('base')
+
+const handleLogout = async () => {
+  await userStore.logout()
+  visible.value = false
+  router.push('/login')
+}
 
 const visible = computed({
   get: () => props.visible,
@@ -183,9 +122,7 @@ const visible = computed({
 })
 
 const availableTabs = computed(() => {
-  const tabs = []
-  if (userStore.isLoggedIn) tabs.push('account', 'apiKeys')
-  if (userStore.isAdmin) tabs.push('base', 'ocr', 'user')
+  const tabs = ['base', 'ocr']
   if (userStore.isSuperAdmin) tabs.push('department')
   return tabs
 })
@@ -195,7 +132,7 @@ const setActiveTab = (preferredTab) => {
     activeTab.value = preferredTab
     return
   }
-  activeTab.value = userStore.isAdmin ? 'base' : availableTabs.value[0]
+  activeTab.value = 'base'
 }
 
 const handleClose = () => {
@@ -287,16 +224,16 @@ watch(
 
   .sider-item {
     width: 100%;
-    padding: 6px 12px; /* Matches SettingView .sider > * */
+    padding: 8px 14px; /* Matches SettingView .sider > * */
     cursor: pointer;
     transition: all 0.1s; /* Matches SettingView */
     text-align: left;
-    font-size: 15px; /* Matches SettingView */
+    font-size: 16px; /* Matches SettingView */
     border-radius: 8px;
     color: var(--gray-700);
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
 
     .icon {
       font-size: 14px; /* Slightly adjusted to align better, SettingView uses h() icon defaults */
@@ -367,7 +304,7 @@ watch(
   .star-card-title {
     margin: 10px 0 6px;
     color: var(--gray-900);
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
     line-height: 1.35;
   }
@@ -375,7 +312,7 @@ watch(
   .star-card-description {
     margin: 0;
     color: var(--gray-600);
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.5;
   }
 
@@ -392,6 +329,21 @@ watch(
   .star-card-link-image {
     display: block;
     height: 20px;
+  }
+
+  .settings-sider-footer {
+    margin-top: auto;
+    padding-top: 12px;
+    border-top: 1px solid var(--gray-150);
+
+    .logout-item {
+      color: var(--gray-600);
+
+      &:hover {
+        background: var(--gray-100);
+        color: var(--color-error-500);
+      }
+    }
   }
 }
 
@@ -419,10 +371,8 @@ watch(
     flex: 1;
     min-height: 0;
 
-    .model-providers-section,
     .user-management,
-    .department-management,
-    .apikey-management {
+    .department-management {
       min-height: auto;
     }
 
@@ -440,7 +390,7 @@ watch(
     }
 
     .section-title {
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 500;
       color: var(--gray-900);
       line-height: 1.4;
@@ -448,7 +398,7 @@ watch(
     }
 
     .section-description {
-      font-size: 14px;
+      font-size: 15px;
       color: var(--gray-600);
       line-height: 1.4;
       margin: 0;
@@ -456,7 +406,7 @@ watch(
 
     .section-subtitle {
       margin: 0;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 500;
       color: var(--gray-900);
     }

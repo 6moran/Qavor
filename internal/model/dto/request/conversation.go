@@ -8,8 +8,9 @@ type CreateConversationRequest struct {
 
 // UpdateConversationRequest 更新对话请求
 type UpdateConversationRequest struct {
-	Title    string `json:"title" binding:"omitempty,max=255"`
-	IsPinned *bool  `json:"is_pinned" binding:"omitempty"`
+	Title            string `json:"title" binding:"omitempty,max=255"`
+	IsPinned         *bool  `json:"is_pinned" binding:"omitempty"`
+	ToolApprovalMode string `json:"tool_approval_mode" binding:"omitempty,oneof=default always_trust"`
 }
 
 // ConversationListRequest 对话列表请求
@@ -18,4 +19,5 @@ type ConversationListRequest struct {
 	PageSize int    `form:"page_size" binding:"omitempty,min=1,max=100"`
 	Status   string `form:"status" binding:"omitempty,oneof=active archived deleted"`
 	AgentID  string `form:"agent_id" binding:"omitempty"`
+	Query    string `form:"q" binding:"omitempty,max=100"`
 }

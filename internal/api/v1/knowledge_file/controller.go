@@ -1,0 +1,286 @@
+// Package knowledge_file 提供知识库文件上传和文件 CRUD 的 HTTP API。
+package knowledge_file
+
+import (
+	"net/url"
+	"strings"
+
+	"Qavor/internal/model/dto/request"
+	"Qavor/internal/service"
+	"Qavor/pkg/errors"
+	"Qavor/pkg/logger"
+	"Qavor/pkg/response"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+)
+
+// Controller 负责文件请求参数绑定，并将存储和持久化操作交给文件业务层。
+type Controller struct{ service service.KnowledgeFileService }
+
+// NewController 创建知识库文件 API 控制器。
+func NewController(service service.KnowledgeFileService) *Controller {
+	return &Controller{service: service}
+}
+
+// CreateFolder 创建知识库中的元数据文件夹。
+func (ctrl *Controller) CreateFolder(c *gin.Context) {
+	var req request.CreateKnowledgeFolderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.CreateFolder(c.Param("kb_id"), &req)
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，创建文件夹失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("创建文件夹失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入解析队列", Data: result})
+}
+
+// Upload 接收 multipart 的 file 字段；kb_id 为可选参数
+func (ctrl *Controller) Upload(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		response.BadRequest(c, "缺少上传文件")
+		return
+	}
+	result, err := ctrl.service.Upload(c.Query("kb_id"), c.Query("parent_id"), file)
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，上传文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("上传文件失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+// List 获取指定知识库下的文件列表
+func (ctrl *Controller) List(c *gin.Context) {
+	var req request.KnowledgeFileListRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.List(c.Param("kb_id"), &req)
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取文件列表失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取文件列表失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+// Search 按文件名、原始文件名或存储路径搜索当前知识库的文件。
+func (ctrl *Controller) Search(c *gin.Context) {
+	var req request.SearchKnowledgeFileRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.Search(c.Param("kb_id"), req.Query, req.Offset, req.Limit)
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，搜索文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("搜索文件失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+// Get 根据 kb_id 和 doc_id 获取文件详情，避免跨知识库查询
+func (ctrl *Controller) Get(c *gin.Context) {
+	result, err := ctrl.service.Get(c.Param("kb_id"), c.Param("doc_id"))
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，获取文件详情失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("获取文件详情失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+// Preview 返回解析后的 Markdown 或原始文件的有限文本内容。
+func (ctrl *Controller) Preview(c *gin.Context) {
+	result, err := ctrl.service.Preview(c.Param("kb_id"), c.Param("doc_id"))
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，预览文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("预览文件失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+// Download 以附件形式流式返回原始文件。
+func (ctrl *Controller) Download(c *gin.Context) {
+	result, err := ctrl.service.Download(c.Param("kb_id"), c.Param("doc_id"))
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，下载文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("下载文件失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	defer result.Reader.Close()
+	filename := result.Filename
+	if filename == "" {
+		filename = "download"
+	}
+	contentType := result.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Header("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(strings.ReplaceAll(filename, "\\", "_")))
+	c.DataFromReader(200, result.Size, contentType, result.Reader, nil)
+}
+
+// BatchDelete 批量删除指定知识库中的文件。
+func (ctrl *Controller) BatchDelete(c *gin.Context) {
+	var req request.BatchDeleteKnowledgeFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.BatchDelete(c.Param("kb_id"), req.FileIDs)
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，批量删除文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("批量删除文件失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, result)
+}
+
+// Delete 删除数据库文件记录，并由业务层同步清理对象存储
+func (ctrl *Controller) Delete(c *gin.Context) {
+	if err := ctrl.service.Delete(c.Param("kb_id"), c.Param("doc_id")); err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，删除文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("删除文件失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	response.Success(c, nil)
+}
+
+// RetryParse 重新解析单个文件（支持解析失败或已解析的文件）。
+func (ctrl *Controller) RetryParse(c *gin.Context) {
+	result, err := ctrl.service.RetryParse(c.Request.Context(), c.Param("kb_id"), c.Param("doc_id"))
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，重新解析失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("重新解析失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入解析队列", Data: result})
+}
+
+// IndexOne 对单个文件执行手动入库。
+func (ctrl *Controller) IndexOne(c *gin.Context) {
+	var req request.IndexOneKnowledgeFileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.IndexFiles(c.Request.Context(), c.Param("kb_id"), &request.IndexKnowledgeFilesRequest{
+		FileIDs: []string{c.Param("doc_id")},
+		Params:  req.Params,
+	})
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，手动入库失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("手动入库失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})
+}
+
+// IndexMany 对多个文件执行手动入库。
+func (ctrl *Controller) IndexMany(c *gin.Context) {
+	var req request.IndexKnowledgeFilesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.IndexFiles(c.Request.Context(), c.Param("kb_id"), &req)
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，批量入库失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("批量入库失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})
+}
+
+// IndexPending 将所有待入库文件批量入库。
+func (ctrl *Controller) IndexPending(c *gin.Context) {
+	var req struct {
+		Params request.ChunkParams `json:"params" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	result, err := ctrl.service.IndexPending(c.Request.Context(), c.Param("kb_id"), req.Params)
+	if err != nil {
+		if errors.IsBizError(err) {
+			logger.Warn("业务错误，批量入库待处理文件失败", zap.Error(err))
+			response.BizError(c, err)
+		} else {
+			logger.Error("批量入库待处理文件失败", zap.Error(err))
+			response.InternalServerError(c)
+		}
+		return
+	}
+	c.JSON(202, response.Response{Code: 0, Message: "文件已进入入库队列", Data: result})
+}

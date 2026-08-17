@@ -1,25 +1,14 @@
 <script setup>
 import { computed, nextTick, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import {
-  Bot,
-  Info,
-  Microscope,
-  RefreshCw,
-  Settings2,
-  SlidersHorizontal,
-  Upload,
-  Wrench
-} from 'lucide-vue-next'
+import { BookA, Info, Settings2, SlidersHorizontal, Wrench } from 'lucide-vue-next'
 
-import { userApi } from '@/apis/user_api'
 import AgentRuntimeConfigForm from '@/components/AgentRuntimeConfigForm.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
-import { isBuiltinAgent, useAgentStore } from '@/stores/agent'
-import { useUserStore } from '@/stores/user'
+import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
+import { useAgentStore } from '@/stores/agent'
+import { useConfigStore } from '@/stores/config'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
-import { MAX_IMAGE_UPLOAD_SIZE_BYTES, MAX_IMAGE_UPLOAD_SIZE_MB } from '@/utils/upload_limits'
 
 const props = defineProps({
   backendOptions: { type: Array, default: () => [] }
@@ -27,28 +16,26 @@ const props = defineProps({
 
 const emit = defineEmits(['saved'])
 
-const userStore = useUserStore()
 const agentStore = useAgentStore()
+const configStore = useConfigStore()
 
 const DEFAULT_AGENT_BACKEND_ID = 'ChatbotAgent'
 const SUB_AGENT_BACKEND_ID = 'SubAgentBackend'
-const runtimeAgentModalTabs = ['model', 'tools', 'other']
+const runtimeAgentModalTabs = ['model', 'tools', 'knowledge', 'subagents', 'other']
 
 const showAgentModal = ref(false)
 const editingAgentId = ref(null)
 const agentModalActiveTab = ref('basic')
-const agentIconUploading = ref(false)
 const saving = ref(false)
-const agentShareConfigFormRef = ref(null)
 const runtimeConfigFormRef = ref(null)
 const agentNameInputRef = ref(null)
-const agentShareConfig = ref({ access_level: 'user', department_ids: [], user_uids: [] })
 const agentForm = reactive({
   slug: '',
   name: '',
   backend_id: DEFAULT_AGENT_BACKEND_ID,
   description: '',
-  icon: ''
+  instruction: '',
+  model_id: ''
 })
 
 const normalizeAgent = (agent) => {
@@ -64,8 +51,13 @@ const agentModalMenuItems = computed(() => {
     items.push(
       { key: 'model', label: '模型配置', icon: SlidersHorizontal },
       { key: 'tools', label: '工具配置', icon: Wrench },
-      { key: 'other', label: '其他配置', icon: Settings2 }
+      { key: 'knowledge', label: '知识库配置', icon: BookA }
     )
+    // 子智能体不显示子智能体配置
+    if (!isSubAgentBackend(agentForm.backend_id)) {
+      items.push({ key: 'subagents', label: '子智能体配置', icon: Settings2 })
+    }
+    items.push({ key: 'other', label: '其他配置', icon: Settings2 })
   }
   return items
 })
@@ -78,36 +70,11 @@ const isRuntimeAgentModalTab = (key) => runtimeAgentModalTabs.includes(key)
 const getDefaultBackendId = () => DEFAULT_AGENT_BACKEND_ID
 const isSubAgentBackend = (backendId) => backendId === SUB_AGENT_BACKEND_ID
 
-const getInitialShareConfig = () => ({
-  access_level: userStore.isAdmin ? 'global' : 'user',
-  department_ids: [],
-  user_uids: userStore.uid ? [userStore.uid] : []
-})
-
-const normalizeShareConfigForPayload = () => {
-  if (isBuiltinAgent({ id: editingAgentId.value })) {
-    return { access_level: 'global', department_ids: [], user_uids: [] }
-  }
-  const config = agentShareConfig.value || getInitialShareConfig()
-  const accessLevel = userStore.isAdmin ? config.access_level : 'user'
-  return {
-    access_level: accessLevel,
-    department_ids: accessLevel === 'department' ? config.department_ids || [] : [],
-    user_uids: accessLevel === 'user' ? config.user_uids || [] : []
-  }
-}
-
-const isEditingBuiltinAgent = computed(() => isBuiltinAgent({ id: editingAgentId.value }))
-const canEditAgentShareConfig = computed(() => !isEditingBuiltinAgent.value)
-const getAgentShareAllowedLevels = () => {
-  if (isEditingBuiltinAgent.value) return ['global']
-  return userStore.isAdmin ? ['global', 'department', 'user'] : ['user']
-}
-
 const agentModalTitle = computed(() => (editingAgentId.value ? '编辑智能体' : '新增智能体'))
-const agentPreviewDefaultIcon = computed(() =>
-  editingAgentId.value ? generatePixelAvatar(editingAgentId.value) : ''
-)
+const agentPreviewDefaultIcon = computed(() => {
+  const seed = editingAgentId.value || agentForm.slug || agentForm.name || 'agent'
+  return generatePixelAvatar(seed)
+})
 const agentPreviewName = computed(() => agentForm.name || editingAgentId.value || '智能体')
 const selectedBackendOption = computed(() =>
   props.backendOptions.find((backend) => backend.value === agentForm.backend_id)
@@ -115,20 +82,14 @@ const selectedBackendOption = computed(() =>
 const selectedBackendLabel = computed(
   () => selectedBackendOption.value?.label || agentForm.backend_id || '未选择'
 )
-const selectedBackendIcon = computed(() => {
-  const backendText = `${agentForm.backend_id} ${selectedBackendLabel.value}`.toLowerCase()
-  return backendText.includes('deep') || backendText.includes('search') ? Microscope : Bot
-})
 
 const resetAgentForm = () => {
   Object.assign(agentForm, {
     slug: '',
     name: '',
     backend_id: getDefaultBackendId(),
-    description: '',
-    icon: ''
+    description: ''
   })
-  agentShareConfig.value = getInitialShareConfig()
 }
 
 const focusAgentNameInput = async () => {
@@ -140,11 +101,20 @@ const handleAgentModalAfterOpenChange = (open) => {
   if (open && !editingAgentId.value) focusAgentNameInput()
 }
 
+// 编辑期间会临时把会话选中的智能体切到被编辑的 agent（为了加载/保存其配置），
+// 关闭或保存后需还原，避免"编辑智能体"意外改变新建会话默认选中的智能体。
+let isEditingAgent = false
+let preEditSelectedAgentId = null
+
 const openCreate = () => {
   editingAgentId.value = null
   agentModalActiveTab.value = 'basic'
   resetAgentForm()
+  // 用系统设置里的默认对话模型预填（可手动修改）
+  agentForm.model_id = configStore.config?.default_model || ''
   agentStore.resetAgentConfig()
+  isEditingAgent = false
+  preEditSelectedAgentId = null
   showAgentModal.value = true
 }
 
@@ -160,72 +130,43 @@ const openEdit = async (agent) => {
 
   editingAgentId.value = detail.id
   agentModalActiveTab.value = 'basic'
+  isEditingAgent = true
+  preEditSelectedAgentId = agentStore.selectedAgentId
   Object.assign(agentForm, {
     slug: detail.id || detail.slug || '',
     name: detail.name || '',
     backend_id: detail.backend_id || DEFAULT_AGENT_BACKEND_ID,
     description: detail.description || '',
-    icon: detail.icon || ''
+    instruction: detail.config?.instruction || detail.config_json?.context?.instruction || ''
   })
-  agentShareConfig.value = isBuiltinAgent(detail)
-    ? { access_level: 'global', department_ids: [], user_uids: [] }
-    : detail.share_config || getInitialShareConfig()
   await agentStore.selectAgent(detail.id, { allowSubagent: true })
   showAgentModal.value = true
 }
 
 const restoreChatAgentSelectionIfNeeded = async () => {
-  if (!agentStore.selectedAgent?.is_subagent) return
-  const fallbackAgentId = (agentStore.agents || []).find((agent) => !agent.is_subagent)?.id
-  if (fallbackAgentId) await agentStore.selectAgent(fallbackAgentId)
+  if (!isEditingAgent) return
+  const fallbackAgentId =
+    preEditSelectedAgentId ||
+    (agentStore.agents || []).find((agent) => agent.is_default)?.id ||
+    (agentStore.agents || []).find((agent) => !agent.is_subagent)?.id
+  if (fallbackAgentId && fallbackAgentId !== agentStore.selectedAgentId) {
+    await agentStore.selectAgent(fallbackAgentId)
+  }
 }
 
 const closeAgentModal = async () => {
-  if (saving.value || agentIconUploading.value) return
+  if (saving.value) return
   showAgentModal.value = false
   await restoreChatAgentSelectionIfNeeded()
-}
-
-const beforeAgentIconUpload = (file) => {
-  if (!file.type.startsWith('image/')) {
-    message.error('只能上传图片文件')
-    return false
-  }
-
-  if (file.size > MAX_IMAGE_UPLOAD_SIZE_BYTES) {
-    message.error(`图片大小不能超过 ${MAX_IMAGE_UPLOAD_SIZE_MB}MB`)
-    return false
-  }
-
-  uploadAgentIcon(file)
-  return false
-}
-
-const uploadAgentIcon = async (file) => {
-  agentIconUploading.value = true
-  try {
-    const data = await userApi.uploadImage(file)
-    agentForm.icon = data.image_url || data.url || ''
-    message.success('图标上传成功')
-  } catch (error) {
-    message.error(error.message || '图标上传失败')
-  } finally {
-    agentIconUploading.value = false
-  }
 }
 
 const buildAgentPayload = () => {
   const payload = {
     name: agentForm.name.trim(),
     description: agentForm.description.trim() || null,
-    icon: agentForm.icon.trim() || null,
-    share_config: normalizeShareConfigForPayload(),
-    is_subagent: isSubAgentBackend(agentForm.backend_id)
-  }
-
-  if (!editingAgentId.value) {
-    payload.slug = agentForm.slug.trim() || undefined
-    payload.backend_id = agentForm.backend_id
+    instruction: agentForm.instruction.trim() || null,
+    model_id: agentForm.model_id.trim() || null,
+    backend_id: agentForm.backend_id
   }
 
   return payload
@@ -238,30 +179,17 @@ const saveAgent = async () => {
     return
   }
 
-  const validation = canEditAgentShareConfig.value
-    ? agentShareConfigFormRef.value?.validate?.()
-    : null
-  if (validation && !validation.valid) {
-    agentModalActiveTab.value = 'basic'
-    message.error(validation.message)
-    return
-  }
-
   saving.value = true
   try {
     const payload = buildAgentPayload()
     if (editingAgentId.value) {
-      const validatedConfig = runtimeConfigFormRef.value?.validateAndFilterConfig?.()
-      if (
-        validatedConfig &&
-        JSON.stringify(validatedConfig) !== JSON.stringify(agentStore.agentConfig)
-      ) {
-        agentStore.updateAgentConfig(validatedConfig)
-      }
-      if (agentStore.hasConfigChanges) {
-        payload.config_json = { context: agentStore.agentConfig }
-      }
+      const needsConfigSave = agentStore.hasConfigChanges
       const updated = await agentStore.updateAgentProfile(editingAgentId.value, payload)
+      // 如果有配置变更，保存运行时配置；同步最新系统提示词，避免覆盖回旧值
+      if (needsConfigSave) {
+        agentStore.agentConfig.instruction = agentForm.instruction.trim()
+        await agentStore.saveAgentConfig()
+      }
       agentStore.originalAgentConfig = { ...agentStore.agentConfig }
       emit('saved', { mode: 'edit', agent: updated })
       message.success('智能体已保存')
@@ -334,85 +262,50 @@ defineExpose({
       <div class="agent-modal-main">
         <section v-show="agentModalActiveTab === 'basic'" class="agent-modal-section">
           <div class="agent-profile-header">
-            <div class="agent-icon-preview" aria-label="智能体图标、名称与后端">
+            <div class="agent-icon-preview" aria-label="智能体图标与名称">
               <div class="agent-profile-main">
-                <a-upload
-                  :show-upload-list="false"
-                  :before-upload="beforeAgentIconUpload"
-                  :disabled="agentIconUploading"
-                  accept="image/*"
-                >
-                  <div
-                    class="agent-icon-upload"
-                    :class="{
-                      uploading: agentIconUploading,
-                      'is-empty': !agentForm.icon && !editingAgentId
-                    }"
-                  >
-                    <FallbackAvatar
-                      v-if="agentForm.icon || editingAgentId"
-                      :src="agentForm.icon"
-                      :default-src="agentPreviewDefaultIcon"
-                      :name="agentPreviewName"
-                      :seed="editingAgentId || agentForm.slug || agentForm.name"
-                      kind="agent"
-                      :size="56"
-                      shape="rounded"
-                      :alt="`${agentForm.name || '智能体'}图标`"
-                      class="agent-icon-preview-avatar"
-                    />
-                    <div class="agent-icon-mask">
-                      <RefreshCw v-if="agentIconUploading" :size="16" class="spinning" />
-                      <Upload v-else :size="16" />
-                      <span>{{ agentForm.icon ? '更换图标' : '上传图标' }}</span>
-                    </div>
-                  </div>
-                </a-upload>
+                <FallbackAvatar
+                  v-if="editingAgentId"
+                  :default-src="agentPreviewDefaultIcon"
+                  :name="agentPreviewName"
+                  :seed="editingAgentId || agentForm.slug || agentForm.name"
+                  kind="agent"
+                  :size="56"
+                  shape="rounded"
+                  :alt="`${agentForm.name || '智能体'}图标`"
+                  class="agent-icon-preview-avatar"
+                />
                 <div class="agent-icon-preview-text">
-                  <input
-                    ref="agentNameInputRef"
-                    v-model="agentForm.name"
-                    class="agent-inline-name-input"
-                    type="text"
-                    placeholder="点击输入智能体名称"
-                    aria-label="智能体名称"
-                  />
-                  <input
-                    v-if="!editingAgentId"
-                    v-model="agentForm.slug"
-                    class="agent-inline-slug-input"
-                    type="text"
-                    placeholder="标识可选，留空自动生成"
-                    aria-label="智能体标识"
-                  />
-                  <span v-else class="agent-inline-slug">{{
+                  <div v-if="!editingAgentId" class="agent-name-label">智能体名称</div>
+                  <div class="agent-name-field">
+                    <span class="required-mark" aria-hidden="true">*</span>
+                    <input
+                      ref="agentNameInputRef"
+                      v-model="agentForm.name"
+                      class="agent-inline-name-input"
+                      type="text"
+                      placeholder="请输入智能体名称"
+                      aria-label="智能体名称"
+                    />
+                  </div>
+                  <span v-if="editingAgentId" class="agent-inline-slug">{{
                     agentForm.slug || editingAgentId
                   }}</span>
-                </div>
-              </div>
-              <div
-                class="agent-backend-summary"
-                :class="{ editable: !editingAgentId }"
-                aria-label="智能体后端"
-              >
-                <span class="agent-backend-icon">
-                  <component :is="selectedBackendIcon" :size="16" />
-                </span>
-                <div class="agent-backend-text">
-                  <span class="agent-backend-label">智能体后端</span>
-                  <a-select
-                    v-if="!editingAgentId"
-                    v-model:value="agentForm.backend_id"
-                    class="agent-backend-select"
-                    :bordered="false"
-                    :options="backendOptions"
-                  />
-                  <span v-else class="agent-backend-name">{{ selectedBackendLabel }}</span>
                 </div>
               </div>
             </div>
           </div>
           <div class="modal-form">
+            <label class="form-label full-width">
+              <span>智能体后端</span>
+              <a-select
+                v-if="!editingAgentId"
+                v-model:value="agentForm.backend_id"
+                class="agent-backend-select"
+                :options="backendOptions"
+              />
+              <span v-else class="agent-backend-name">{{ selectedBackendLabel }}</span>
+            </label>
             <label class="form-label full-width">
               <span>描述</span>
               <a-textarea
@@ -422,18 +315,24 @@ defineExpose({
                 placeholder="可选"
               />
             </label>
-          </div>
-
-          <div v-if="canEditAgentShareConfig" class="share-config-block">
-            <div class="section-heading">
-              <span>共享权限</span>
-            </div>
-            <ShareConfigForm
-              ref="agentShareConfigFormRef"
-              v-model="agentShareConfig"
-              :auto-select-user-dept="true"
-              :allowed-access-levels="getAgentShareAllowedLevels()"
-            />
+            <label class="form-label full-width">
+              <span>系统提示词</span>
+              <a-textarea
+                v-model:value="agentForm.instruction"
+                class="agent-description-textarea"
+                :rows="4"
+                placeholder="定义智能体的角色和行为规则"
+              />
+            </label>
+            <!-- 模型配置：仅新增时显示，编辑时在运行时配置页面设置 -->
+            <label v-if="!editingAgentId" class="form-label full-width">
+              <span>模型</span>
+              <ModelSelectorComponent
+                :model_spec="agentForm.model_id"
+                @select-model="(spec) => { agentForm.model_id = spec }"
+                placeholder="选择模型"
+              />
+            </label>
           </div>
         </section>
 
@@ -532,7 +431,7 @@ defineExpose({
   border-radius: 7px;
   background: transparent;
   color: var(--gray-800);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   text-align: left;
   cursor: pointer;
@@ -643,31 +542,16 @@ defineExpose({
   }
 }
 
-.section-heading {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 12px;
-  color: var(--gray-900);
-  font-size: 14px;
-  font-weight: 600;
-}
-
 .agent-profile-header {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .agent-icon-preview {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   width: 100%;
   min-width: 0;
   gap: 16px;
-
-  :deep(.ant-upload) {
-    display: block;
-  }
 }
 
 .agent-profile-main {
@@ -677,67 +561,10 @@ defineExpose({
   gap: 10px;
 }
 
-.agent-icon-upload {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.agent-icon-preview-avatar {
   width: 56px;
   height: 56px;
-  overflow: hidden;
-  border: 1px solid var(--gray-200);
   border-radius: 12px;
-  background: var(--main-30);
-  cursor: pointer;
-  transition:
-    border-color 0.16s ease,
-    box-shadow 0.16s ease;
-
-  .agent-icon-preview-avatar {
-    width: 100%;
-    height: 100%;
-    border: 0;
-  }
-
-  &:hover,
-  &:focus-within,
-  &.uploading {
-    border-color: var(--main-300);
-    box-shadow: 0 0 0 3px var(--main-50);
-  }
-
-  &:hover .agent-icon-mask,
-  &:focus-within .agent-icon-mask,
-  &.uploading .agent-icon-mask,
-  &.is-empty .agent-icon-mask {
-    opacity: 1;
-  }
-
-  &.is-empty {
-    border-style: dashed;
-    background: var(--gray-0);
-  }
-}
-
-.agent-icon-mask {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  background: color-mix(in srgb, var(--gray-900) 62%, transparent);
-  color: var(--gray-0);
-  font-size: 11px;
-  font-weight: 600;
-  opacity: 0;
-  transition: opacity 0.16s ease;
-}
-
-.agent-icon-upload.is-empty .agent-icon-mask {
-  background: transparent;
-  color: var(--gray-600);
 }
 
 .agent-icon-preview-text {
@@ -748,13 +575,33 @@ defineExpose({
   line-height: 1.25;
 }
 
+.agent-name-label {
+  color: var(--gray-700);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.agent-name-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.required-mark {
+  flex-shrink: 0;
+  color: var(--color-error-500);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+
 .agent-inline-name-input {
-  width: 200px;
+  width: 220px;
   max-width: 100%;
-  padding: 1px 4px;
-  border: 1px solid transparent;
+  padding: 4px 6px;
+  border: 1px solid var(--gray-200);
   border-radius: 6px;
-  background: transparent;
+  background: var(--gray-10);
   color: var(--gray-900);
   caret-color: var(--main-700);
   font-size: 14px;
@@ -782,113 +629,40 @@ defineExpose({
   }
 }
 
-.agent-inline-slug,
-.agent-inline-slug-input {
+.agent-inline-slug {
   padding: 1px 4px;
   width: 200px;
   max-width: 100%;
   overflow: hidden;
   color: var(--gray-500);
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agent-inline-slug-input {
-  border: 1px solid transparent;
-  border-radius: 2px;
-  background: transparent;
-
-  &::placeholder {
-    color: var(--gray-400);
-  }
-
-  &:hover,
-  &:focus {
-    border-color: var(--gray-300);
-    background: var(--gray-0);
-    outline: none;
-  }
-}
-
-.agent-backend-summary {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 10px;
-  width: 190px;
-  min-height: 56px;
-  padding: 10px 12px;
-  border: 1px solid var(--gray-200);
-  border-radius: 12px;
-  background: var(--gray-10);
-  color: var(--gray-700);
-
-  &.editable {
-    padding-right: 8px;
-  }
-}
-
-.agent-backend-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: var(--gray-100);
-  color: var(--gray-700);
-}
-
-.agent-backend-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  gap: 3px;
-  line-height: 1.2;
-}
-
-.agent-backend-label {
-  color: var(--gray-500);
-  font-size: 11px;
-}
-
 .agent-backend-name {
-  max-width: 128px;
+  max-width: 320px;
   overflow: hidden;
   color: var(--gray-900);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .agent-backend-select {
-  width: 128px;
-  margin: -3px 0 -5px -11px;
+  width: 280px;
+  max-width: 100%;
 
   :deep(.ant-select-selector) {
-    background: transparent !important;
-    box-shadow: none !important;
+    border-radius: 8px;
   }
 
   :deep(.ant-select-selection-item) {
     color: var(--gray-900);
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 500;
   }
-
-  :deep(.ant-select-arrow) {
-    color: var(--gray-500);
-  }
-}
-
-.share-config-block {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--gray-150);
 }
 
 .modal-form {
@@ -904,7 +678,7 @@ defineExpose({
 
   > span {
     color: var(--gray-700);
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 500;
   }
 }
@@ -916,7 +690,7 @@ defineExpose({
   border-radius: 8px;
   background: var(--gray-10);
   color: var(--gray-900);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
   resize: vertical;
   transition:
@@ -942,19 +716,6 @@ defineExpose({
 
 .full-width {
   grid-column: 1 / -1;
-}
-
-.spinning {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @media (max-width: 768px) {

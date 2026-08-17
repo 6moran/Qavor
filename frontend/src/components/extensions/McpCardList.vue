@@ -1,6 +1,13 @@
 <template>
   <div class="mcp-cards-page extension-page-root">
     <PageShoulder search-placeholder="搜索 MCP..." v-model:search="searchQuery">
+      <template #filters>
+        <a-select
+          v-model:value="filter"
+          class="mcp-filter-select"
+          :options="filterOptions"
+        />
+      </template>
       <template #actions>
         <a-button type="primary" @click="handleMcpAdd" class="lucide-icon-btn">
           <Plus :size="14" />
@@ -14,72 +21,38 @@
       </template>
     </PageShoulder>
 
-    <div
-      v-if="filteredEnabledServers.length === 0 && filteredDisabledServers.length === 0"
-      class="extension-card-grid-empty-state"
-    >
+    <div v-if="visibleServers.length === 0" class="extension-card-grid-empty-state">
       <a-empty
         :image="false"
-        :description="searchQuery ? '无匹配 MCP' : '暂无 MCP，点击上方按钮添加'"
+        :description="searchQuery ? '无匹配 MCP' : filter !== 'all' ? '该筛选下暂无 MCP' : '暂无 MCP，点击上方按钮添加'"
       />
     </div>
 
-    <template v-else>
-      <div v-if="filteredEnabledServers.length" class="extension-section-header">已添加</div>
-      <ExtensionCardGrid v-if="filteredEnabledServers.length" :min-width="300">
-        <InfoCard
-          v-for="server in filteredEnabledServers"
-          :key="server.slug"
-          variant="mini"
-          :title="formatExtensionCardTitle(server.name)"
-          :description="server.description || '暂无描述'"
-          @click="handleCardClick(server)"
-        >
-          <template #icon>
-            <span class="info-card-emoji-icon">{{ server.icon || '🔌' }}</span>
-          </template>
-          <template #action>
-            <button
-              type="button"
-              class="mcp-card-action mcp-card-action-danger"
-              :disabled="isActionLoading(server)"
-              :aria-label="server.created_by === 'system' ? '移除 MCP' : '删除 MCP'"
-              @click.stop="handleRemoveServer(server)"
-            >
-              <Check :size="15" class="action-icon action-icon-check" />
-              <Trash2 :size="15" class="action-icon action-icon-trash" />
-            </button>
-          </template>
-        </InfoCard>
-      </ExtensionCardGrid>
-
-      <div v-if="filteredDisabledServers.length" class="extension-section-header">可添加</div>
-      <ExtensionCardGrid v-if="filteredDisabledServers.length" :min-width="300">
-        <InfoCard
-          v-for="server in filteredDisabledServers"
-          :key="server.slug"
-          variant="mini"
-          :title="formatExtensionCardTitle(server.name)"
-          :description="server.description || '暂无描述'"
-          @click="openBasicInfo(server)"
-        >
-          <template #icon>
-            <span class="info-card-emoji-icon">{{ server.icon || '🔌' }}</span>
-          </template>
-          <template #action>
-            <button
-              type="button"
-              class="mcp-card-action"
-              :disabled="isActionLoading(server)"
-              aria-label="添加 MCP"
-              @click.stop="handleSetServerEnabled(server, true)"
-            >
-              <Plus :size="15" class="action-icon" />
-            </button>
-          </template>
-        </InfoCard>
-      </ExtensionCardGrid>
-    </template>
+    <ExtensionCardGrid v-else :min-width="300">
+      <InfoCard
+        v-for="server in visibleServers"
+        :key="server.name"
+        variant="mini"
+        :title="formatExtensionCardTitle(server.name)"
+        :description="server.description || '暂无描述'"
+        :default-icon="Cable"
+        :status="cardStatusOf(server)"
+        @click="handleCardClick(server)"
+      >
+        <template #action>
+          <button
+            type="button"
+            class="mcp-card-action"
+            :disabled="isActionLoading(server)"
+            :aria-label="server.enabled ? '禁用 MCP' : '启用 MCP'"
+            @click.stop="server.enabled ? handleSetServerEnabled(server, false) : handleSetServerEnabled(server, true)"
+          >
+            <Minus v-if="server.enabled" :size="15" class="action-icon action-icon--disable" />
+            <Plus v-else :size="15" class="action-icon action-icon--enable" />
+          </button>
+        </template>
+      </InfoCard>
+    </ExtensionCardGrid>
 
     <a-modal
       v-model:open="basicInfoVisible"
@@ -91,18 +64,12 @@
     >
       <div v-if="previewServer" class="mcp-basic-info-panel">
         <div class="mcp-basic-info-header">
-          <div class="mcp-basic-info-icon">
-            <span>{{ previewServer.icon || '🔌' }}</span>
-          </div>
           <div class="mcp-basic-info-title-area">
             <div class="mcp-basic-info-title">
               {{ formatExtensionCardTitle(previewServer.name) }}
             </div>
             <div class="mcp-basic-info-meta">
               <span>{{ previewServer.transport || '未知传输类型' }}</span>
-              <span v-if="previewServer.created_by === 'system'" class="mcp-basic-info-tag">
-                内置
-              </span>
             </div>
           </div>
         </div>
@@ -115,19 +82,6 @@
           <div class="mcp-basic-info-row">
             <label>传输类型</label>
             <span>{{ previewServer.transport || '-' }}</span>
-          </div>
-          <div
-            v-if="Array.isArray(previewServer.tags) && previewServer.tags.length > 0"
-            class="mcp-basic-info-row"
-          >
-            <label>标签</label>
-            <span class="mcp-basic-info-tags">
-              <a-tag v-for="tag in previewServer.tags" :key="tag">{{ tag }}</a-tag>
-            </span>
-          </div>
-          <div class="mcp-basic-info-row">
-            <label>创建人</label>
-            <span>{{ previewServer.created_by || '-' }}</span>
           </div>
         </div>
 
@@ -148,7 +102,6 @@
 
     <McpFormModal
       v-model:open="formModalVisible"
-      :edit-mode="false"
       @submitted="handleFormSubmitted"
     />
   </div>
@@ -157,8 +110,8 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
-import { Check, Plus, RefreshCw, Trash2 } from 'lucide-vue-next'
+import { message } from 'ant-design-vue'
+import { Cable, Minus, Plus, RefreshCw } from 'lucide-vue-next'
 import { mcpApi } from '@/apis/mcp_api'
 import ExtensionCardGrid from './ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
@@ -171,10 +124,17 @@ const router = useRouter()
 const loading = ref(false)
 const servers = ref([])
 const searchQuery = ref('')
+const filter = ref('all') // all | enabled | disabled
 const formModalVisible = ref(false)
 const basicInfoVisible = ref(false)
 const previewServer = ref(null)
-const actionLoadingSlug = ref('')
+const actionLoadingName = ref('')
+
+const filterOptions = [
+  { label: '全部', value: 'all' },
+  { label: '已启用', value: 'enabled' },
+  { label: '未启用', value: 'disabled' }
+]
 
 const filteredServers = computed(() => {
   const sorted = [...servers.value].sort((a, b) =>
@@ -190,15 +150,26 @@ const filteredServers = computed(() => {
   )
 })
 
-const filteredEnabledServers = computed(() =>
-  filteredServers.value.filter((item) => !!item.enabled)
-)
-const filteredDisabledServers = computed(() =>
-  filteredServers.value.filter((item) => !item.enabled)
-)
+const visibleServers = computed(() => {
+  if (filter.value === 'enabled') return filteredServers.value.filter((item) => !!item.enabled)
+  if (filter.value === 'disabled') return filteredServers.value.filter((item) => !item.enabled)
+  return filteredServers.value
+})
+
+// 卡片状态：未启用固定显示"未启用"，启用显示连接状态
+const cardStatusOf = (server) => {
+  if (!server.enabled) return { label: '未启用', level: 'info' }
+  const map = {
+    connected: { label: '已连接', level: 'success' },
+    connecting: { label: '连接中', level: 'warning' },
+    failed: { label: '连接失败', level: 'error' },
+    unknown: { label: '未连接', level: 'error' }
+  }
+  return map[server?.status] || { label: '未连接', level: 'error' }
+}
 
 const navigateToDetail = (server) => {
-  router.push({ path: `/extensions/mcp/${encodeURIComponent(server.slug)}` })
+  router.push({ path: `/tools/mcp/${encodeURIComponent(server.name)}` })
 }
 
 const handleCardClick = (server) => {
@@ -219,7 +190,7 @@ const closeBasicInfo = () => {
   previewServer.value = null
 }
 
-const isActionLoading = (server) => actionLoadingSlug.value === server?.slug
+const isActionLoading = (server) => actionLoadingName.value === server?.name
 
 const handleMcpAdd = () => {
   formModalVisible.value = true
@@ -232,8 +203,8 @@ const handleFormSubmitted = async () => {
 
 const handleSetServerEnabled = async (server, enabled) => {
   try {
-    actionLoadingSlug.value = server.slug
-    const result = await mcpApi.updateMcpServerStatus(server.slug, enabled)
+    actionLoadingName.value = server.name
+    const result = await mcpApi.updateMcpServerStatus(server.name, enabled)
     if (result.success) {
       message.success(result.message || `MCP 已${enabled ? '添加' : '移除'}`)
       if (enabled) closeBasicInfo()
@@ -244,42 +215,8 @@ const handleSetServerEnabled = async (server, enabled) => {
   } catch (err) {
     message.error(err.message || '操作失败')
   } finally {
-    actionLoadingSlug.value = ''
+    actionLoadingName.value = ''
   }
-}
-
-const handleRemoveServer = (server) => {
-  if (server.created_by === 'system') {
-    handleSetServerEnabled(server, false)
-    return
-  }
-  confirmDeleteServer(server)
-}
-
-const confirmDeleteServer = (server) => {
-  Modal.confirm({
-    title: '确认删除 MCP',
-    content: `确定要删除 MCP "${server.name}" 吗？此操作不可撤销。`,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    async onOk() {
-      try {
-        actionLoadingSlug.value = server.slug
-        const result = await mcpApi.deleteMcpServer(server.slug)
-        if (result.success) {
-          message.success('MCP 删除成功')
-          await fetchServers()
-        } else {
-          message.error(result.message || '删除失败')
-        }
-      } catch (err) {
-        message.error(err.message || '删除失败')
-      } finally {
-        actionLoadingSlug.value = ''
-      }
-    }
-  })
 }
 
 const fetchServers = async () => {
@@ -305,11 +242,6 @@ defineExpose({ fetchServers, loading })
 
 <style lang="less" scoped>
 @import '@/assets/css/extensions.less';
-
-.info-card-emoji-icon {
-  font-size: 18px;
-  line-height: 1;
-}
 
 .mcp-card-action {
   display: inline-flex;
@@ -338,32 +270,22 @@ defineExpose({ fetchServers, loading })
     cursor: not-allowed;
     opacity: 0.45;
   }
-
-  &.mcp-card-action-danger {
-    color: var(--color-success-700);
-
-    .action-icon-trash {
-      display: none;
-    }
-
-    &:hover,
-    &:focus {
-      border-color: var(--color-error-100);
-      background: var(--color-error-50);
-      color: var(--color-error-700);
-
-      .action-icon-check {
-        display: none;
-      }
-
-      .action-icon-trash {
-        display: block;
-      }
-    }
-  }
 }
 
 .action-icon {
+  flex-shrink: 0;
+
+  &--enable {
+    color: var(--color-success-700);
+  }
+
+  &--disable {
+    color: var(--color-error-700);
+  }
+}
+
+.mcp-filter-select {
+  width: 120px;
   flex-shrink: 0;
 }
 
@@ -377,20 +299,6 @@ defineExpose({ fetchServers, loading })
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.mcp-basic-info-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 9px;
-  border: 1px solid var(--gray-150);
-  background: var(--main-50);
-  color: var(--main-color);
-  font-size: 18px;
 }
 
 .mcp-basic-info-title-area {
@@ -457,12 +365,6 @@ defineExpose({ fetchServers, loading })
     min-width: 0;
     overflow-wrap: anywhere;
   }
-}
-
-.mcp-basic-info-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
 }
 
 .mcp-basic-info-footer {

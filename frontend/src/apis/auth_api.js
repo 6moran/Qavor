@@ -2,8 +2,7 @@
  * 认证相关 API
  */
 
-import { apiAdminGet, apiGet, apiPost } from './base'
-import { USE_MOCK, mockResponse } from '@/mock'
+import { apiGet, apiPost, normalizeApiUrl } from './base'
 
 async function parseErrorDetail(response, fallbackMessage) {
   const contentType = response.headers.get('content-type') || ''
@@ -22,10 +21,7 @@ async function parseErrorDetail(response, fallbackMessage) {
  * @returns {Promise<{enabled: boolean, provider_name?: string}>}
  */
 async function getOIDCConfig() {
-  if (USE_MOCK) {
-    return mockResponse({ enabled: false, provider_name: null })
-  }
-  const response = await fetch('/api/auth/oidc/config')
+  const response = await fetch(normalizeApiUrl('/api/auth/oidc/config'))
   if (!response.ok) {
     throw new Error('获取 OIDC 配置失败')
   }
@@ -38,11 +34,8 @@ async function getOIDCConfig() {
  * @returns {Promise<{login_url: string}>}
  */
 async function getOIDCLoginUrl(redirectPath = '/') {
-  if (USE_MOCK) {
-    return mockResponse({ login_url: '/login' })
-  }
   const params = new URLSearchParams({ redirect_path: redirectPath })
-  const response = await fetch(`/api/auth/oidc/login-url?${params}`)
+  const response = await fetch(normalizeApiUrl(`/api/auth/oidc/login-url?${params}`))
   if (!response.ok) {
     const detail = await parseErrorDetail(response, '获取 OIDC 登录地址失败')
     throw new Error(detail)
@@ -67,24 +60,11 @@ async function getOIDCLoginUrl(redirectPath = '/') {
  * }>}
  */
 async function getUserAccessOptions() {
-  if (USE_MOCK) {
-    return mockResponse([
-      { id: 1, username: 'zhangsan', role: 'admin' },
-      { id: 2, username: 'lisi', role: 'user' }
-    ])
-  }
-  return apiAdminGet('/api/auth/users/access-options')
+  return apiGet('/api/auth/users/access-options')
 }
 
 async function exchangeOIDCCode(code) {
-  if (USE_MOCK) {
-    return mockResponse({
-      access_token: 'mock-oidc-token',
-      user_id: 1,
-      username: 'zhangsan'
-    })
-  }
-  const response = await fetch('/api/auth/oidc/exchange-code', {
+  const response = await fetch(normalizeApiUrl('/api/auth/oidc/exchange-code'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

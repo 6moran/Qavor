@@ -10,9 +10,24 @@ const buildQuery = (params) => {
   return query.toString()
 }
 
-export const getWorkspaceTree = (path = '/', recursive = false, filesOnly = false) => {
+/**
+ * 解包 Go 后端统一响应信封 {code, message, data}，返回 data。
+ * code !== 0 时抛错。
+ */
+const unwrap = (response) => {
+  if (response && typeof response === 'object' && 'code' in response) {
+    if (response.code !== 0) {
+      throw new Error(response.message || '请求失败')
+    }
+    return response.data
+  }
+  return response
+}
+
+export const getWorkspaceTree = async (path = '/', recursive = false, filesOnly = false) => {
   const query = buildQuery({ path, recursive, files_only: filesOnly })
-  return apiGet(`/api/workspace/tree?${query}`)
+  const response = await apiGet(`/api/workspace/tree?${query}`)
+  return unwrap(response)
 }
 
 export const getWorkspaceFileContent = (path) => {
@@ -20,53 +35,29 @@ export const getWorkspaceFileContent = (path) => {
   return apiGet(`/api/workspace/file?${query}`, {}, true, 'blob')
 }
 
-export const getWorkspaceKnowledgeTree = (kbId, params = {}) => {
-  const query = buildQuery({
-    kb_id: kbId,
-    parent_id: params.parentId,
-    path_prefix: params.pathPrefix,
-    page: params.page,
-    page_size: params.pageSize,
-    recursive: params.recursive || false,
-    files_only: params.filesOnly || false
-  })
-  return apiGet(`/api/workspace/knowledge/tree?${query}`)
+export const saveWorkspaceFileContent = async (path, content) => {
+  const response = await apiPut('/api/workspace/file', { path, content })
+  return unwrap(response)
 }
 
-export const getWorkspaceKnowledgeFileContent = (kbId, fileId) => {
-  const query = buildQuery({ kb_id: kbId, file_id: fileId })
-  return apiGet(`/api/workspace/knowledge/file?${query}`, {}, true, 'blob')
-}
-
-export const downloadWorkspaceKnowledgeFile = (kbId, fileId, variant = 'original') => {
-  const query = buildQuery({ kb_id: kbId, file_id: fileId, variant })
-  return apiGet(`/api/workspace/knowledge/download?${query}`, {}, true, 'blob')
-}
-
-export const saveWorkspaceFileContent = (path, content) => {
-  return apiPut('/api/workspace/file', { path, content })
-}
-
-export const deleteWorkspacePath = (path) => {
+export const deleteWorkspacePath = async (path) => {
   const query = buildQuery({ path })
-  return apiDelete(`/api/workspace/file?${query}`)
+  const response = await apiDelete(`/api/workspace/file?${query}`)
+  return unwrap(response)
 }
 
-export const createWorkspaceDirectory = (parentPath, name) => {
-  return apiPost('/api/workspace/directory', {
+export const createWorkspaceDirectory = async (parentPath, name) => {
+  const response = await apiPost('/api/workspace/directory', {
     parent_path: parentPath,
     name
   })
+  return unwrap(response)
 }
 
-export const uploadWorkspaceFiles = (parentPath, files) => {
+export const uploadWorkspaceFiles = async (parentPath, files) => {
   const formData = new FormData()
   formData.append('parent_path', parentPath)
   files.forEach((file) => formData.append('files', file))
-  return apiPost('/api/workspace/upload', formData)
-}
-
-export const downloadWorkspaceFile = (path) => {
-  const query = buildQuery({ path })
-  return apiGet(`/api/workspace/download?${query}`, {}, true, 'blob')
+  const response = await apiPost('/api/workspace/upload', formData)
+  return unwrap(response)
 }

@@ -48,7 +48,7 @@ export const processRunSseResponse = async (response, onEvent) => {
       const parsed = JSON.parse(dataText)
       onEvent(eventType, parsed, eventId)
     } catch (e) {
-      console.warn('Failed to parse run SSE data:', e, dataText)
+      console.warn('[SSE] Failed to parse data:', e, dataText)
     }
   }
 
@@ -138,9 +138,55 @@ export function useAgentRunStream({
     if (!ts) return
     streamSmoother?.flushThread(threadId)
     if (ts.runStreamAbortController) {
+      const activeRunId = ts.activeRunId
       ts.runStreamAbortController.abort()
       ts.runStreamAbortController = null
+      // SSE 被 abort 后，兜底逻辑(line 487)会因 signal.abored 被跳过
+      // 如果 Run 仍在运行，启动后台轮询，终态时触发 finalizeRunStream → 红点提醒
+      if (activeRunId) {
+        pollRunTerminalStatus(threadId, activeRunId)
+      }
     }
+  }
+
+  // pollRunTerminalStatus 后台轮询 Run 状态，终态时触发 finalizeRunStream
+  // 用于切换会话后 SSE 被 abort，但原会话 Run 仍在运行的场景
+  const pollRunTerminalStatus = (threadId, runId) => {
+    const maxAttempts = 60 // 最多轮询 60 次 × 3s = 3 分钟
+    let attempts = 0
+
+    const poll = async () => {
+      if (attempts >= maxAttempts) return
+      attempts++
+
+      const ts = getThreadState(threadId)
+      // Run 已被其他逻辑处理（如用户切回后 SSE 接管，或已 finalize）
+      if (!ts || ts.activeRunId !== runId) return
+      // 用户切回该会话，SSE 已重新建立，轮询退出让 SSE 接管
+      if (ts.runStreamAbortController) return
+
+      try {
+        const runRes = await agentApi.getAgentRun(runId)
+        const run = runRes?.data
+        if (run?.status === RUN_INTERRUPTED_STATUS) {
+          if (hasPendingInterruptInThreads(new Set([threadId]), run.id)) {
+            await preserveInterruptedRun(threadId, run)
+          } else {
+            finalizeRunStream(threadId, runId, new Set([threadId]), { status: run.status })
+          }
+        } else if (run && RUN_TERMINAL_STATUSES.has(run.status)) {
+          finalizeRunStream(threadId, runId, new Set([threadId]), { status: run.status })
+        } else {
+          // 还在运行，继续轮询
+          setTimeout(poll, 3000)
+        }
+      } catch {
+        // 查询失败，继续重试
+        setTimeout(poll, 3000)
+      }
+    }
+
+    setTimeout(poll, 2000) // 2s 后开始轮询，给后端一点时间
   }
 
   const notifyInterruptDetected = (threadId, runId, run = null) => {
@@ -205,8 +251,11 @@ export function useAgentRunStream({
     ts.replyLoadingVisible = false
     ts.pendingRequestId = null
     fetchThreadMessages({ agentId: unref(currentAgentId), threadId, delay }).finally(() => {
-      const latest = getThreadState(threadId)
-      if (!latest?.activeRunId || latest.activeRunId === runId) {
+      const shouldPreserveMessages = status === 'failed' || status === 'cancelled'
+      if (shouldPreserveMessages) {
+        // 失败/取消时保留已流式显示的消息，避免 resetOnGoingConv 清空它们
+        // 后续新的 Run 开始时 resetOnGoingConv 会自然清理
+      } else {
         resetOnGoingConv(threadId, { preserveRequestStreams: true })
       }
       fetchAgentState(unref(currentAgentId), threadId)
@@ -254,15 +303,21 @@ export function useAgentRunStream({
     }, delay)
   }
 
-  const startRunStream = async (threadId, runId, afterSeq = '0-0', options = {}) => {
-    if (!threadId || !runId) return
+  const startRunStream = async (threadId, initialRunId, afterSeq = '0-0', options = {}) => {
+    if (!threadId) return
+    // create 模式：initialRunId 为空且提供 createPayload，用于发起新 Run 并直接接收 SSE 流
+    const isCreateMode = !initialRunId && Boolean(options.createPayload)
+    if (!initialRunId && !isCreateMode) return
     const ts = getThreadState(threadId)
     if (!ts) return
 
-    const isSameRun = ts.activeRunId === runId
+    let runId = initialRunId || null
+    const isSameRun = runId && ts.activeRunId === runId
     const initialSteerable =
       options.steerable ?? (isSameRun && ts.activeRunSteerable === true)
     stopRunStreamSubscription(threadId)
+    // 新 Run 开始，清理上一轮的取消标记
+    if (ts.pendingCancel) ts.pendingCancel = false
     const runController = new AbortController()
     ts.runStreamAbortController = runController
     ts.activeRunId = runId
@@ -270,20 +325,43 @@ export function useAgentRunStream({
     ts.runLastSeq = normalizeRunSeq(afterSeq)
     ts.lastRetryableJobTry = null
     ts.isStreaming = true
-    saveActiveRunSnapshot(threadId, runId, ts.runLastSeq)
+    if (runId) saveActiveRunSnapshot(threadId, runId, ts.runLastSeq)
     const touchedThreadIds = new Set([threadId])
     let sawTerminalEvent = false
 
     try {
-      const response = await agentApi.streamAgentRunEvents(runId, ts.runLastSeq, {
-        signal: runController.signal
-      })
+      const response = isCreateMode
+        ? await agentApi.createAgentRunStream(options.createPayload, {
+            signal: runController.signal
+          })
+        : await agentApi.createAgentRunStream(
+            {
+              thread_id: threadId,
+              resume: { run_id: runId, last_seq: ts.runLastSeq }
+            },
+            { signal: runController.signal }
+          )
       if (!response.ok) {
         throw new Error(`SSE response not ok: ${response.status}`)
       }
 
       await processRunSseResponse(response, (event, data, eventId) => {
-        if (!data || ts.activeRunId !== runId) return
+        // create 模式：从首个 metadata 事件提取 runId 并落地快照
+        if (!runId && event === 'metadata' && data?.run_id) {
+          runId = data.run_id
+          ts.activeRunId = runId
+          saveActiveRunSnapshot(threadId, runId, ts.runLastSeq)
+          // 安全网：用户在 runId 未到达前已点击停止（pendingCancel 为 true）
+          // 若 SSE 仍然送达 metadata，则立即取消并收尾，避免后端 Run 继续运行
+          if (ts.pendingCancel) {
+            ts.pendingCancel = false
+            agentApi.cancelAgentRun(runId).catch(() => {})
+            sawTerminalEvent = true
+            finalizeRunStream(threadId, runId, touchedThreadIds, { status: 'cancelled' })
+            return
+          }
+        }
+        if (!data || (runId && ts.activeRunId !== runId)) return
 
         if (eventId) {
           const incomingSeq = normalizeRunSeq(eventId)
@@ -299,6 +377,11 @@ export function useAgentRunStream({
             run_type: payload.run_type,
             source: payload.source
           })
+          // 显示加载指示器（旧 chatStream 的 init 事件已废弃，这里由 metadata 驱动）
+          ts.replyLoadingVisible = true
+          if (data.request_id) {
+            ts.pendingRequestId = data.request_id
+          }
         }
         const terminalStatus = event === 'end' ? payload.status : data.status
         const isRetryableError =
@@ -355,6 +438,85 @@ export function useAgentRunStream({
             },
             routeThreadId
           )
+        } else if (payload.type) {
+          // 适配后端 ChunkPayload {message_id, type, content, role, tool_call}：
+          // handleStreamChunk 期望 {status, msg} 结构，这里做格式转换
+          const routeThreadId = resolveChunkThreadId({
+            envelope: data,
+            payload,
+            chunk: payload,
+            fallbackThreadId: threadId
+          })
+          touchedThreadIds.add(routeThreadId)
+          const messageId = payload.message_id || runId
+          let adapted = null
+          if (payload.type === 'text_delta') {
+            adapted = {
+              status: 'loading',
+              msg: {
+                id: messageId,
+                type: 'AIMessageChunk',
+                content: payload.content || '',
+                reasoning_content: payload.reasoning || ''
+              }
+            }
+          } else if (payload.type === 'tool_call') {
+            adapted = {
+              status: 'loading',
+              msg: {
+                id: messageId,
+                type: 'AIMessageChunk',
+                content: '',
+                tool_call_chunks: [
+                  {
+                    index: payload.tool_call?.index || 0,
+                    id: payload.tool_call?.id,
+                    name: payload.tool_call?.name,
+                    args: payload.tool_call?.args || ''
+                  }
+                ]
+              }
+            }
+          } else if (payload.type === 'tool_result') {
+            adapted = {
+              status: 'stream_event',
+              event: {
+                method: 'tools',
+                data: {
+                  event: 'tool-finished',
+                  tool_call_id: payload.tool_call?.id,
+                  output: {
+                    id: payload.tool_call?.id,
+                    tool_call_id: payload.tool_call?.id,
+                    content: payload.content || '',
+                    tool_name: payload.tool_call?.name
+                  }
+                }
+              }
+            }
+          }
+          // message_end 是流式边界信号，无需渲染，跳过
+
+          // todo_update: 实时更新状态面板的 TODO 列表
+          if (payload.type === 'todo_update' && Array.isArray(payload.todos)) {
+            const ts = getThreadState(routeThreadId)
+            if (ts) {
+              if (!ts.agentState) ts.agentState = {}
+              ts.agentState.todos = payload.todos
+            }
+          }
+
+          if (adapted) {
+            handleStreamChunk(
+              {
+                ...adapted,
+                request_id: data.request_id,
+                run_id: data.run_id || runId,
+                thread_id: routeThreadId
+              },
+              routeThreadId
+            )
+          }
         }
 
         if (event === 'end') {
@@ -371,14 +533,17 @@ export function useAgentRunStream({
 
         if (event === 'error') {
           sawTerminalEvent = true
-          finalizeRunStream(threadId, runId, touchedThreadIds, { delay: 300, scroll: true })
+          const errorMessage = payload?.message || data?.message || 'Agent 执行失败'
+          console.error('[SSE] Run error:', { runId, errorMessage, payload })
+          handleChatError(new Error(errorMessage), 'stream', payload)
+          finalizeRunStream(threadId, runId, touchedThreadIds, { delay: 300, scroll: true, status: 'failed' })
         }
       })
 
       if (!sawTerminalEvent && !runController.signal.aborted && ts.activeRunId === runId) {
         try {
           const runRes = await agentApi.getAgentRun(runId)
-          const run = runRes?.run
+          const run = runRes?.data
           if (run?.status === RUN_INTERRUPTED_STATUS) {
             if (hasPendingInterruptInThreads(touchedThreadIds, run.id)) {
               await preserveInterruptedRun(threadId, run)
@@ -401,9 +566,15 @@ export function useAgentRunStream({
     } catch (error) {
       if (error?.name !== 'AbortError') {
         streamSmoother?.flushThread(threadId)
-        console.error('Run SSE stream error:', error)
-        handleChatError(error, 'stream')
-        scheduleRunReconnect(threadId, runId)
+        console.error('[SSE] Run stream error:', error)
+        // pendingCancel 为用户主动取消态，不弹错误提示
+        if (!ts.pendingCancel) {
+          handleChatError(error, 'stream')
+        }
+        // pendingCancel 下不重连，避免用户取消后又自动重启 Run
+        if (!ts.pendingCancel) {
+          scheduleRunReconnect(threadId, runId)
+        }
       }
     } finally {
       if (ts.runStreamAbortController === runController) {
@@ -426,7 +597,7 @@ export function useAgentRunStream({
       if (!ts.activeRunId) return
       try {
         const runRes = await agentApi.getAgentRun(ts.activeRunId)
-        const run = runRes?.run
+        const run = runRes?.data
         if (run?.status === RUN_INTERRUPTED_STATUS) {
           stopRunStreamSubscription(threadId)
           const snapshot = loadActiveRunSnapshot(threadId)
@@ -460,7 +631,7 @@ export function useAgentRunStream({
       } else {
         try {
           const runRes = await agentApi.getAgentRun(snapshot.run_id)
-          const run = runRes?.run
+          const run = runRes?.data
           if (run?.status === RUN_INTERRUPTED_STATUS) {
             // 仅当本地仍持有该中断时才据快照恢复；否则不能仅凭快照重放旧中断
             // （可能已被回复），交由下方 active_run 做权威判定。
@@ -489,24 +660,9 @@ export function useAgentRunStream({
     }
 
     try {
-      const active = await agentApi.getThreadActiveRun(threadId)
-      const run = active?.run
-      if (run?.status === RUN_INTERRUPTED_STATUS) {
-        if (hasPendingInterruptForRun(ts, run.id)) {
-          await preserveInterruptedRun(threadId, run)
-          return
-        }
-        resetOnGoingConv(threadId)
-        await startRunStream(threadId, run.id, '0-0', {
-          steerable: await resolveRunSteerable(run)
-        })
-        return
-      }
-      if (run && !RUN_TERMINAL_STATUSES.has(run.status)) {
-        resetOnGoingConv(threadId)
-        await startRunStream(threadId, run.id, '0-0')
-        return
-      }
+      // 后端未实现此接口，跳过
+      // const active = await agentApi.getThreadActiveRun(threadId)
+      // const run = active?.run
     } catch (e) {
       console.warn('Failed to load active run for thread:', threadId, e)
     }
@@ -522,8 +678,14 @@ export function useAgentRunStream({
     notifyTerminalDetected(threadId, null, new Set([threadId]))
   }
 
+  // 创建新 Run 并直接接收 SSE 流（POST /api/v1/agent/runs 不带 resume）
+  // runId 从首个 metadata 事件中提取，后续逻辑与 startRunStream 一致
+  const startNewRun = (threadId, createPayload) =>
+    startRunStream(threadId, null, '0-0', { createPayload })
+
   return {
     startRunStream,
+    startNewRun,
     resumeActiveRunForThread,
     stopRunStreamSubscription
   }

@@ -1,5 +1,39 @@
 package entity
 
+// 标准文件处理状态。
+const (
+	FileUploaded    = "uploaded"
+	FileParseQueued = "parse_queued"
+	FileParsing     = "parsing"
+	FileParsed      = "parsed"
+	FileParseFailed = "parse_failed"
+	FileIndexQueued = "index_queued"
+	FileIndexing    = "indexing"
+	FileIndexed     = "indexed"
+	FileIndexFailed = "index_failed"
+)
+
+// CanTransitionKnowledgeFile 报告知识文件是否可以从一个状态移动到另一个状态。
+func CanTransitionKnowledgeFile(from, to string) bool {
+	allowed := map[string][]string{
+		FileUploaded:    {FileParseQueued},
+		FileParseQueued: {FileParsing, FileParseFailed},
+		FileParsing:     {FileParsed, FileParseFailed},
+		FileParseFailed: {FileParseQueued},
+		FileParsed:      {FileIndexQueued},
+		FileIndexQueued: {FileIndexing, FileIndexFailed},
+		FileIndexing:    {FileIndexed, FileIndexFailed},
+		FileIndexFailed: {FileIndexQueued},
+		FileIndexed:     {FileIndexQueued},
+	}
+	for _, s := range allowed[from] {
+		if s == to {
+			return true
+		}
+	}
+	return false
+}
+
 // KnowledgeFile 知识文件实体
 type KnowledgeFile struct {
 	BaseEntity
@@ -21,9 +55,6 @@ type KnowledgeFile struct {
 	ProcessingParams JSON   `gorm:"type:json;comment:处理参数" json:"processing_params,omitempty"`
 	IsFolder         bool   `gorm:"default:false;comment:是否为文件夹" json:"is_folder"`
 	ErrorMessage     string `gorm:"type:text;comment:错误信息" json:"error_message,omitempty"`
-	CreatedBy        string `gorm:"type:varchar(64);comment:创建人" json:"created_by,omitempty"`
-	UpdatedBy        string `gorm:"type:varchar(64);comment:更新人" json:"updated_by,omitempty"`
-
 	// 关联关系
 	KnowledgeBase *KnowledgeBase   `gorm:"foreignKey:KBID;references:KBID" json:"knowledge_base,omitempty"`
 	Parent        *KnowledgeFile   `gorm:"foreignKey:ParentID;references:FileID" json:"parent,omitempty"`

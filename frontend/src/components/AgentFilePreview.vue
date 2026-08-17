@@ -125,7 +125,9 @@
         {
           'is-editing': canEdit && editMode === 'edit',
           'is-iframe-preview':
-            file?.previewType === 'pdf' || (isHtmlFile && htmlPreviewMode === 'render')
+            file?.previewType === 'pdf' ||
+            isOfficePreviewType ||
+            (isHtmlFile && htmlPreviewMode === 'render')
         }
       ]"
     >
@@ -144,6 +146,9 @@
       </template>
       <template v-else-if="file?.previewType === 'pdf' && file?.previewUrl">
         <iframe :src="file.previewUrl" class="pdf-preview" :title="filePath" />
+      </template>
+      <template v-else-if="isOfficePreviewType && file?.previewUrl">
+        <OfficeFilePreview :file="file" :file-path="filePath" :full-height="true" />
       </template>
       <template v-else-if="isHtmlFile && htmlPreviewMode === 'render'">
         <iframe
@@ -228,6 +233,9 @@
                 :title="filePath"
               />
             </template>
+            <template v-else-if="isOfficePreviewType && file?.previewUrl">
+              <OfficeFilePreview :file="file" :file-path="filePath" :full-height="true" />
+            </template>
             <template v-else-if="isHtmlFile && htmlPreviewMode === 'render'">
               <iframe
                 :key="`fullscreen-${htmlPreviewRenderKey}`"
@@ -279,14 +287,15 @@ import {
 } from 'lucide-vue-next'
 import hljs from 'highlight.js/lib/common'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
+import OfficeFilePreview from '@/components/common/OfficeFilePreview.vue'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
-import { useThemeStore } from '@/stores/theme'
 import { escapeHtml } from '@/utils/html'
 import {
   getCodeLanguageByPath,
   getPreviewFileExtension,
   isHtmlPreview,
-  isMarkdownPreview
+  isMarkdownPreview,
+  isOfficePreview
 } from '@/utils/file_preview'
 
 const EDITABLE_EXTENSIONS = new Set(['.md', '.markdown', '.mdx', '.txt'])
@@ -363,7 +372,6 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'download', 'save'])
 
-const themeStore = useThemeStore()
 const closeTitle = computed(() =>
   props.closeVariant === 'collapse-right' ? '收起预览面板' : '关闭预览'
 )
@@ -377,6 +385,7 @@ const fullscreenPreviewVisible = ref(false)
 const htmlPreviewRenderKey = ref(0)
 
 const isMarkdown = computed(() => isMarkdownPreview(props.filePath, props.file?.previewType))
+const isOfficePreviewType = computed(() => isOfficePreview(props.file?.previewType))
 const canEdit = computed(() => {
   const previewType = props.file?.previewType
   return (
@@ -401,7 +410,7 @@ const htmlPreviewSrcdoc = computed(() =>
 const htmlPreviewFullscreenSrcdoc = computed(() =>
   buildHtmlPreviewSrcdoc(props.file?.content, HTML_PREVIEW_FULLSCREEN_SCALE)
 )
-const codeThemeClass = computed(() => (themeStore.isDark ? 'hljs-theme-dark' : 'hljs-theme-light'))
+const codeThemeClass = 'hljs-theme-light'
 const codeLanguage = computed(() => getCodeLanguageByPath(props.filePath))
 const isCodePreview = computed(
   () =>
@@ -448,7 +457,7 @@ const buildHtmlPreviewSrcdoc = (content, scale = HTML_PREVIEW_SCALE) => {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   if (scale !== 1) {
     const style = doc.createElement('style')
-    style.setAttribute('data-yuxi-html-preview-scale', String(scale))
+    style.setAttribute('data-qavor-html-preview-scale', String(scale))
     style.textContent = `html { zoom: ${scale} !important; }`
     doc.head.append(style)
   }

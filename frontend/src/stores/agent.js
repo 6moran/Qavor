@@ -1,13 +1,19 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { agentApi, databaseApi, mcpApi, skillApi } from '@/apis'
-import { isDefaultAllAgentResourceKind } from '@/utils/agentConfigUtils'
+import { agentApi, databaseApi, mcpApi } from '@/apis'
 import { handleChatError } from '@/utils/errorHandler'
 
 function normalizeAgent(agent) {
   const agentId = agent?.agent_id || agent?.slug || agent?.id
   return agentId
-    ? { ...agent, id: agentId, agent_id: agentId, slug: agent?.slug || agentId }
+    ? {
+        ...agent,
+        id: agentId,
+        agent_id: agentId,
+        slug: agent?.slug || agentId,
+        can_manage: agent?.can_manage ?? true,
+        is_builtin: agent?.is_builtin ?? false
+      }
     : agent
 }
 
@@ -26,6 +32,8 @@ function sortAgents(agents) {
 
 function getPreferredAgentId(agents, persistedId) {
   const chatAgents = agents.filter((agent) => !agent.is_subagent)
+  const defaultAgent = chatAgents.find((agent) => agent.is_default)
+  if (defaultAgent) return defaultAgent.id
   if (persistedId && chatAgents.some((agent) => agent.id === persistedId)) return persistedId
   return chatAgents.find(isBuiltinAgent)?.id || chatAgents[0]?.id || null
 }
@@ -43,7 +51,6 @@ export const useAgentStore = defineStore(
 
     const availableKnowledgeBases = ref([])
     const availableMcps = ref([])
-    const availableSkills = ref([])
 
     const agentConfig = ref({})
     const originalAgentConfig = ref({})
@@ -84,14 +91,12 @@ export const useAgentStore = defineStore(
 
     async function fetchMentionResources() {
       try {
-        const [dbsRes, mcpsRes, skillsRes] = await Promise.all([
+        const [dbsRes, mcpsRes] = await Promise.all([
           databaseApi.getAccessibleDatabases().catch(() => ({ databases: [] })),
-          mcpApi.getMcpServers().catch(() => ({ data: [] })),
-          skillApi.listAccessibleSkills().catch(() => ({ data: [] }))
+          mcpApi.getMcpServers().catch(() => ({ data: [] }))
         ])
         availableKnowledgeBases.value = dbsRes.databases || []
         availableMcps.value = mcpsRes.data || []
-        availableSkills.value = skillsRes.data || []
       } catch (e) {
         console.warn('Failed to fetch mention resources:', e)
       }
@@ -122,7 +127,7 @@ export const useAgentStore = defineStore(
       error.value = null
       try {
         const response = await agentApi.getAgents({ includeSubagents })
-        agents.value = sortAgents((response.agents || []).map(normalizeAgent))
+        agents.value = sortAgents((response?.data || []).map(normalizeAgent))
       } catch (err) {
         console.error('Failed to fetch agents:', err)
         handleChatError(err, 'fetch')
@@ -133,16 +138,13 @@ export const useAgentStore = defineStore(
       }
     }
 
-    function applyConfigDefaults(loadedConfig, configItems = configurableItems.value) {
+    // 校正配置值类型（JSON 反序列化后数值可能变成 float64）
+    function normalizeConfigTypes(loadedConfig, configItems = configurableItems.value) {
       const items = { ...configItems }
       Object.keys(items).forEach((key) => {
         const item = items[key]?.x_oap_ui_config
           ? { ...items[key], ...items[key].x_oap_ui_config }
           : items[key]
-        const isDefaultAllList = isDefaultAllAgentResourceKind(item?.kind)
-        if (loadedConfig[key] === undefined || (loadedConfig[key] === null && !isDefaultAllList)) {
-          if (item.default !== undefined) loadedConfig[key] = item.default
-        }
         if (
           loadedConfig[key] !== undefined &&
           loadedConfig[key] !== null &&
@@ -166,7 +168,7 @@ export const useAgentStore = defineStore(
       error.value = null
       try {
         const response = await agentApi.getAgentDetail(agentId)
-        const agent = normalizeAgent(response.agent || response)
+        const agent = normalizeAgent(response?.data || response)
         agentDetails.value[agent.id] = agent
         return agent
       } catch (err) {
@@ -189,7 +191,7 @@ export const useAgentStore = defineStore(
       isLoadingConfig.value = true
       try {
         const detail = agentDetails.value[agentId] || (await fetchAgentDetail(agentId))
-        const loadedConfig = applyConfigDefaults(
+        const loadedConfig = normalizeConfigTypes(
           extractContext(detail),
           detail?.configurable_items || {}
         )
@@ -201,6 +203,16 @@ export const useAgentStore = defineStore(
       }
     }
 
+    // 离开对话页时调用：把当前选中的智能体重置回默认智能体，
+    // 避免「去对话」/「手动选择」在 SPA 路由切换后永久污染全局选中状态。
+    // 注意：已绑定会话的绑定关系存于后端 thread，不受此影响——再次打开该 thread 时会重新 selectAgent(thread.agent_id)。
+    async function selectDefaultAgent() {
+      const defaultId = getPreferredAgentId(agents.value, null)
+      if (defaultId) {
+        await selectAgent(defaultId)
+      }
+    }
+
     async function saveAgentConfig() {
       const targetAgentId = selectedAgentId.value
       if (!targetAgentId) return
@@ -208,7 +220,7 @@ export const useAgentStore = defineStore(
         const response = await agentApi.updateAgent(targetAgentId, {
           config_json: { context: agentConfig.value }
         })
-        const updated = normalizeAgent(response.agent)
+        const updated = normalizeAgent(response?.data || response)
         agentDetails.value[targetAgentId] = updated
         const index = agents.value.findIndex((item) => item.id === targetAgentId)
         if (index >= 0) agents.value.splice(index, 1, updated)
@@ -223,7 +235,10 @@ export const useAgentStore = defineStore(
 
     async function createAgent(payload) {
       const response = await agentApi.createAgent(payload)
-      const created = normalizeAgent(response.agent)
+      if (!response?.success) {
+        throw new Error(response?.message || '创建智能体失败')
+      }
+      const created = normalizeAgent(response?.data || response)
       if (created?.id) {
         agentDetails.value[created.id] = created
         agents.value = sortAgents([
@@ -237,7 +252,7 @@ export const useAgentStore = defineStore(
 
     async function updateAgentProfile(agentId, payload) {
       const response = await agentApi.updateAgent(agentId, payload)
-      const updated = normalizeAgent(response.agent)
+      const updated = normalizeAgent(response?.data || response)
       agentDetails.value[updated.id] = updated
       const index = agents.value.findIndex((item) => item.id === updated.id)
       if (index >= 0) agents.value.splice(index, 1, updated)
@@ -270,7 +285,6 @@ export const useAgentStore = defineStore(
       selectedAgentId.value = null
       availableKnowledgeBases.value = []
       availableMcps.value = []
-      availableSkills.value = []
       agentConfig.value = {}
       originalAgentConfig.value = {}
       agentDetails.value = {}
@@ -287,7 +301,6 @@ export const useAgentStore = defineStore(
       selectedAgentId,
       availableKnowledgeBases,
       availableMcps,
-      availableSkills,
       agentConfig,
       originalAgentConfig,
       agentDetails,
@@ -306,6 +319,7 @@ export const useAgentStore = defineStore(
       fetchAgentDetail,
       fetchMentionResources,
       selectAgent,
+      selectDefaultAgent,
       saveAgentConfig,
       createAgent,
       updateAgentProfile,

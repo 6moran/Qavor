@@ -5,7 +5,12 @@
         <span>最近</span>
         <ChevronDown :size="14" class="collapse-icon" :class="{ collapsed: listCollapsed }" />
       </div>
-      <div v-show="!listCollapsed" class="conversation-list">
+      <div
+        v-show="!listCollapsed"
+        ref="listRef"
+        class="conversation-list"
+        @scroll="handleListScroll"
+      >
         <template v-if="sortedChats.length > 0">
           <div
             v-for="chat in sortedChats"
@@ -18,6 +23,7 @@
             @click.middle="$emit('delete-chat', chat.id)"
           >
             <span class="conversation-title">{{ chat.title || '新的对话' }}</span>
+            <span v-if="unreadThreadIds.has(String(chat.id))" class="unread-dot"></span>
             <span class="actions-mask"></span>
             <span class="conversation-actions" @click.stop @dblclick.stop>
               <a-dropdown :trigger="['click']">
@@ -57,16 +63,7 @@
           </div>
         </template>
         <div v-else-if="!collapsed" class="empty-list">暂无对话历史</div>
-        <div v-if="hasMoreChats && !collapsed" class="load-more-wrapper">
-          <a-button
-            type="text"
-            class="load-more-btn"
-            :loading="isLoadingMore"
-            @click="$emit('load-more-chats')"
-          >
-            {{ isLoadingMore ? '加载中...' : '加载更多' }}
-          </a-button>
-        </div>
+        <div v-if="isLoadingMore" class="load-more-hint">加载中...</div>
       </div>
     </div>
   </section>
@@ -102,17 +99,18 @@ const props = defineProps({
   showHistory: {
     type: Boolean,
     default: true
+  },
+  unreadThreadIds: {
+    type: Set,
+    default: () => new Set()
   }
 })
 
-const emit = defineEmits([
-  'select-chat',
-  'delete-chat',
-  'rename-chat',
-  'toggle-pin',
-  'load-more-chats'
-])
+const emit = defineEmits(['select-chat', 'delete-chat', 'rename-chat', 'toggle-pin', 'load-more-chats'])
 
+const SCROLL_THRESHOLD = 48
+
+const listRef = ref(null)
 const listCollapsed = ref(false)
 
 const sortedChats = computed(() => {
@@ -127,8 +125,16 @@ const sortedChats = computed(() => {
   })
 })
 
+const handleListScroll = () => {
+  const el = listRef.value
+  if (!el || props.isLoadingMore || !props.hasMoreChats) return
+  const remaining = el.scrollHeight - el.scrollTop - el.clientHeight
+  if (remaining > SCROLL_THRESHOLD) return
+  emit('load-more-chats')
+}
+
 const renameChat = async (chatId) => {
-  const chat = props.chatsList.find((item) => item.id === chatId)
+  const chat = props.chatsList.find((item) => String(item.id) === String(chatId))
   if (!chat) return
 
   let newTitle = chat.title || ''
@@ -190,11 +196,11 @@ const renameChat = async (chatId) => {
     margin-top: 18px;
 
     .ant-btn {
-      min-width: 68px;
-      height: 34px;
+      min-width: 72px;
+      height: 36px;
       margin-inline-start: 0;
       border-radius: 8px;
-      font-size: 14px;
+      font-size: 15px;
     }
   }
 }
@@ -202,18 +208,19 @@ const renameChat = async (chatId) => {
 .rename-conversation-description {
   margin: 0 0 14px;
   color: var(--gray-500);
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .rename-conversation-input {
   width: 100%;
-  height: 38px;
+  height: 40px;
   padding: 0 12px;
   color: var(--gray-900);
   background: var(--gray-0);
   border: 1px solid var(--gray-150);
   border-radius: 8px;
   outline: none;
+  font-size: 15px;
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -228,6 +235,7 @@ const renameChat = async (chatId) => {
 <style lang="less" scoped>
 .conversation-nav-section {
   display: flex;
+  flex: 1;
   min-height: 0;
   flex-direction: column;
   gap: 8px;
@@ -236,10 +244,49 @@ const renameChat = async (chatId) => {
 }
 
 .conversation-title {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.unread-dot {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  transition: opacity 0.15s ease;
+
+  &::after {
+    content: '';
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ef4444;
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+    animation: unread-pulse 2s ease-in-out infinite;
+  }
+}
+
+.conversation-item:hover .unread-dot {
+  opacity: 0;
+}
+
+@keyframes unread-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 
 .history-panel {
@@ -256,10 +303,9 @@ const renameChat = async (chatId) => {
   padding: 4px 8px;
   color: var(--gray-800);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
-  border-radius: 4px;
-  transition: background-color 0.2s ease;
+  border-radius: 6px;
   gap: 4px;
 
   span {
@@ -277,18 +323,22 @@ const renameChat = async (chatId) => {
 
 .conversation-list {
   min-height: 0;
-  flex: 1;
+  max-height: calc(8 * 40px + 7 * 2px);
   overflow-y: auto;
   padding-right: 2px;
   scrollbar-width: thin;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .conversation-item {
   position: relative;
   display: flex;
   align-items: center;
+  flex-shrink: 0;
   width: 100%;
-  height: 36px;
+  height: 40px;
   padding: 0 8px;
   overflow: hidden;
   border: 1px solid transparent;
@@ -296,22 +346,19 @@ const renameChat = async (chatId) => {
   background: transparent;
   color: var(--gray-700);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   text-align: left;
   transition:
     background-color 0.2s ease,
     color 0.2s ease;
 
   &:hover {
-    background: var(--gray-50);
+    background: rgba(100, 116, 139, 0.1);
+    color: #2563b0;
 
     .actions-mask,
     .conversation-actions {
       opacity: 1;
-    }
-
-    .actions-mask {
-      background: linear-gradient(to right, transparent, var(--gray-50));
     }
 
     .more-btn {
@@ -324,20 +371,15 @@ const renameChat = async (chatId) => {
   }
 
   &.active {
-    background-color: color-mix(in srgb, var(--main-color) 8%, var(--gray-0));
-    color: var(--main-color);
+    background-color: rgba(37, 99, 176, 0.14);
+    color: #2563b0;
 
     .conversation-title {
       font-weight: 600;
     }
 
-    .actions-mask {
-      opacity: 1;
-      background: linear-gradient(
-        to right,
-        transparent,
-        color-mix(in srgb, var(--main-color) 8%, var(--gray-0)) 20px
-      );
+    &:hover {
+      background-color: rgba(37, 99, 176, 0.14);
     }
   }
 
@@ -355,7 +397,6 @@ const renameChat = async (chatId) => {
   right: 0;
   bottom: 0;
   width: 56px;
-  background: linear-gradient(to right, transparent, var(--main-5) 20px);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.2s ease;
@@ -401,17 +442,15 @@ const renameChat = async (chatId) => {
 .empty-list {
   margin-top: 16px;
   color: var(--gray-500);
-  font-size: 12px;
+  font-size: 14px;
   text-align: center;
-}
-
-.load-more-wrapper {
   padding: 8px;
-  text-align: center;
 }
 
-.load-more-btn {
-  color: var(--main-color);
-  font-size: 12px;
+.load-more-hint {
+  padding: 8px;
+  color: var(--gray-400);
+  font-size: 13px;
+  text-align: center;
 }
 </style>

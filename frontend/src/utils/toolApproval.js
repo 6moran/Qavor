@@ -1,5 +1,5 @@
 export const TOOL_APPROVAL_MODES = ['default', 'always_trust']
-export const TOOL_APPROVAL_MODE_STORAGE_KEY = 'yuxi_tool_approval_mode'
+export const TOOL_APPROVAL_MODE_STORAGE_KEY = 'qavor_tool_approval_mode'
 
 export const isToolApprovalMode = (value) => TOOL_APPROVAL_MODES.includes(value)
 

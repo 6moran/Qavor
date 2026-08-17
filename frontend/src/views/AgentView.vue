@@ -93,11 +93,7 @@
         </AgentChatComponent>
       </div>
     </div>
-    <AgentEditModal
-      ref="agentEditModalRef"
-      :backend-options="agentBackendOptions"
-      @saved="handleAgentSaved"
-    />
+    <AgentEditModal ref="agentEditModalRef" @saved="handleAgentSaved" />
   </div>
 </template>
 
@@ -106,7 +102,6 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { Settings2, ChevronDown, Check } from 'lucide-vue-next'
 import { useRoute, useRouter } from 'vue-router'
-import { agentApi } from '@/apis/agent_api'
 import { useOutsidePointerdown } from '@/composables/useOutsidePointerdown'
 import AgentChatComponent from '@/components/AgentChatComponent.vue'
 import AgentEditModal from '@/components/model-management/AgentEditModal.vue'
@@ -116,6 +111,7 @@ import { generatePixelAvatar } from '@/utils/pixelAvatar'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
 
 import { storeToRefs } from 'pinia'
+import { onBeforeRouteLeave } from 'vue-router'
 
 // 组件引用
 const chatComponentRef = ref(null)
@@ -128,6 +124,14 @@ const router = useRouter()
 
 // 从 agentStore 中获取响应式状态
 const { agents, selectedAgentId, isLoadingConfig } = storeToRefs(agentStore)
+
+// 离开对话页（切到其它路由）时，把当前选中智能体重置回默认，
+// 使「去对话」/「手动选择」仅在该次驻留对话页时生效，下次进入对话页新建会话默认用默认智能体。
+onBeforeRouteLeave(() => {
+  if (agentStore.agents?.length) {
+    void agentStore.selectDefaultAgent()
+  }
+})
 
 const syncingRouteThread = ref(false)
 
@@ -209,7 +213,7 @@ const handleThreadChange = (threadId) => {
   if (syncingRouteThread.value) return
   const currentRouteThreadId = getRouteThreadId()
   const nextThreadId = threadId || ''
-  if (currentRouteThreadId === nextThreadId) return
+  if (String(currentRouteThreadId) === String(nextThreadId)) return
 
   if (nextThreadId) {
     router.replace({ name: 'AgentCompWithThreadId', params: { thread_id: nextThreadId } })
@@ -242,18 +246,6 @@ const currentAgentLabel = computed(() => {
 const agentDropdownOpen = ref(false)
 const agentDropdownTriggerRef = ref(null)
 const agentDropdownPanelRef = ref(null)
-const agentBackendOptions = ref([])
-const agentBackendsLoaded = ref(false)
-
-const loadAgentBackends = async () => {
-  if (agentBackendsLoaded.value) return
-  const response = await agentApi.getAgentBackends()
-  agentBackendOptions.value = (response.backends || []).map((backend) => ({
-    label: backend.name || backend.backend_id,
-    value: backend.backend_id
-  }))
-  agentBackendsLoaded.value = true
-}
 
 const handleAgentSwitch = async (agentId, hasActiveThread) => {
   if (!agentId || agentId === selectedAgentId.value) return
@@ -284,7 +276,6 @@ const openAgentManagement = async () => {
     return
   }
   try {
-    await loadAgentBackends()
     await agentEditModalRef.value?.openEdit(selectedAgentId.value)
   } catch (error) {
     message.error(error.message || '打开智能体配置失败')

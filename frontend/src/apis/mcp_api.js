@@ -1,12 +1,11 @@
-import { apiGet, apiAdminGet, apiAdminPost, apiAdminPut, apiAdminDelete } from './base'
-import { USE_MOCK, mockResponse, mockMcpServers } from '@/mock'
+import { apiGet, apiPost, apiPut, apiDelete } from './base'
 
 /**
  * MCP 服务器管理 API 模块
  * 包含 MCP 服务器的增删改查和工具管理功能
  */
 
-const BASE_URL = '/api/system/mcp-servers'
+const BASE_URL = '/api/v1/mcp'
 
 // =============================================================================
 // === MCP 服务器 CRUD ===
@@ -17,10 +16,12 @@ const BASE_URL = '/api/system/mcp-servers'
  * @returns {Promise} - 服务器列表
  */
 export const getMcpServers = async () => {
-  if (USE_MOCK) {
-    return mockResponse({ data: mockMcpServers })
+  // 后端列表路由为 /mcp/list，响应为 { code, data: { list, total, ... } }
+  const result = await apiGet(`${BASE_URL}/list`)
+  if (result?.data?.list) {
+    return { success: result.code === 0, data: result.data.list, message: result.message }
   }
-  return apiGet(BASE_URL)
+  return { success: result?.code === 0, data: result?.data || [], message: result?.message }
 }
 
 /**
@@ -29,7 +30,12 @@ export const getMcpServers = async () => {
  * @returns {Promise} - 服务器配置
  */
 export const getMcpServer = async (name) => {
-  return apiAdminGet(`${BASE_URL}/${encodeURIComponent(name)}`)
+  // 后端响应为 { code, data: MCPServerResponse }
+  const result = await apiGet(`${BASE_URL}/${encodeURIComponent(name)}`)
+  if (result?.data) {
+    return { success: result.code === 0, data: result.data, message: result.message }
+  }
+  return { success: result?.code === 0, data: null, message: result?.message }
 }
 
 /**
@@ -38,7 +44,8 @@ export const getMcpServer = async (name) => {
  * @returns {Promise} - 创建结果
  */
 export const createMcpServer = async (data) => {
-  return apiAdminPost(BASE_URL, data)
+  const result = await apiPost(BASE_URL, data)
+  return { success: result?.code === 0, data: result?.data, message: result?.message }
 }
 
 /**
@@ -48,7 +55,8 @@ export const createMcpServer = async (data) => {
  * @returns {Promise} - 更新结果
  */
 export const updateMcpServer = async (name, data) => {
-  return apiAdminPut(`${BASE_URL}/${encodeURIComponent(name)}`, data)
+  const result = await apiPut(`${BASE_URL}/${encodeURIComponent(name)}`, data)
+  return { success: result?.code === 0, data: result?.data, message: result?.message }
 }
 
 /**
@@ -57,7 +65,8 @@ export const updateMcpServer = async (name, data) => {
  * @returns {Promise} - 删除结果
  */
 export const deleteMcpServer = async (name) => {
-  return apiAdminDelete(`${BASE_URL}/${encodeURIComponent(name)}`)
+  const result = await apiDelete(`${BASE_URL}/${encodeURIComponent(name)}`)
+  return { success: result?.code === 0, data: result?.data, message: result?.message }
 }
 
 // =============================================================================
@@ -70,7 +79,18 @@ export const deleteMcpServer = async (name) => {
  * @returns {Promise} - 测试结果
  */
 export const testMcpServer = async (name) => {
-  return apiAdminPost(`${BASE_URL}/${encodeURIComponent(name)}/test`, {})
+  const result = await apiPost(`${BASE_URL}/${encodeURIComponent(name)}/test`, {})
+  return { success: result?.code === 0, data: result?.data, message: result?.message }
+}
+
+/**
+ * 测试 MCP 配置连接（用于添加/编辑表单的预验证）
+ * @param {Object} data - 表单配置数据
+ * @returns {Promise} - 测试结果
+ */
+export const testMcpServerConfig = async (data) => {
+  const result = await apiPost(`${BASE_URL}/test`, data)
+  return { success: result?.code === 0, data: result?.data, message: result?.message }
 }
 
 /**
@@ -80,7 +100,10 @@ export const testMcpServer = async (name) => {
  * @returns {Promise} - 切换结果
  */
 export const updateMcpServerStatus = async (name, enabled) => {
-  return apiAdminPut(`${BASE_URL}/${encodeURIComponent(name)}/status`, { enabled })
+  // 后端使用独立的 /enable 和 /disable 端点，均为 POST 方法
+  const action = enabled ? 'enable' : 'disable'
+  const result = await apiPost(`${BASE_URL}/${encodeURIComponent(name)}/${action}`)
+  return { success: result?.code === 0, data: result?.data, message: result?.message }
 }
 
 // =============================================================================
@@ -93,7 +116,12 @@ export const updateMcpServerStatus = async (name, enabled) => {
  * @returns {Promise} - 工具列表
  */
 export const getMcpServerTools = async (name) => {
-  return apiAdminGet(`${BASE_URL}/${encodeURIComponent(name)}/tools`)
+  // 后端响应为 { code, data: { tools: [...] } }
+  const result = await apiGet(`${BASE_URL}/${encodeURIComponent(name)}/tools`)
+  if (result?.data?.tools) {
+    return { success: result.code === 0, data: result.data.tools, message: result.message }
+  }
+  return { success: result?.code === 0, data: result?.data || [], message: result?.message }
 }
 
 /**
@@ -102,7 +130,12 @@ export const getMcpServerTools = async (name) => {
  * @returns {Promise} - 刷新结果
  */
 export const refreshMcpServerTools = async (name) => {
-  return apiAdminPost(`${BASE_URL}/${encodeURIComponent(name)}/tools/refresh`, {})
+  // 后端响应为 { code, data: { tools: [...] } }
+  const result = await apiPost(`${BASE_URL}/${encodeURIComponent(name)}/tools/refresh`, {})
+  if (result?.data?.tools) {
+    return { success: result.code === 0, data: result.data.tools, message: result.message }
+  }
+  return { success: result?.code === 0, data: result?.data || [], message: result?.message }
 }
 
 /**
@@ -112,10 +145,11 @@ export const refreshMcpServerTools = async (name) => {
  * @returns {Promise} - 切换结果
  */
 export const toggleMcpServerTool = async (serverName, toolName) => {
-  return apiAdminPut(
+  const result = await apiPut(
     `${BASE_URL}/${encodeURIComponent(serverName)}/tools/${encodeURIComponent(toolName)}/toggle`,
     {}
   )
+  return { success: result?.code === 0, data: result?.data, message: result?.message }
 }
 
 export const mcpApi = {
@@ -125,6 +159,7 @@ export const mcpApi = {
   updateMcpServer,
   deleteMcpServer,
   testMcpServer,
+  testMcpServerConfig,
   updateMcpServerStatus,
   getMcpServerTools,
   refreshMcpServerTools,

@@ -22,7 +22,7 @@
       <div class="ocr-selector-dropdown" @click.stop>
         <div class="ocr-selector-header">
           <span>OCR 方法</span>
-          <button v-if="userStore.isAdmin" type="button" class="config-link" @click="goToConfig">
+          <button type="button" class="config-link" @click="goToConfig">
             去配置
           </button>
         </div>
@@ -87,7 +87,6 @@
 import { computed, inject, onMounted, ref } from 'vue'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-vue-next'
 import { ocrApi } from '@/apis/system_api'
-import { useUserStore } from '@/stores/user'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -99,7 +98,6 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'change', 'options-loaded'])
 
-const userStore = useUserStore()
 const { openSettingsModal } = inject('settingsModal', {})
 const engines = ref([])
 const health = ref({})

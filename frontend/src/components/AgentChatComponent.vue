@@ -20,19 +20,6 @@
         </div>
         <div class="header__right">
           <button
-            v-if="showStateEntry"
-            type="button"
-            class="agent-nav-btn agent-state-btn state-entry-btn"
-            :class="{ active: statePanelOpen }"
-            title="查看状态"
-            :aria-expanded="statePanelOpen"
-            aria-controls="agent-state-panel"
-            @click.stop="toggleStatePanel"
-          >
-            <LayoutList size="16" class="nav-btn-icon" />
-            <span class="hide-text">状态</span>
-          </button>
-          <button
             v-if="showFileEntry && !isFilePanelOpen"
             type="button"
             class="agent-nav-btn agent-state-btn file-entry-btn"
@@ -48,7 +35,6 @@
             name="header-right"
             :side-active="sideActive"
             :is-file-panel-open="isFilePanelOpen"
-            :is-state-panel-open="statePanelOpen"
             :has-active-thread="!!currentChatId"
             :toggle-agent-panel="toggleAgentPanel"
           ></slot>
@@ -59,9 +45,7 @@
         ref="chatContentContainerRef"
         class="chat-content-container"
         :class="{
-          'has-file-panel': isFilePanelOpen,
-          'has-state-panel': statePanelDocked,
-          'has-floating-state-panel': statePanelFloating
+          'has-file-panel': isFilePanelOpen
         }"
       >
         <!-- Main Chat Area -->
@@ -78,6 +62,7 @@
                     :message="displayItem.message"
                     :is-processing="isDisplayMessageProcessing(row.conv, displayItem)"
                     :show-refs="showMsgRefs(displayItem.message, row.conv)"
+                    :sources="getConversationSources(row.conv)"
                     :hide-tool-calls="true"
                     :mention="mentionConfig"
                     @retry="retryMessage(displayItem.message)"
@@ -95,6 +80,7 @@
                   v-if="row.artifacts.length"
                   :artifacts="row.artifacts"
                   :thread-id="currentChatId"
+                  :agent-slug="currentAgentId"
                   @saved="handleArtifactSaved"
                   @open-preview="openPanelPreview"
                 />
@@ -116,7 +102,22 @@
               </div>
             </div>
           </div>
+
+          <!-- Token 上下文容量折叠条：内嵌于输入框上方，就近使用、无遮挡 -->
+
           <div class="bottom" :class="{ 'start-screen': !conversations.length }">
+            <!-- Token 使用量：固定在输入框上方 -->
+            <div v-if="currentTokenUsage" class="token-usage-bar-wrapper">
+              <TokenUsageBar
+                :token-usage="currentTokenUsage"
+                :auto-poll="true"
+                :poll-interval="5000"
+                :fetch-token-usage="fetchTokenUsageSilently"
+                @refresh="handleTokenRefresh"
+                @clear-context="handleClearContext"
+              />
+            </div>
+
             <div class="message-input-wrapper">
               <!-- 加载状态：加载消息 -->
               <div v-if="isLoadingMessages" class="chat-loading">
@@ -243,15 +244,6 @@
                         <CornerDownRight :size="14" aria-hidden="true" />
                         引导
                       </button>
-                      <div class="input-model-selector">
-                        <ModelSelectorComponent
-                          :model_spec="currentModelSpec"
-                          size="nano"
-                          display-name="mini"
-                          placeholder="选择模型"
-                          @select-model="handleModelSelect"
-                        />
-                      </div>
                       <slot name="input-actions-right" :has-active-thread="!!currentChatId"></slot>
                     </template>
                   </AgentInputArea>
@@ -274,326 +266,6 @@
           </div>
         </div>
 
-        <div
-          id="agent-state-panel"
-          class="side-panel side-panel--state"
-          :class="{
-            'is-visible': statePanelOpen,
-            'is-docked': statePanelDocked,
-            'is-floating': statePanelFloating
-          }"
-          :style="{
-            flexBasis: statePanelDocked ? `${statePanelDockWidth}px` : '0px'
-          }"
-        >
-          <div v-if="statePanelOpen" class="state-panel">
-            <div class="side-panel__header state-panel-header">
-              <span class="state-panel-title">状态</span>
-              <div class="state-panel-header-actions">
-                <button
-                  type="button"
-                  class="state-refresh-btn"
-                  title="刷新状态"
-                  :disabled="isRefreshingState"
-                  @click.stop="handleAgentStateRefresh()"
-                >
-                  <RefreshCw :size="14" :class="{ 'is-spinning': isRefreshingState }" />
-                </button>
-              </div>
-            </div>
-
-            <div class="state-panel-body">
-              <section
-                v-if="currentTokenUsage"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('tokenUsage') }"
-                aria-label="上下文使用情况"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('tokenUsage')"
-                  aria-controls="state-section-token-usage"
-                  @click="toggleStateSection('tokenUsage')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">上下文使用</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('tokenUsage') }"
-                    />
-                  </span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('tokenUsage')"
-                  id="state-section-token-usage"
-                  class="state-section-content"
-                >
-                  <div class="token-usage-content">
-                    <div class="token-usage-stack">
-                      <div class="token-usage-stack-head">
-                        <span>{{ tokenUsageHeaderPercentLabel }}</span>
-                        <strong>{{ tokenUsageStackHeadLabel }}</strong>
-                      </div>
-                      <div class="token-usage-stack-track" aria-label="Token 构成">
-                        <div
-                          v-for="segment in tokenUsageBarSegments"
-                          :key="segment.key"
-                          class="token-usage-stack-segment"
-                          :class="segment.tone"
-                          :style="{ width: segment.percent }"
-                          :title="`${segment.label}: ${segment.valueLabel}`"
-                        ></div>
-                      </div>
-                      <div class="token-usage-stack-legend">
-                        <span
-                          v-for="segment in tokenUsageSegments"
-                          :key="segment.key"
-                          class="token-usage-stack-legend-item"
-                        >
-                          <i :class="segment.tone"></i>
-                          {{ segment.label }} {{ segment.valueLabel }}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div v-if="tokenUsageMetaRows.length" class="token-usage-breakdown">
-                      <div
-                        v-for="item in tokenUsageMetaRows"
-                        :key="item.key"
-                        class="token-usage-breakdown-row"
-                      >
-                        <span>{{ item.label }}</span>
-                        <strong>{{ item.value }}</strong>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentTodos.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('todos') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('todos')"
-                  aria-controls="state-section-todos"
-                  @click="toggleStateSection('todos')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">待办</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('todos') }"
-                    />
-                  </span>
-                  <span v-if="totalTodoCount" class="state-section-meta">
-                    {{ completedTodoCount }}/{{ totalTodoCount }}
-                  </span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('todos')"
-                  id="state-section-todos"
-                  class="state-section-content"
-                >
-                  <div class="todo-panel-list">
-                    <div
-                      v-for="(todo, index) in currentTodos"
-                      :key="`${todo.fullContent}-${index}`"
-                      class="todo-item"
-                      :class="{ completed: todo.status === 'completed' }"
-                    >
-                      <div class="todo-item-icon" :class="todo.status || 'unknown'">
-                        <CheckCircleOutlined v-if="todo.status === 'completed'" />
-                        <SyncOutlined v-else-if="todo.status === 'in_progress'" spin />
-                        <ClockCircleOutlined v-else-if="todo.status === 'pending'" />
-                        <CloseCircleOutlined v-else-if="todo.status === 'cancelled'" />
-                        <QuestionCircleOutlined v-else />
-                      </div>
-                      <div class="todo-item-body">
-                        <span class="todo-item-text" :title="todo.fullContent">
-                          {{ todo.displayContent }}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentStateFiles.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('files') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('files')"
-                  aria-controls="state-section-files"
-                  @click="toggleStateSection('files')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">附件/文件</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('files') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ currentStateFiles.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('files')"
-                  id="state-section-files"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <div v-for="file in currentStateFiles" :key="file.key" class="state-list-item">
-                      <FileTypeIcon
-                        :name="file.name || file.path"
-                        :size="18"
-                        class="state-list-item-icon"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title">{{ file.name }}</div>
-                        <div class="state-list-item-meta">{{ file.meta || file.path }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="currentArtifactFiles.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('artifacts') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('artifacts')"
-                  aria-controls="state-section-artifacts"
-                  @click="toggleStateSection('artifacts')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">产物</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('artifacts') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ currentArtifactFiles.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('artifacts')"
-                  id="state-section-artifacts"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <button
-                      v-for="file in currentArtifactFiles"
-                      :key="file.path"
-                      type="button"
-                      class="state-list-item state-list-item--button"
-                      :title="`打开 ${file.name}`"
-                      @click="openPanelPreview(file)"
-                    >
-                      <FileTypeIcon
-                        :name="file.name || file.path"
-                        :size="18"
-                        class="state-list-item-icon"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title">{{ file.name }}</div>
-                        <div class="state-list-item-meta">{{ file.meta }}</div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              <section
-                v-if="displaySubagentRuns.length"
-                class="state-section"
-                :class="{ 'is-collapsed': !isStateSectionExpanded('subagents') }"
-              >
-                <button
-                  type="button"
-                  class="state-section-header"
-                  :aria-expanded="isStateSectionExpanded('subagents')"
-                  aria-controls="state-section-subagents"
-                  @click="toggleStateSection('subagents')"
-                >
-                  <span class="state-section-label">
-                    <span class="state-section-title">子智能体</span>
-                    <ChevronDown
-                      :size="15"
-                      class="state-section-chevron"
-                      :class="{ 'is-collapsed': !isStateSectionExpanded('subagents') }"
-                    />
-                  </span>
-                  <span class="state-section-meta">{{ displaySubagentRuns.length }}</span>
-                </button>
-                <div
-                  v-show="isStateSectionExpanded('subagents')"
-                  id="state-section-subagents"
-                  class="state-section-content"
-                >
-                  <div class="state-list">
-                    <div
-                      v-for="(run, index) in displaySubagentRuns"
-                      :key="run.id || `${run.subagent_slug || 'subagent'}-${index}`"
-                      class="state-list-item"
-                      :class="{ 'is-clickable': run.child_thread_id }"
-                      @click="run.child_thread_id && openSubagentThread(run)"
-                    >
-                      <FallbackAvatar
-                        class="state-subagent-icon"
-                        :src="getSubagentIconSrc(run)"
-                        :default-src="getSubagentDefaultIconSrc(run)"
-                        :name="getSubagentRunName(run)"
-                        :seed="run.subagent_slug || getSubagentRunName(run)"
-                        kind="agent"
-                        :size="28"
-                        shape="rounded"
-                        :alt="`${getSubagentRunName(run)}图标`"
-                      />
-                      <div class="state-list-item-body">
-                        <div class="state-list-item-title state-subagent-title">
-                          <span>{{ getSubagentRunName(run) }}</span>
-                          <CheckCircleOutlined
-                            v-if="run.status === 'completed'"
-                            class="state-subagent-status-icon state-subagent-completed-icon"
-                          />
-                          <CloseCircleOutlined
-                            v-else-if="run.status === 'failed'"
-                            class="state-subagent-status-icon state-subagent-failed-icon"
-                          />
-                          <SyncOutlined
-                            v-else-if="run.status === 'running'"
-                            spin
-                            class="state-subagent-status-icon state-subagent-running-icon"
-                          />
-                        </div>
-                        <div class="state-list-item-meta">
-                          {{ run.description || getSubagentRunMeta(run) }}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <div v-if="!hasVisibleStateSections" class="state-panel-empty">暂无状态内容</div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div
@@ -658,27 +330,14 @@ import {
 } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import {
-  ChevronDown,
   CornerDownRight,
   FolderKanban,
-  LayoutList,
   Play,
-  RefreshCw,
   Trash2
 } from 'lucide-vue-next'
-import { formatFileSize } from '@/utils/file_utils'
-import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
-import {
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  CloseCircleOutlined,
-  QuestionCircleOutlined,
-  SyncOutlined
-} from '@ant-design/icons-vue'
 import AgentInputArea from '@/components/AgentInputArea.vue'
 import ToolApprovalModeSelector from '@/components/ToolApprovalModeSelector.vue'
-import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import AgentMessageComponent from '@/components/AgentMessageComponent.vue'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
 import { handleChatError, handleValidationError } from '@/utils/errorHandler'
@@ -703,7 +362,7 @@ import AgentArtifactsCard from '@/components/AgentArtifactsCard.vue'
 import AgentPanel from '@/components/AgentPanel.vue'
 import AttachmentTmpUploadModal from '@/components/AttachmentTmpUploadModal.vue'
 import SubagentThreadModal from '@/components/SubagentThreadModal.vue'
-import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
+import TokenUsageBar from '@/components/TokenUsageBar.vue'
 import { enrichTaskToolCalls, parseToolCallArgs } from '@/components/ToolCallingResult/toolRegistry'
 import { getConversationDisplayItems } from '@/utils/messageGrouping'
 import { makeChildThreadId } from '@/utils/subagentThread'
@@ -731,6 +390,10 @@ const configStore = useConfigStore()
 const { agents, selectedAgentId, agentConfig, configurableItems, availableKnowledgeBases } =
   storeToRefs(agentStore)
 const { threads, currentThreadId, currentThread } = storeToRefs(chatThreadsStore)
+
+// ==================== SSE STREAM ====================
+// 主聊天流式已切换到 Run 架构（useAgentRunStream.startNewRun），
+// 旧的 /api/v1/sse/connect 长连接 + /api/v1/chat/stream 通道已废弃。
 
 // ==================== LOCAL CHAT & UI STATE ====================
 const userInput = ref('')
@@ -788,13 +451,6 @@ const attachmentUploadModalOpen = ref(false)
 const attachmentInitialFiles = ref([])
 const attachmentInitialFilesKey = ref(0)
 const isRefreshingState = ref(false)
-const collapsedStateSections = reactive({
-  tokenUsage: false,
-  todos: false,
-  files: false,
-  artifacts: false,
-  subagents: false
-})
 const threadConfigNoticeMap = ref({})
 const threadPendingConfigNoticeMap = ref({})
 const threadConfigSnapshotMap = ref({})
@@ -809,10 +465,8 @@ const localUIState = reactive({
 
 // Agent Panel State
 const isFilePanelOpen = ref(false)
-const statePanelOpen = ref(false)
 const sideActive = computed(() => {
   if (isFilePanelOpen.value) return 'file'
-  if (statePanelOpen.value) return 'state'
   return ''
 })
 const isResizing = ref(false)
@@ -823,8 +477,6 @@ const maxPanelRatio = 0.75
 const minChatMainWidth = 350
 const filePanelGapWidth = 0
 const mobilePanelBreakpoint = 768
-const statePanelDockWidth = 340
-const statePanelDockMinChatWidth = 800
 const panelRatio = ref(defaultPanelRatio) // 面板宽度比例 (0-1)
 const filePanelDragWidth = ref(null)
 const agentPanelPreviewTabs = ref([])
@@ -832,17 +484,10 @@ const agentPanelActivePreviewPath = ref('')
 const agentPanelViewMode = ref('tree')
 const chatContentContainerRef = ref(null)
 const panelWrapperRef = ref(null) // 直接操作 DOM
-const TODO_NAME_MAX_LENGTH = 20
 let resizeStartX = 0
 let resizeStartWidth = 0
 let panelContainerWidth = 0
 let streamingStateRefreshTimer = null
-
-const formatTodoName = (content) => {
-  return Array.from(String(content || ''))
-    .slice(0, TODO_NAME_MAX_LENGTH)
-    .join('')
-}
 
 const getPanelContainerWidth = () => {
   const container = chatContentContainerRef.value || panelWrapperRef.value?.parentElement
@@ -885,14 +530,6 @@ const filePanelWidthStyle = computed(() => {
   return `${Math.max(minWidth, Math.min(preferredWidth, maxWidth))}px`
 })
 
-const statePanelCanDock = computed(() => {
-  if (isFilePanelOpen.value) return false
-  const containerWidth = localUIState.chatContentWidth || getPanelContainerWidth()
-  return containerWidth - statePanelDockWidth > statePanelDockMinChatWidth
-})
-const statePanelDocked = computed(() => statePanelOpen.value && statePanelCanDock.value)
-const statePanelFloating = computed(() => statePanelOpen.value && !statePanelDocked.value)
-
 const setPanelRatioForViewMode = () => {
   const hasPreview = Boolean(agentPanelActivePreviewPath.value)
   panelRatio.value = clampPanelRatio(hasPreview ? previewPanelRatio : defaultPanelRatio)
@@ -900,7 +537,6 @@ const setPanelRatioForViewMode = () => {
 
 const showFilePanel = (mode = 'tree') => {
   isFilePanelOpen.value = true
-  statePanelOpen.value = false
   agentPanelViewMode.value =
     mode === 'preview' && agentPanelActivePreviewPath.value ? 'preview' : 'tree'
   setPanelRatioForViewMode()
@@ -908,7 +544,6 @@ const showFilePanel = (mode = 'tree') => {
 
 const showFileTreePanel = () => {
   isFilePanelOpen.value = true
-  statePanelOpen.value = false
   agentPanelActivePreviewPath.value = ''
   agentPanelViewMode.value = 'tree'
   setPanelRatioForViewMode()
@@ -918,13 +553,6 @@ const getPanelFileName = (file) => {
   if (file?.name) return file.name
   if (file?.path) return String(file.path).split('/').pop() || String(file.path)
   return '未知文件'
-}
-
-const getArtifactMetaLabel = (path) => {
-  const filename = getPanelFileName({ path })
-  if (!filename.includes('.')) return '交付文件'
-  const extension = filename.split('.').pop()
-  return extension ? `交付文件 · ${extension.toUpperCase()}` : '交付文件'
 }
 
 const getSubagentRunName = (run) => {
@@ -948,11 +576,6 @@ const getSubagentIconSrc = (run) => {
 const getSubagentDefaultIconSrc = (run) =>
   run?.subagent_slug ? generatePixelAvatar(run.subagent_slug) : ''
 
-const getSubagentRunMeta = (run) => {
-  const artifacts = Array.isArray(run?.artifacts) ? run.artifacts.length : 0
-  return artifacts ? `${artifacts} 个产物` : run?.id || ''
-}
-
 const normalizePanelPath = (path) => String(path || '').replace(/\/+$/, '')
 
 const isSameOrChildPanelPath = (path, targetPath) => {
@@ -966,7 +589,6 @@ const isSameOrChildPanelPath = (path, targetPath) => {
 
 const resetAgentPanelState = () => {
   isFilePanelOpen.value = false
-  statePanelOpen.value = false
   panelRatio.value = defaultPanelRatio
   agentPanelPreviewTabs.value = []
   agentPanelActivePreviewPath.value = ''
@@ -1063,26 +685,6 @@ const currentChatId = computed(() => currentThreadId.value)
 const DRAFT_MODEL_KEY = '__draft__'
 const selectedModelByThread = reactive({})
 const savedToolApprovalMode = ref(readToolApprovalModePreference())
-const agentDefaultModel = computed(
-  () =>
-    agentConfig.value?.model ||
-    currentAgent.value?.config_json?.context?.model ||
-    configStore.config?.default_model ||
-    ''
-)
-const currentModelSpec = computed(
-  () => selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] || agentDefaultModel.value
-)
-const handleModelSelect = (spec) => {
-  if (typeof spec === 'string') {
-    if (spec) {
-      selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY] = spec
-    } else {
-      delete selectedModelByThread[currentChatId.value || DRAFT_MODEL_KEY]
-    }
-  }
-}
-
 const configuredAgentToolApprovalMode = computed(() => {
   const configJson = currentAgent.value?.config_json
   return configJson?.context?.tool_approval_mode || configJson?.tool_approval_mode || null
@@ -1144,179 +746,9 @@ const supportsFiles = computed(() => {
 const currentAgentState = computed(() => {
   return currentChatId.value ? getThreadState(currentChatId.value)?.agentState || null : null
 })
-const toFiniteNumber = (value) => {
-  const numeric = Number(value)
-  return Number.isFinite(numeric) ? numeric : null
-}
-const TOKEN_COUNT_K_UNIT = 1024
-const formatTokenCount = (value) => {
-  const numeric = toFiniteNumber(value)
-  if (numeric === null) return '-'
-  if (numeric >= TOKEN_COUNT_K_UNIT) {
-    const digits = numeric >= TOKEN_COUNT_K_UNIT * 10 ? 1 : 2
-    return `${(numeric / TOKEN_COUNT_K_UNIT).toFixed(digits).replace(/\.0+$/, '')}k`
-  }
-  return String(Math.round(numeric))
-}
 const currentTokenUsage = computed(() => {
   const usage = currentAgentState.value?.token_usage
   return usage && typeof usage === 'object' && !Array.isArray(usage) ? usage : null
-})
-const tokenUsageSegments = computed(() => {
-  const usage = currentTokenUsage.value
-  if (!usage) return []
-
-  const summaryTokens = usage.summary_active
-    ? Math.max(toFiniteNumber(usage.summary_message_tokens) || 0, 0)
-    : 0
-  const llmMessageTokens = Math.max(toFiniteNumber(usage.llm_messages_tokens) || 0, 0)
-  const hasSplitMessageTokens =
-    toFiniteNumber(usage.llm_content_message_tokens) !== null ||
-    toFiniteNumber(usage.llm_tool_message_tokens) !== null
-  const contentMessageTokens = hasSplitMessageTokens
-    ? Math.max(toFiniteNumber(usage.llm_content_message_tokens) || 0, 0)
-    : Math.max(llmMessageTokens - summaryTokens, 0)
-  const toolMessageTokens = Math.max(toFiniteNumber(usage.llm_tool_message_tokens) || 0, 0)
-  const stateMessageTokensBeforeCall = Math.max(
-    toFiniteNumber(usage.state_messages_tokens_before_call ?? usage.state_messages_tokens) || 0,
-    0
-  )
-  const cutMessageTokens = Math.max(stateMessageTokensBeforeCall - llmMessageTokens, 0)
-  const llmMessageCount = Math.max(toFiniteNumber(usage.llm_message_count) || 0, 0)
-  const contentMessageCount = hasSplitMessageTokens
-    ? Math.max(toFiniteNumber(usage.llm_content_message_count) || 0, 0)
-    : Math.max(llmMessageCount - (usage.summary_active ? 1 : 0), 0)
-  const toolMessageCount = Math.max(toFiniteNumber(usage.llm_tool_message_count) || 0, 0)
-  const stateMessageCountBeforeCall = Math.max(
-    toFiniteNumber(usage.state_message_count_before_call ?? usage.state_message_count) || 0,
-    0
-  )
-  const cutMessageCount = Math.max(stateMessageCountBeforeCall - llmMessageCount, 0)
-  const systemTokens = Math.max(toFiniteNumber(usage.system_tokens) || 0, 0)
-  const toolsTokens = Math.max(toFiniteNumber(usage.tools_tokens) || 0, 0)
-  const inputTokens = Math.max(toFiniteNumber(usage.llm_input_tokens) || 0, 0)
-  const rawSegments = [
-    {
-      key: 'system',
-      label: '系统提示',
-      value: systemTokens,
-      tone: 'is-system'
-    },
-    {
-      key: 'tools',
-      label: `工具定义 (${usage.tool_count || 0})`,
-      value: toolsTokens,
-      tone: 'is-tools'
-    },
-    {
-      key: 'messages',
-      label: '内容消息',
-      value: contentMessageTokens,
-      messageCount: contentMessageCount,
-      tone: 'is-messages'
-    },
-    {
-      key: 'toolMessages',
-      label: '工具消息',
-      value: toolMessageTokens,
-      messageCount: toolMessageCount,
-      tone: 'is-tool-messages'
-    },
-    {
-      key: 'summary',
-      label: '摘要',
-      value: summaryTokens,
-      messageCount: usage.summary_active ? 1 : 0,
-      tone: 'is-summary'
-    },
-    {
-      key: 'cut',
-      label: '已压缩',
-      value: cutMessageTokens,
-      messageCount: cutMessageCount,
-      tone: 'is-cut'
-    }
-  ].filter((segment) => segment.value > 0)
-
-  const accountedInputTokens = llmMessageTokens + systemTokens + toolsTokens
-  if (inputTokens > accountedInputTokens) {
-    rawSegments.push({
-      key: 'overhead',
-      label: '其他',
-      value: inputTokens - accountedInputTokens,
-      tone: 'is-overhead'
-    })
-  }
-
-  const segmentTotal = rawSegments.reduce((sum, segment) => sum + segment.value, 0)
-  const total = Math.max(cutMessageTokens + inputTokens, segmentTotal, 1)
-  return rawSegments.map((segment) => {
-    const ratio = segment.value / total
-    return {
-      ...segment,
-      percent: `${Math.max(0, Math.min(ratio * 100, 100)).toFixed(2)}%`,
-      valueLabel: segment.messageCount
-        ? `${formatTokenCount(segment.value)} (${segment.messageCount}条)`
-        : formatTokenCount(segment.value)
-    }
-  })
-})
-const tokenUsageStackTotal = computed(() => {
-  const inputTokens = toFiniteNumber(currentTokenUsage.value?.llm_input_tokens)
-  if (inputTokens !== null) return Math.max(inputTokens, 0)
-  return tokenUsageSegments.value
-    .filter((segment) => segment.key !== 'cut')
-    .reduce((sum, segment) => sum + segment.value, 0)
-})
-const tokenUsageStackLimit = computed(() => {
-  const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
-  if (summaryTriggerTokens && summaryTriggerTokens > 0) return summaryTriggerTokens
-
-  const contextWindow = toFiniteNumber(currentTokenUsage.value?.context_window)
-  if (contextWindow && contextWindow > 0) return contextWindow
-
-  return Math.max(tokenUsageStackTotal.value, 1)
-})
-const tokenUsageHeaderPercentLabel = computed(() => {
-  const limit = Math.max(tokenUsageStackLimit.value, 1)
-  const percent = Math.max(0, Math.min((tokenUsageStackTotal.value / limit) * 100, 100))
-  if (percent > 0 && percent < 1) return '<1%'
-  return `${Math.round(percent)}%`
-})
-const tokenUsageStackHeadLabel = computed(() => {
-  const summaryTriggerTokens = toFiniteNumber(currentTokenUsage.value?.summary_trigger_tokens)
-  if (summaryTriggerTokens && summaryTriggerTokens > 0) {
-    return `${formatTokenCount(tokenUsageStackTotal.value)} / ${formatTokenCount(summaryTriggerTokens)} Token`
-  }
-  return `${formatTokenCount(tokenUsageStackTotal.value)} Token`
-})
-const tokenUsageBarSegments = computed(() => {
-  const limit = Math.max(tokenUsageStackLimit.value, 1)
-  let remaining = limit
-  return tokenUsageSegments.value
-    .filter((segment) => segment.key !== 'cut')
-    .map((segment) => {
-      const value = Math.min(segment.value, Math.max(remaining, 0))
-      remaining -= value
-      return {
-        ...segment,
-        percent: `${Math.max(0, Math.min((value / limit) * 100, 100)).toFixed(2)}%`
-      }
-    })
-    .filter((segment) => segment.value > 0 && segment.percent !== '0.00%')
-})
-const tokenUsageMetaRows = computed(() => {
-  const usage = currentTokenUsage.value
-  if (!usage) return []
-  const rows = []
-  if (toFiniteNumber(usage.context_window)) {
-    rows.push({
-      key: 'context',
-      label: '窗口/剩余',
-      value: `${formatTokenCount(usage.context_window)} / ${formatTokenCount(usage.remaining_context_tokens)}`
-    })
-  }
-  return rows
 })
 const currentThreadAttachments = computed(() => {
   if (!currentChatId.value) return []
@@ -1325,32 +757,6 @@ const currentThreadAttachments = computed(() => {
 const currentPendingThreadAttachments = computed(() =>
   currentThreadAttachments.value.filter((attachment) => !attachment?.request_id)
 )
-const currentArtifacts = computed(() => {
-  const artifacts = currentAgentState.value?.artifacts
-  return Array.isArray(artifacts) ? artifacts : []
-})
-const currentArtifactFiles = computed(() =>
-  currentArtifacts.value
-    .map((path) => String(path || '').trim())
-    .filter(Boolean)
-    .map((path) => ({
-      path,
-      name: getPanelFileName({ path }),
-      meta: getArtifactMetaLabel(path)
-    }))
-)
-const currentTodos = computed(() => {
-  const todos = currentAgentState.value?.todos
-  if (!Array.isArray(todos)) return []
-  return todos.map((todo) => {
-    const fullContent = String(todo?.content || '')
-    return {
-      ...todo,
-      fullContent,
-      displayContent: formatTodoName(fullContent)
-    }
-  })
-})
 const currentSubagentRuns = computed(() => {
   const runs = currentAgentState.value?.subagent_runs
   return Array.isArray(runs) ? runs : []
@@ -1387,60 +793,7 @@ const subagentThreadModal = reactive({
   subagentAvatar: '',
   subagentDefaultAvatar: ''
 })
-const openSubagentThread = (run) => {
-  if (!run?.child_thread_id) return
-  subagentThreadModal.childThreadId = String(run.child_thread_id)
-  subagentThreadModal.runId = run.run_id ? String(run.run_id) : ''
-  subagentThreadModal.runStatus = run.status ? String(run.status) : ''
-  subagentThreadModal.subagentName = getSubagentRunName(run)
-  subagentThreadModal.subagentAvatar = getSubagentIconSrc(run)
-  subagentThreadModal.subagentDefaultAvatar = getSubagentDefaultIconSrc(run)
-  subagentThreadModal.open = true
-}
-const isStateSectionExpanded = (key) => !collapsedStateSections[key]
-const toggleStateSection = (key) => {
-  collapsedStateSections[key] = !collapsedStateSections[key]
-}
-const currentStateFiles = computed(() => {
-  const files = []
-  const seenPaths = new Set()
-  const pushFile = (entry, fallbackName = '文件') => {
-    const path = String(entry?.path || entry?.file_path || entry?.file_name || entry?.name || '')
-    if (!path || seenPaths.has(path)) return
-    seenPaths.add(path)
-    const name = entry?.file_name || entry?.name || getPanelFileName({ path }) || fallbackName
-    const sizeLabel = formatFileSize(entry?.file_size ?? entry?.size)
-    const status = entry?.status || ''
-    files.push({
-      key: path,
-      path,
-      name,
-      meta: [status, sizeLabel === '-' ? '' : sizeLabel, path].filter(Boolean).join(' · ')
-    })
-  }
-
-  const rawFiles = currentAgentState.value?.files || {}
-  if (typeof rawFiles === 'object' && !Array.isArray(rawFiles)) {
-    Object.entries(rawFiles).forEach(([path, fileData]) => pushFile({ path, ...fileData }))
-  }
-  currentThreadAttachments.value.forEach((attachment) => pushFile(attachment, '附件'))
-
-  return files
-})
-const totalTodoCount = computed(() => currentTodos.value.length)
-const completedTodoCount = computed(
-  () => currentTodos.value.filter((todo) => todo?.status === 'completed').length
-)
-const showStateEntry = computed(() => Boolean(currentChatId.value))
 const showFileEntry = computed(() => Boolean(currentChatId.value))
-const hasVisibleStateSections = computed(
-  () =>
-    Boolean(currentTokenUsage.value) ||
-    currentTodos.value.length > 0 ||
-    currentStateFiles.value.length > 0 ||
-    currentArtifactFiles.value.length > 0 ||
-    displaySubagentRuns.value.length > 0
-)
 
 const { mentionConfig } = useAgentMentionConfig({
   currentAgentState,
@@ -1465,9 +818,12 @@ const currentApprovalModalVisible = computed(
 const currentApprovalQuestions = computed(() =>
   currentApprovalModalVisible.value ? approvalState.questions : []
 )
-const currentToolApprovalVisible = computed(
-  () => currentApprovalModalVisible.value && approvalState.kind === 'tool_approval'
-)
+// 只要"等用户决策"的弹窗可见就让输入区让位（触发 `.has-tool-approval` grid 重叠，
+// 让弹窗覆盖输入对话框，并把输入框置 inert/disabled），不区分 kind：
+// - tool_approval：执行命令/写文件前的人工审批
+// - question：Agent 中途向用户提问（AskUserQuestion）
+// 历史上仅限 tool_approval，会导致提问弹窗夹在进度条和输入框之间。
+const currentToolApprovalVisible = computed(() => currentApprovalModalVisible.value)
 
 const shouldSuppressRefsForApproval = () =>
   currentApprovalModalVisible.value ||
@@ -1489,16 +845,6 @@ const isConversationSettled = (conv) => {
   }
   return !(isProcessing.value || isReplyLoading.value)
 }
-
-// 计算是否显示Refs组件的条件
-const shouldShowRefs = computed(() => {
-  return (conv) => {
-    if (!getLastMessage(conv) || conv.status === 'streaming' || shouldSuppressRefsForApproval()) {
-      return false
-    }
-    return isConversationSettled(conv)
-  }
-})
 
 // 当前线程状态的computed属性
 const currentThreadState = computed(() => {
@@ -1924,7 +1270,7 @@ const canCancelQueuedRequest = (request) =>
   request?.queue_policy !== 'steer' ||
   (!isStreaming.value && currentQueueSnapshot.value.status !== 'running')
 const shouldRefreshStateWhileStreaming = computed(
-  () => Boolean(currentChatId.value) && isStreaming.value && statePanelOpen.value
+  () => Boolean(currentChatId.value) && isStreaming.value && isFilePanelOpen.value
 )
 const isProcessing = computed(
   () =>
@@ -1980,6 +1326,7 @@ const buildOptimisticHumanMessage = ({
     type: 'human',
     content: text,
     message_type: imageContent ? 'multimodal_image' : 'text',
+    request_id: requestId,
     extra_metadata: {
       request_id: requestId,
       attachments
@@ -2378,8 +1725,8 @@ const fetchAgentState = async (agentId, threadId) => {
     const targetState = getThreadState(threadId)
     if (!targetState) return
     targetState.agentState = res.agent_state || null
-  } catch {
-    // agent state is optional UI state
+  } catch (e) {
+    console.warn('[fetchAgentState] Failed to fetch agent state:', threadId, e)
   }
 }
 
@@ -2477,7 +1824,7 @@ const { handleStreamChunk } = useAgentStreamHandler({
   supportsFiles,
   streamSmoother
 })
-const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = useAgentRunStream({
+const { startRunStream, startNewRun, resumeActiveRunForThread, stopRunStreamSubscription } = useAgentRunStream({
   getThreadState,
   currentAgentId,
   handleStreamChunk,
@@ -2495,6 +1842,8 @@ const { startRunStream, resumeActiveRunForThread, stopRunStreamSubscription } = 
       hideApprovalState()
     }
     void resumeQueuedRequestsForThread(threadId)
+    // 后台会话任务结束时标记未读（当前会话不标记）
+    chatThreadsStore.markThreadUnread(threadId)
   }
 })
 const {
@@ -2540,7 +1889,7 @@ const handleSteerQueuedRequest = async (requestId) => {
 const handleContinueQueue = async () => {
   const threadId = currentChatId.value
   const agentSlug =
-    threads.value.find((thread) => thread.id === threadId)?.agent_id || currentAgentId.value
+    threads.value.find((thread) => String(thread.id) === String(threadId))?.agent_id || currentAgentId.value
   if (!threadId || !agentSlug || currentThreadState.value?.continueQueueInFlight) return
 
   if (await continueQueue(threadId, agentSlug)) {
@@ -2551,7 +1900,7 @@ const handleContinueQueue = async () => {
 const resumeQueuedRequestsForThread = async (threadId) => {
   const ts = getThreadState(threadId)
   if (!ts) return
-  const agentSlug = threads.value.find((t) => t.id === threadId)?.agent_id || currentAgentId.value
+  const agentSlug = threads.value.find((t) => String(t.id) === String(threadId))?.agent_id || currentAgentId.value
   if (!agentSlug) return
   await syncQueuedRequests(threadId, agentSlug)
   if (ts.queuedRequests && ts.queuedRequests.length > 0) {
@@ -2588,7 +1937,7 @@ const getFirstNonPinnedChat = (chatList) => {
 }
 
 const selectChat = async (chatId) => {
-  const targetChat = threads.value.find((chat) => chat.id === chatId) || null
+  const targetChat = threads.value.find((chat) => String(chat.id) === String(chatId)) || null
   const targetAgentId = targetChat?.agent_id || currentAgentId.value
   const previousThreadId = chatState.currentThreadId
 
@@ -2601,14 +1950,18 @@ const selectChat = async (chatId) => {
     return
 
   // 中断之前线程的流式输出（如果存在）
-  if (previousThreadId && previousThreadId !== chatId) {
+  if (previousThreadId && String(previousThreadId) !== String(chatId)) {
     stopThreadStream(previousThreadId)
     stopRunStreamSubscription(previousThreadId)
     stopAllRequestStreams(previousThreadId)
   }
 
-  if (previousThreadId !== chatId) {
+  if (String(previousThreadId) !== String(chatId)) {
     resetAgentPanelState()
+    // 清除目标线程的旧 onGoingConv（乐观消息/流式分片），防止切回后
+    // 与服务器历史消息重复渲染。若 Run 仍在运行，resumeActiveRunForThread
+    // 会重建 SSE 流并重新填充 onGoingConv。
+    resetOnGoingConv(chatId, { preserveRunStream: true })
   }
 
   try {
@@ -2635,6 +1988,8 @@ const selectChat = async (chatId) => {
   chatUIStore.isLoadingMessages = true
   try {
     await fetchThreadMessages({ agentId: targetAgentId, threadId: chatId })
+    // 切换到该会话后清除未读标记
+    chatThreadsStore.clearThreadUnread(chatId)
   } catch (error) {
     handleChatError(error, 'load')
   } finally {
@@ -2669,15 +2024,15 @@ const selectThreadFromRoute = async (threadId) => {
     return true
   }
 
-  if (chatState.currentThreadId === threadId) {
+  if (String(chatState.currentThreadId) === String(threadId)) {
     return true
   }
 
-  if (!threads.value.length || !threads.value.find((thread) => thread.id === threadId)) {
+  if (!threads.value.length || !threads.value.find((thread) => String(thread.id) === String(threadId))) {
     await loadChatsList()
   }
 
-  const targetThread = threads.value.find((thread) => thread.id === threadId)
+  const targetThread = threads.value.find((thread) => String(thread.id) === String(threadId))
   if (!targetThread) {
     return false
   }
@@ -2740,7 +2095,8 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
         try {
           const generatedTitle = await agentApi.generateTitle(
             autoTitle,
-            configStore.config?.fast_model
+            configStore.config?.fast_model,
+            currentAgentId.value
           )
           if (generatedTitle) {
             const finalTitle = generatedTitle.slice(0, 30).replace(/\s+/g, ' ').trim()
@@ -2773,41 +2129,25 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
   }
 
   try {
-    const runResp = await agentApi.createAgentRun({
+    // 通过 POST /api/v1/agent/runs 创建 Run 并直接接收 SSE 流
+    // runId 从首个 metadata 事件提取，AI 消息占位符由 handleStreamChunk 的 loading/init 状态驱动
+    await startNewRun(threadId, {
+      thread_id: threadId,
       query: text,
       agent_slug: currentAgentId.value,
-      thread_id: threadId,
       meta: {
         request_id: requestId,
-        attachment_file_ids: pendingAttachmentFileIds
+        model_spec: modelSpec,
+        tool_approval_mode: toolApprovalMode || null,
+        attachment_file_ids: pendingAttachmentFileIds,
+        image_content: imageContent
       },
       image_content: imageContent,
       model_spec: modelSpec,
-      tool_approval_mode: toolApprovalMode,
+      tool_approval_mode: toolApprovalMode || null,
       queue_policy: queuePolicy
     })
-    const status = runResp?.status
-    const runId = runResp?.run_id
-    if (status === 'queued' || (!runId && status !== 'rejected')) {
-      threadState.queuedRequests = threadState.queuedRequests || []
-      threadState.queuedRequests.push({
-        request_id: requestId,
-        status: 'queued',
-        queue_policy: runResp?.queue_policy || queuePolicy,
-        queue_position: runResp?.queue_position || 1,
-        content: text
-      })
-      if (!hadActiveRun) {
-        threadState.isStreaming = false
-        threadState.replyLoadingVisible = false
-      }
-      await resumeQueuedRequestsForThread(threadId)
-    } else if (runId) {
-      threadState.pendingRequestId = requestId
-      await startRunStream(threadId, runId, 0)
-    } else {
-      throw new Error('创建 run 失败：缺少 run_id')
-    }
+    // 消息已发送，Run 流式事件由 useAgentRunStream 内部处理
   } catch (error) {
     if (!hadActiveRun) {
       threadState.isStreaming = false
@@ -2853,7 +2193,7 @@ const handleEditMessage = async (msg) => {
 
 // 删除消息
 const handleDeleteMessage = async (msg) => {
-  if (!msg || !currentChatId.value) return
+  if (!msg || !currentChatId.value || !msg.id) return
 
   try {
     // 确认删除
@@ -2868,12 +2208,54 @@ const handleDeleteMessage = async (msg) => {
 
     if (!confirmed) return
 
-    // TODO: 调用 API 删除消息
+    const threadId = currentChatId.value
+    await agentApi.deleteMessage(threadId, msg.id)
+
+    // 本地移除消息
+    const messages = threadMessages.value[threadId] || []
+    threadMessages.value[threadId] = messages.filter((item) => item.id !== msg.id)
+
     message.success('消息已删除')
   } catch (error) {
     console.error('删除消息失败:', error)
     message.error('删除失败')
   }
+}
+
+// 后台轮询线程活跃 Run，获取 runId 后执行取消
+// 用于用户点击停止时 metadata 事件尚未到达（activeRunId 为空）的场景
+const pollAndCancelThreadActiveRun = async (threadId, maxWaitMs = 15000) => {
+  const intervalMs = 500
+  const maxAttempts = Math.ceil(maxWaitMs / intervalMs)
+  let attempts = 0
+  while (attempts < maxAttempts) {
+    attempts++
+    const ts = getThreadState(threadId)
+    // 线程已被其他逻辑收尾或用户已开始新 Run，退出
+    if (!ts || !ts.pendingCancel || ts.activeRunId) {
+      return
+    }
+    try {
+      const active = await agentApi.getThreadActiveRun(threadId)
+      const run = active?.run || active?.data?.run || active?.data
+      if (run?.id) {
+        const runId = run.id
+        ts.activeRunId = runId
+        try {
+          await agentApi.cancelAgentRun(runId)
+        } catch {
+          // 忽略：用户主动停止，静默兜底
+        }
+        ts.pendingCancel = false
+        return
+      }
+    } catch {
+      // getThreadActiveRun 未实现或失败，继续下一轮尝试
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
+  }
+  const ts = getThreadState(threadId)
+  if (ts) ts.pendingCancel = false
 }
 
 // 发送或中断
@@ -2885,16 +2267,32 @@ const handleSendOrStop = async (payload) => {
   const threadId = currentChatId.value
   const threadState = getThreadState(threadId)
   const hasNewInput = Boolean(String(userInput.value || '').trim() || payload?.image)
-  if (threadState?.activeRunId && threadState?.isStreaming && !hasNewInput) {
-    try {
-      await agentApi.cancelAgentRun(threadState.activeRunId)
-      threadState.pendingInterrupt = null
-      if (approvalState.threadId === threadId) {
-        hideApprovalState()
+  // 关键修复：仅以 isStreaming 作为停止判定条件，不依赖 activeRunId
+  // 这样用户在 metadata 事件到达前点击停止也能正确触发取消流程
+  if (threadState?.isStreaming && !hasNewInput) {
+    const runId = threadState.activeRunId
+    // 1. 先断开 SSE 订阅，立即停止接收新 chunk（不再显示新内容）
+    stopRunStreamSubscription(threadId)
+    if (runId) {
+      // 已知 runId：直接调用取消接口
+      try {
+        await agentApi.cancelAgentRun(runId)
+      } catch (error) {
+        // 用户主动停止不弹错误提示，仅控制台输出
+        console.warn('[Stop] cancelAgentRun failed (ignored):', error?.message)
       }
-      message.info('已发送取消请求')
-    } catch (error) {
-      handleChatError(error, 'stop')
+    } else {
+      // runId 尚未收到（metadata 事件未到）：设置 pendingCancel 标记 + 后台轮询线程活跃 Run 兜底取消
+      threadState.pendingCancel = true
+      pollAndCancelThreadActiveRun(threadId).catch(() => {})
+    }
+    // 2. 立即更新 UI 状态（零延迟体感）
+    threadState.isStreaming = false
+    threadState.replyLoadingVisible = false
+    threadState.activeRunSteerable = false
+    threadState.pendingInterrupt = null
+    if (approvalState.threadId === threadId) {
+      hideApprovalState()
     }
     return
   }
@@ -2932,19 +2330,17 @@ const handleApprovalWithStream = async (answer) => {
     threadState.isStreaming = true
     resetOnGoingConv(threadId, { preserveRequestStreams: true })
     const requestId = createClientRequestId()
-    const runResp = await agentApi.createAgentRun({
+    // 用 SSE 流创建 resume run：created_by_run_id 触发后端审批恢复，
+    // 同时前端的 approval_decision 决定 approve/reject。
+    // SSE 流的首个 metadata 事件会包含新 run_id，由 startNewRun 自动提取。
+    startNewRun(threadId, {
       query: null,
       agent_slug: currentAgentId.value,
       thread_id: threadId,
       meta: { request_id: requestId },
-      resume: answer,
-      created_by_run_id: interruptedRunId
+      created_by_run_id: interruptedRunId,
+      approval_decision: answer
     })
-    const runId = runResp?.run_id
-    if (!runId) {
-      throw new Error('创建 resume run 失败：缺少 run_id')
-    }
-    await startRunStream(threadId, runId, '0-0')
   } catch (error) {
     if (pendingInterrupt) {
       threadState.pendingInterrupt = pendingInterrupt
@@ -3005,11 +2401,43 @@ const handleAgentStateRefresh = async (threadId = null) => {
   }
 }
 
-const toggleStatePanel = async () => {
-  const nextOpen = !statePanelOpen.value
-  statePanelOpen.value = nextOpen
-  if (nextOpen && currentChatId.value && !currentAgentState.value) {
-    await handleAgentStateRefresh()
+// Token 条专用：静默刷新（不触发 isRefreshingState）
+const fetchTokenUsageSilently = async () => {
+  if (!currentAgentId.value || !currentChatId.value) return
+  try {
+    await fetchAgentState(currentAgentId.value, currentChatId.value)
+  } catch (e) {
+    // 静默失败，Token 条下次轮询会重试
+    console.debug('[TokenUsageBar] fetchTokenUsageSilently failed:', e?.message)
+  }
+}
+
+// Token 条刷新按钮
+const handleTokenRefresh = async () => {
+  await handleAgentStateRefresh()
+}
+
+// Token 条清空上下文（轻量重置，不删除会话）
+const handleClearContext = async () => {
+  if (!currentChatId.value) return
+  await performClearContext(true)
+}
+
+// 执行清空操作
+const performClearContext = async (lightReset = true) => {
+  if (!currentChatId.value) return
+  
+  try {
+    if (lightReset) {
+      // 轻量重置：仅清空上下文，保留会话
+      await threadApi.clearThreadContext(currentChatId.value)
+      message.success('上下文已清空')
+      // 清空后刷新状态
+      await handleAgentStateRefresh()
+    }
+  } catch (e) {
+    console.error('清空操作失败:', e)
+    message.error('清空上下文失败')
   }
 }
 
@@ -3125,8 +2553,8 @@ const showMsgRefs = (msg, conv) => {
     return false
   }
 
-  // 只有真正完成的消息才显示 refs
-  if (msg.isLast && msg.status === 'finished') {
+  // 对话收尾后，只在本轮最后一条 AI 消息下展示 refs。
+  if (msg.isLast) {
     // 检查是否是当前对话的最后一条 AI 消息
     const lastAiMsg = getLastMessage(conv)
     const isLatestInConv = lastAiMsg && lastAiMsg.id === msg.id
@@ -3164,7 +2592,7 @@ const loadChatsList = async () => {
     // 如果当前线程不在线程列表中，清空当前线程
     if (
       chatState.currentThreadId &&
-      !threads.value.find((t) => t.id === chatState.currentThreadId)
+      !threads.value.find((t) => String(t.id) === String(chatState.currentThreadId))
     ) {
       setCurrentThreadId(null)
     }
@@ -3191,12 +2619,6 @@ const initAll = async () => {
 onMounted(async () => {
   await initAll()
   scrollController.enableAutoScroll()
-})
-
-watch(showStateEntry, (visible) => {
-  if (!visible && statePanelOpen.value) {
-    statePanelOpen.value = false
-  }
 })
 
 watch(showFileEntry, (visible) => {
@@ -3677,6 +3099,15 @@ watch(currentChatId, (threadId, oldThreadId) => {
   text-align: center;
 }
 
+/* Token 条包装器：固定在消息区与输入框之间 */
+.token-usage-bar-wrapper {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 4px 1rem;
+  flex-shrink: 0;
+}
+
 .bottom {
   position: sticky;
   bottom: 0;
@@ -3909,7 +3340,7 @@ watch(currentChatId, (threadId, oldThreadId) => {
     }
   }
 
-  .input-model-selector {
+  .input-agent-selector {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -4287,6 +3718,17 @@ watch(currentChatId, (threadId, oldThreadId) => {
   color: var(--gray-500);
   font-size: 13px;
   text-align: center;
+
+  p {
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  .state-panel-empty-hint {
+    font-size: 12px;
+    color: var(--gray-400);
+    margin-top: 4px;
+  }
 }
 
 .token-usage-content {

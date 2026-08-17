@@ -13,7 +13,6 @@
       :current-folder-id="currentFolderId"
       :is-folder-mode="isFolderUploadMode"
       :mode="addFilesMode"
-      @success="onFileUploadSuccess"
     />
 
     <FileSearchModal
@@ -34,7 +33,7 @@
         </button>
         <div class="detail-title-area">
           <div class="detail-icon">
-            <component :is="kbTypeIcon" :size="18" />
+            <Database :size="18" />
           </div>
           <div class="detail-title-text">
             <h2>{{ database.name || '知识库加载中' }}</h2>
@@ -83,7 +82,11 @@
         </div>
 
         <main class="database-tab-content">
-          <div v-if="isMilvus" v-show="activeTab === 'filetable'" class="tab-panel file-panel">
+          <div
+            v-if="supportsFileManagement"
+            v-show="activeTab === 'filetable'"
+            class="tab-panel file-panel"
+          >
             <div class="file-management-info">
               <div class="file-info-title">
                 <div class="file-info-title-row">
@@ -225,19 +228,11 @@
             </div>
           </div>
 
-          <div v-if="isMilvus && activeTab === 'graph'" class="tab-panel">
-            <KnowledgeGraphSection
-              :visible="true"
-              :active="activeTab === 'graph'"
-              @toggle-visible="() => {}"
-            />
-          </div>
-
-          <div v-if="isMilvus && activeTab === 'mindmap'" class="tab-panel">
+          <div v-if="activeTab === 'mindmap'" class="tab-panel">
             <MindMapSection v-if="kbId" :kb-id="kbId" ref="mindmapSectionRef" />
           </div>
 
-          <div v-if="isMilvus && activeTab === 'evaluation'" class="tab-panel">
+          <div v-if="activeTab === 'evaluation'" class="tab-panel">
             <RAGEvaluationTab
               v-if="kbId"
               :kb-id="kbId"
@@ -245,7 +240,7 @@
             />
           </div>
 
-          <div v-if="isMilvus && activeTab === 'benchmarks'" class="tab-panel">
+          <div v-if="activeTab === 'benchmarks'" class="tab-panel">
             <div class="benchmark-management-container">
               <div class="benchmark-content">
                 <EvaluationBenchmarks
@@ -280,13 +275,14 @@
             v-model="editForm.description"
             :name="editForm.name"
             :files="fileList"
+            :chat-model-id="editForm.chat_model_id"
             placeholder="请输入知识库描述"
             action-placement="header"
             :rows="4"
           />
         </a-form-item>
 
-        <a-form-item v-if="!isConnector" label="自动生成问题" name="auto_generate_questions">
+        <a-form-item label="自动生成问题" name="auto_generate_questions">
           <a-switch
             v-model:checked="editForm.auto_generate_questions"
             checked-children="开启"
@@ -297,7 +293,7 @@
           </span>
         </a-form-item>
 
-        <a-form-item v-if="!isConnector" name="chunk_preset_id">
+        <a-form-item name="chunk_preset_id">
           <template #label>
             <span class="chunk-preset-label">
               分块策略
@@ -313,82 +309,52 @@
           />
         </a-form-item>
 
-        <template v-if="isDifyKb">
-          <a-form-item label="Dify API URL" name="dify_api_url">
-            <a-input
-              v-model:value="editForm.dify_api_url"
-              placeholder="例如: https://api.dify.ai/v1"
-            />
-          </a-form-item>
-          <a-form-item label="Dify Token" name="dify_token">
-            <a-input-password
-              v-model:value="editForm.dify_token"
-              placeholder="请输入 Dify API Token"
-            />
-          </a-form-item>
-          <a-form-item label="Dataset ID" name="dify_dataset_id">
-            <a-input
-              v-model:value="editForm.dify_dataset_id"
-              placeholder="请输入 Dify dataset_id"
-            />
-          </a-form-item>
-        </template>
+        <a-divider style="margin: 4px 0 20px" />
 
-        <template v-if="isNotionKb">
-          <a-form-item label="Notion Token" name="notion_token">
-            <a-input-password
-              v-model:value="editForm.notion_token"
-              placeholder="留空则保持现有 Token 或使用环境变量"
-            />
-          </a-form-item>
-          <a-form-item label="Data Source ID" name="notion_data_source_id">
-            <a-input
-              v-model:value="editForm.notion_data_source_id"
-              placeholder="请输入 Notion data_source_id"
-            />
-          </a-form-item>
-          <a-form-item label="Notion API Version" name="notion_version">
-            <a-input v-model:value="editForm.notion_version" placeholder="2026-03-11" />
-          </a-form-item>
-        </template>
+        <a-form-item label="Chat 模型" name="chat_model_id" required>
+          <a-select
+            v-model:value="editForm.chat_model_id"
+            :options="chatModelOptions"
+            :loading="modelsLoading"
+            placeholder="请选择问答模型"
+            show-search
+            option-filter-prop="label"
+          />
+          <span class="edit-model-hint">
+            更换后仅影响问答生成，不影响已入库数据
+          </span>
+        </a-form-item>
 
-        <a-form-item v-if="canEditShareConfig" label="共享设置" name="share_config">
-          <a-form-item-rest>
-            <ShareConfigForm
-              ref="shareConfigFormRef"
-              :model-value="database.share_config"
-              :auto-select-user-dept="true"
-            />
-          </a-form-item-rest>
+        <a-form-item label="Embedding 模型" name="embedding_model_id">
+          <a-input :value="embeddingModelName" disabled placeholder="未绑定 Embedding 模型" />
+          <span class="edit-model-hint">
+            创建后不可修改；更换需新建知识库并重新入库
+          </span>
         </a-form-item>
-        <a-form-item
-          v-else-if="database.share_config"
-          label="共享设置"
-          name="share_config_readonly"
-        >
-          <div class="share-config-readonly">
-            <a-tag :color="shareConfigDisplay.color">
-              {{ shareConfigDisplay.label }}
-            </a-tag>
-            <span class="access-names">{{ shareConfigDisplay.detail }}</span>
-          </div>
+
+        <a-form-item label="Rerank 模型" name="rerank_model_id">
+          <a-input :value="rerankModelName" disabled placeholder="未配置，将使用 RRF 融合结果" />
+          <span class="edit-model-hint">
+            全局 Rerank 模型，所有知识库共享，请在基础设置中修改
+          </span>
         </a-form-item>
+
       </a-form>
     </a-modal>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDatabaseStore } from '@/stores/database'
-import { useTaskerStore } from '@/stores/tasker'
-import { useUserStore } from '@/stores/user'
+import { useConfigStore } from '@/stores/config'
 import {
   ArrowLeft,
   BarChart3,
   ClipboardList,
   Copy,
+  Database,
   Database as DatabaseIcon,
   FileUp,
   FileText,
@@ -396,39 +362,32 @@ import {
   Hash,
   LoaderCircle,
   Map as MapIcon,
-  Network,
   Pencil,
   Save,
   Search,
   Trash2
 } from 'lucide-vue-next'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import FileTable from '@/components/FileTable.vue'
 import FileDetailModal from '@/components/FileDetailModal.vue'
 import FileUploadModal from '@/components/FileUploadModal.vue'
 import FileSearchModal from '@/components/modals/FileSearchModal.vue'
-import KnowledgeGraphSection from '@/components/KnowledgeGraphSection.vue'
 import QuerySection from '@/components/QuerySection.vue'
 import MindMapSection from '@/components/MindMapSection.vue'
 import RAGEvaluationTab from '@/components/RAGEvaluationTab.vue'
 import EvaluationBenchmarks from '@/components/EvaluationBenchmarks.vue'
 import SearchConfigPanel from '@/components/SearchConfigPanel.vue'
 import AiTextarea from '@/components/AiTextarea.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
-import { databaseApi } from '@/apis/knowledge_api'
-import { departmentApi } from '@/apis/department_api'
-import { authApi } from '@/apis/auth_api'
+import { databaseApi, modelApi } from '@/apis/knowledge_api'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
 import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
+import { buildModelSelectOptions } from '@/utils/model_options'
 import { formatFileSize } from '@/utils/file_utils'
-import { getKbTypeIcon, getKbTypeLabel, kbUtils } from '@/utils/kb_utils'
 
 const route = useRoute()
 const router = useRouter()
 const store = useDatabaseStore()
-const taskerStore = useTaskerStore()
-const userStore = useUserStore()
 const {
   chunkPresetSelectOptions: chunkPresetOptions,
   chunkPresetLoading,
@@ -439,52 +398,45 @@ const {
 const kbId = computed(() => store.kbId)
 const database = computed(() => store.database)
 const isCurrentDatabaseLoaded = computed(() => database.value?.kb_id === kbId.value)
-const kbType = computed(() =>
-  isCurrentDatabaseLoaded.value ? database.value.kb_type?.toLowerCase() || 'milvus' : ''
-)
-const isMilvus = computed(() => kbType.value === 'milvus')
-const isDifyKb = computed(() => kbType.value === 'dify')
-const isNotionKb = computed(() => kbType.value === 'notion')
-const isConnector = computed(
-  () => isCurrentDatabaseLoaded.value && kbUtils.isReadOnlyDatabase(database.value)
-)
-const isEvaluationSupported = computed(() => isMilvus.value)
-const kbTypeIcon = computed(() => getKbTypeIcon(kbType.value || 'milvus'))
+// 文件管理只依赖 kbId，不依赖详情数据加载成功（详情接口失败时仍应显示文件管理入口）
+const supportsFileManagement = computed(() => Boolean(kbId.value))
+const isEvaluationSupported = computed(() => true)
 
 const databaseSubtitle = computed(() => {
-  const typeLabel = getKbTypeLabel(kbType.value || 'milvus')
   if (!isCurrentDatabaseLoaded.value) return '正在加载知识库信息'
 
   const description = database.value.description?.trim()
   if (description) return description
 
-  if (isConnector.value) return `${typeLabel} 连接器`
-  return `${typeLabel} 知识库 · ${database.value.row_count || 0} 文件`
+  return `知识库 · ${database.value.stats?.file_count || 0} 文件`
 })
 
 const tabs = computed(() => {
-  if (isMilvus.value) {
-    return [
-      { key: 'filetable', label: '文件管理', icon: FileText },
-      { key: 'query', label: '检索测试', icon: Search },
-      { key: 'graph', label: '知识图谱', icon: Network },
-      { key: 'mindmap', label: '知识导图', icon: MapIcon },
-      { key: 'evaluation', label: 'RAG 评估', icon: BarChart3 },
-      { key: 'benchmarks', label: '评估基准', icon: ClipboardList }
-    ]
+  const result = []
+
+  if (supportsFileManagement.value) {
+    result.push({ key: 'filetable', label: '文件管理', icon: FileText })
   }
 
-  return [{ key: 'query', label: '检索测试', icon: Search }]
+  result.push({ key: 'query', label: '检索测试', icon: Search })
+
+  result.push(
+    { key: 'mindmap', label: '知识导图', icon: MapIcon },
+    { key: 'evaluation', label: 'RAG 评估', icon: BarChart3 },
+    { key: 'benchmarks', label: '评估基准', icon: ClipboardList }
+  )
+
+  return result
 })
 
 const visibleTabs = computed(() => tabs.value)
 const activeTab = ref('filetable')
 
 watch(
-  () => [kbId.value, isMilvus.value],
-  ([newDbId, isMilvusType]) => {
+  () => [kbId.value, supportsFileManagement.value],
+  ([newDbId, fileManagementSupported]) => {
     if (!newDbId) return
-    activeTab.value = isMilvusType ? 'filetable' : 'query'
+    activeTab.value = fileManagementSupported ? 'filetable' : 'query'
   },
   { immediate: true }
 )
@@ -558,19 +510,7 @@ const pendingIndexCount = computed(() => {
 })
 
 const confirmBatchParse = () => {
-  const count = pendingParseCount.value
-  if (count <= 0) {
-    message.info('没有待解析文档')
-    return
-  }
-
-  Modal.confirm({
-    title: '解析待解析文件',
-    content: `将提交 ${formatStatNumber(count)} 个待解析文件，任务会在后台按批处理，可在任务中心查看进度。`,
-    okText: '提交解析',
-    cancelText: '取消',
-    onOk: () => store.parsePendingFiles(count)
-  })
+  message.info('当前版本不支持批量解析待解析文件，请在文件列表中逐个重试解析')
 }
 
 const confirmBatchIndex = () => {
@@ -624,9 +564,9 @@ const showAddFilesModal = (options = {}) => {
   const { isFolder = false, mode = 'file' } = options
   isFolderUploadMode.value = isFolder
   addFilesMode.value = mode
-  addFilesModalVisible.value = true
   currentFolderId.value =
     fileTableRef.value?.getCurrentFolderId?.() || store.fileBrowser.parentId || null
+  addFilesModalVisible.value = true
 }
 
 const showCreateFolderModal = () => {
@@ -650,10 +590,6 @@ const folderTree = computed(() => {
   }
   return roots
 })
-
-const onFileUploadSuccess = () => {
-  taskerStore.loadTasks()
-}
 
 const resetFileSelectionState = () => {
   store.selectedRowKeys = []
@@ -747,22 +683,19 @@ const copyDatabaseId = async () => {
   }
 }
 
-const departments = ref([])
-const users = ref([])
 const editModalVisible = ref(false)
 const editFormRef = ref(null)
-const shareConfigFormRef = ref(null)
+const configStore = useConfigStore()
+const embeddingModels = ref([])
+const chatModels = ref([])
+const modelsLoading = ref(false)
+const ragSettingsLoading = ref(false)
 const editForm = reactive({
   name: '',
   description: '',
   auto_generate_questions: false,
   chunk_preset_id: DEFAULT_CHUNK_PRESET_ID,
-  dify_api_url: '',
-  dify_token: '',
-  dify_dataset_id: '',
-  notion_token: '',
-  notion_data_source_id: '',
-  notion_version: '2026-03-11'
+  chat_model_id: undefined
 })
 
 const rules = {
@@ -770,65 +703,42 @@ const rules = {
 }
 
 const editPresetDescription = computed(() => getChunkPresetDescription(editForm.chunk_preset_id))
+const chatModelOptions = computed(() => buildModelSelectOptions(chatModels.value))
 const fileList = computed(() => {
   return (store.documentFiles || []).map((f) => f.filename).filter(Boolean)
 })
 
-const canEditShareConfig = computed(() => userStore.isSuperAdmin || userStore.isAdmin)
-
-const shareConfigDisplay = computed(() => {
-  const shareConfig = database.value?.share_config || { access_level: 'global' }
-  if (shareConfig.access_level === 'department') {
-    const departmentIds = shareConfig.department_ids || []
-    const names = departmentIds.map((id) => getDepartmentName(id)).join('、') || '无'
-    return {
-      color: 'blue',
-      label: '部门共享',
-      detail: `${departmentIds.length} 个部门可访问：${names}`
-    }
-  }
-
-  if (shareConfig.access_level === 'user') {
-    const userUids = shareConfig.user_uids || []
-    const names = userUids.map((uid) => getUserName(uid)).join('、') || '无'
-    return {
-      color: 'purple',
-      label: '指定人',
-      detail: `${userUids.length} 个用户可访问：${names}`
-    }
-  }
-
-  return {
-    color: 'green',
-    label: '全局共享',
-    detail: '所有用户可访问'
-  }
+const embeddingModelName = computed(() => {
+  const model = embeddingModels.value.find((m) => m.id === database.value.embedding_model_id)
+  return model?.name || database.value.embedding_model_spec || ''
 })
 
-const getDepartmentName = (id) => {
-  const dept = departments.value.find((item) => Number(item.id) === Number(id))
-  return dept?.name || `部门${id}`
-}
+const rerankModelName = computed(() => configStore.ragSettings.rerankModelName || '')
 
-const getUserName = (uid) => {
-  const user = users.value.find((item) => item.uid === uid)
-  return user?.username || uid
-}
-
-const loadDepartments = async () => {
+const loadModels = async () => {
+  modelsLoading.value = true
   try {
-    const res = await departmentApi.getDepartments()
-    departments.value = res.departments || res || []
-  } catch {
-    departments.value = []
+    const [embedding, chat] = await Promise.all([
+      modelApi.list('embedding'),
+      modelApi.list('chat')
+    ])
+    embeddingModels.value = embedding.filter((model) => model.enabled !== false)
+    chatModels.value = chat.filter((model) => model.enabled !== false)
+  } catch (error) {
+    console.error('加载模型列表失败:', error)
+  } finally {
+    modelsLoading.value = false
   }
 }
 
-const loadUsers = async () => {
+const loadRagSettings = async () => {
+  ragSettingsLoading.value = true
   try {
-    users.value = await authApi.getUserAccessOptions()
-  } catch {
-    users.value = []
+    await configStore.refreshRagSettings()
+  } catch (error) {
+    console.error('加载全局 Rerank 设置失败:', error)
+  } finally {
+    ragSettingsLoading.value = false
   }
 }
 
@@ -839,12 +749,7 @@ const showEditModal = () => {
     database.value.additional_params?.auto_generate_questions || false
   editForm.chunk_preset_id =
     database.value.additional_params?.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
-  editForm.dify_api_url = database.value.additional_params?.dify_api_url || ''
-  editForm.dify_token = database.value.additional_params?.dify_token || ''
-  editForm.dify_dataset_id = database.value.additional_params?.dify_dataset_id || ''
-  editForm.notion_token = ''
-  editForm.notion_data_source_id = database.value.additional_params?.notion_data_source_id || ''
-  editForm.notion_version = database.value.additional_params?.notion_version || '2026-03-11'
+  editForm.chat_model_id = database.value.chat_model_id || undefined
   editModalVisible.value = true
 }
 
@@ -862,62 +767,16 @@ const handleEditSubmit = () => {
   editFormRef.value
     .validate()
     .then(async () => {
-      if (shareConfigFormRef.value) {
-        const validation = shareConfigFormRef.value.validate()
-        if (!validation.valid) {
-          message.warning(validation.message)
-          return
-        }
-      }
-
-      const formConfig = shareConfigFormRef.value?.config || { access_level: 'global' }
       const updateData = {
         name: editForm.name,
         description: editForm.description,
-        additional_params: {},
-        share_config: {
-          access_level: formConfig.access_level,
-          department_ids:
-            formConfig.access_level === 'department' ? formConfig.department_ids || [] : [],
-          user_uids: formConfig.access_level === 'user' ? formConfig.user_uids || [] : []
-        }
+        chat_model_id: editForm.chat_model_id,
+        additional_params: {}
       }
 
-      if (isDifyKb.value) {
-        if (
-          !editForm.dify_api_url?.trim() ||
-          !editForm.dify_token?.trim() ||
-          !editForm.dify_dataset_id?.trim()
-        ) {
-          message.error('请完整填写 Dify API URL、Token 和 Dataset ID')
-          return
-        }
-        if (!editForm.dify_api_url.trim().endsWith('/v1')) {
-          message.error('Dify API URL 必须以 /v1 结尾')
-          return
-        }
-        updateData.additional_params = {
-          dify_api_url: editForm.dify_api_url.trim(),
-          dify_token: editForm.dify_token.trim(),
-          dify_dataset_id: editForm.dify_dataset_id.trim()
-        }
-      } else if (isNotionKb.value) {
-        if (!editForm.notion_data_source_id?.trim()) {
-          message.error('请填写 Notion Data Source ID')
-          return
-        }
-        updateData.additional_params = {
-          notion_data_source_id: editForm.notion_data_source_id.trim(),
-          notion_version: editForm.notion_version?.trim() || '2026-03-11'
-        }
-        if (editForm.notion_token?.trim()) {
-          updateData.additional_params.notion_token = editForm.notion_token.trim()
-        }
-      } else {
-        updateData.additional_params = {
-          auto_generate_questions: editForm.auto_generate_questions,
-          chunk_preset_id: editForm.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
-        }
+      updateData.additional_params = {
+        auto_generate_questions: editForm.auto_generate_questions,
+        chunk_preset_id: editForm.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
       }
 
       await store.updateDatabaseInfo(updateData)
@@ -934,8 +793,12 @@ const deleteDatabase = () => {
 
 onMounted(() => {
   loadChunkPresetOptions()
-  loadDepartments()
-  loadUsers()
+  loadModels()
+  loadRagSettings()
+})
+
+onUnmounted(() => {
+  store.resetDatabaseState()
 })
 </script>
 
@@ -1314,17 +1177,6 @@ onMounted(() => {
   padding: 16px;
 }
 
-.share-config-readonly {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .access-names {
-    font-size: 13px;
-    color: var(--gray-600);
-  }
-}
-
 .chunk-preset-label {
   display: inline-flex;
   align-items: center;
@@ -1335,6 +1187,14 @@ onMounted(() => {
   color: var(--gray-500);
   cursor: help;
   font-size: 14px;
+}
+
+.edit-model-hint {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--gray-500);
+  line-height: 1.6;
 }
 
 @media (max-width: 1024px) {
@@ -1472,8 +1332,7 @@ onMounted(() => {
   }
 }
 
-.query-section,
-.graph-section {
+.query-section {
   .panel-section();
 
   .content {
@@ -1481,11 +1340,6 @@ onMounted(() => {
     flex: 1;
     overflow: hidden;
   }
-}
-
-.graph-section {
-  border: 1px solid var(--gray-100);
-  border-radius: 12px;
 }
 
 .benchmark-management-container {

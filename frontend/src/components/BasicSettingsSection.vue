@@ -1,58 +1,52 @@
 <template>
   <div class="basic-settings-section">
-    <template v-if="userStore.isAdmin">
-      <template v-if="userStore.isSuperAdmin">
-        <div class="section-title">默认项配置</div>
+    <div class="section-title">默认项配置</div>
         <div class="settings-panel">
-          <div class="setting-row two-cols">
-            <div class="col-item">
-              <div class="setting-label">{{ items?.default_model?.des || '默认对话模型' }}</div>
-              <div class="setting-content">
-                <ModelSelectorComponent
-                  @select-model="handleChatModelSelect"
-                  :model_spec="configStore.config?.default_model"
-                  placeholder="请选择默认模型"
-                />
-              </div>
-            </div>
-            <div class="col-item">
-              <div class="setting-label">{{ items?.fast_model?.des }}</div>
-              <div class="setting-content">
-                <ModelSelectorComponent
-                  @select-model="handleFastModelSelect"
-                  :model_spec="configStore.config?.fast_model"
-                  placeholder="请选择模型"
-                />
-              </div>
+          <div class="card card-select">
+            <span class="label">{{ items?.default_model?.des || '默认对话模型' }}</span>
+            <div class="setting-control">
+              <ModelSelectorComponent
+                @select-model="handleChatModelSelect"
+                :model_spec="configStore.config?.default_model"
+                placeholder="请选择默认模型"
+              />
             </div>
           </div>
-          <div class="setting-row two-cols">
-            <div class="col-item">
-              <div class="setting-label">{{ items?.embed_model?.des }}</div>
-              <div class="setting-content">
-                <EmbeddingModelSelector
-                  :value="configStore.config?.embed_model"
-                  @change="handleChange('embed_model', $event)"
-                  style="width: 100%"
-                />
-              </div>
+          <div class="card card-select">
+            <span class="label">{{ items?.fast_model?.des || '快速对话模型' }}</span>
+            <div class="setting-control">
+              <ModelSelectorComponent
+                @select-model="handleFastModelSelect"
+                :model_spec="configStore.config?.fast_model"
+                placeholder="请选择模型"
+              />
             </div>
-            <div class="col-item">
-              <div class="setting-label">{{ items?.reranker?.des }}</div>
-              <div class="setting-content">
-                <RerankModelSelector
-                  :value="configStore.config?.reranker"
-                  @change="handleChange('reranker', $event)"
-                  style="width: 100%"
-                />
+          </div>
+          <div class="card card-select">
+            <span class="label">{{ items?.embed_model?.des || '嵌入模型' }}</span>
+            <div class="setting-control">
+              <EmbeddingModelSelector
+                :value="configStore.config?.embed_model"
+                @change="handleChange('embed_model', $event)"
+              />
+            </div>
+          </div>
+          <div class="card card-select">
+            <span class="label">{{ items?.reranker?.des || '重排序模型' }}</span>
+            <div class="setting-control">
+              <RerankModelSelector
+                :value="configStore.ragSettings.rerankModelId"
+                :loading="ragSettingsLoading"
+                @change="handleRerankModelChange"
+              />
+              <div class="setting-hint">
+                {{ configStore.ragSettings.rerankModelName || '未配置，将使用 RRF 融合结果' }}
               </div>
             </div>
           </div>
         </div>
-      </template>
 
-      <template v-if="userStore.isSuperAdmin">
-        <div class="section-title">内容审查配置</div>
+      <div class="section-title">内容审查配置</div>
         <div class="section">
           <div class="card">
             <span class="label">{{ items?.enable_content_guard?.des }}</span>
@@ -83,24 +77,20 @@
             />
           </div>
         </div>
-      </template>
-    </template>
-
-    
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { message } from 'ant-design-vue'
 import { useConfigStore } from '@/stores/config'
-import { useUserStore } from '@/stores/user'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
 import RerankModelSelector from '@/components/RerankModelSelector.vue'
 
 const configStore = useConfigStore()
-const userStore = useUserStore()
 const items = computed(() => configStore.config?._config_items || {})
+const ragSettingsLoading = ref(false)
 const handleChange = (key, e) => {
   configStore.setConfigValue(key, e)
 }
@@ -122,10 +112,42 @@ const handleContentGuardModelSelect = (spec) => {
     configStore.setConfigValue('content_guard_llm_model', spec)
   }
 }
+
+const loadRagSettings = async () => {
+  ragSettingsLoading.value = true
+  try {
+    await configStore.refreshRagSettings()
+  } catch (error) {
+    message.error(error.message || '加载 Rerank 设置失败')
+  } finally {
+    ragSettingsLoading.value = false
+  }
+}
+
+const handleRerankModelChange = async (modelId) => {
+  ragSettingsLoading.value = true
+  try {
+    await configStore.updateRerankModel(modelId)
+    message.success(modelId ? '全局 Rerank 模型已更新' : '已关闭全局 Rerank')
+  } catch (error) {
+    message.error(error.message || '保存 Rerank 设置失败，已恢复原值')
+  } finally {
+    ragSettingsLoading.value = false
+  }
+}
+
+onMounted(loadRagSettings)
 </script>
 
 <style lang="less" scoped>
 .basic-settings-section {
+  // 统一下拉框高度：自定义模型选择器与 antd small select(24px) 对齐，避免两列高低不齐
+  :deep(.model-select) {
+    height: 24px;
+    padding: 0 8px;
+    box-sizing: border-box;
+  }
+
   .section {
     background-color: var(--gray-0);
     padding: 10px 16px;
@@ -146,37 +168,10 @@ const handleContentGuardModelSelect = (spec) => {
     gap: 16px;
   }
 
-  .setting-row {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-
-    &.two-cols {
-      flex-direction: row;
-      gap: 20px;
-    }
-
-    .col-item {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      min-width: 0;
-    }
-  }
-
-  .setting-label {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--gray-700);
-  }
-
-  .setting-content {
-    width: 100%;
-
-    .full-width {
-      width: 100%;
-    }
+  .setting-hint {
+    margin-top: 5px;
+    color: var(--gray-500);
+    font-size: 11px;
   }
 
   .card {
@@ -201,6 +196,15 @@ const handleContentGuardModelSelect = (spec) => {
         margin-top: 6px;
       }
     }
+  }
+
+  // 配置项控件容器：与 label 对齐，内部控件统一宽度、右侧对齐
+  .setting-control {
+    flex: 1;
+    max-width: 480px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .agent-select {

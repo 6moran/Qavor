@@ -4,15 +4,14 @@
     :class="[
       'yk-markdown-preview',
       'flat-md-preview',
-      { 'is-dark': themeStore.isDark, 'is-compact': compact }
+      { 'is-compact': compact }
     ]"
     @click="handleMarkdownAction"
   ></div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useThemeStore } from '@/stores/theme'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { renderMarkdown } from '@/utils/markdown_preview'
 import { HTML_PREVIEW_MAX_HEIGHT, HTML_PREVIEW_MIN_HEIGHT } from '@/utils/htmlPreviewRenderer'
 import 'katex/dist/katex.min.css'
@@ -32,14 +31,13 @@ const props = defineProps({
   }
 })
 
-const themeStore = useThemeStore()
-const shikiTheme = computed(() => (themeStore.isDark ? 'github-dark' : 'github-light'))
+const shikiTheme = 'github-light'
 const previewRef = ref(null)
 const copiedTimers = new WeakMap()
 const htmlPreviewFrames = new Map()
 let pendingMarkdownHtml = null
 
-const HTML_PREVIEW_HEIGHT_MESSAGE = 'yuxi-html-preview-height'
+const HTML_PREVIEW_HEIGHT_MESSAGE = 'qavor-html-preview-height'
 
 const getHtmlPreviewCssNumber = (slot, property, fallback) => {
   const preview = slot.closest('.html-preview-render')
@@ -50,7 +48,7 @@ const getHtmlPreviewCssNumber = (slot, property, fallback) => {
 
 const createMeasuredSrcdoc = (html, previewId) => {
   const scriptEndTag = '<' + '/script>'
-  const baseStyle = `<style data-yuxi-html-preview-base>
+  const baseStyle = `<style data-qavor-html-preview-base>
 html,
 body {
   margin: 0;
@@ -328,8 +326,8 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  [() => props.content, shikiTheme, () => props.codeCopy],
-  async ([content, theme, codeCopy], _, onCleanup) => {
+  [() => props.content, () => props.codeCopy],
+  async ([content, codeCopy], _, onCleanup) => {
     let expired = false
     onCleanup(() => {
       expired = true
@@ -341,7 +339,7 @@ watch(
       return
     }
 
-    const html = await renderMarkdown(content, { theme })
+    const html = await renderMarkdown(content, { theme: shikiTheme })
     if (!expired) {
       replaceHtmlPreservingPreviews(html)
       cleanupHtmlPreviewFrames()
@@ -669,12 +667,8 @@ const showCopiedFeedback = (btn) => {
     line-height: 1.5;
   }
 
-  &:not(.is-dark) pre.shiki {
+  pre.shiki {
     background: var(--gray-25) !important;
-  }
-
-  &.is-dark pre.shiki {
-    border-color: var(--gray-200);
   }
 
   .markdown-code-block {
@@ -736,19 +730,6 @@ const showCopiedFeedback = (btn) => {
     &:focus-visible {
       outline: 2px solid var(--main-300);
       outline-offset: 2px;
-    }
-  }
-
-  &.is-dark .markdown-code-copy-btn {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(12, 13, 13, 0.92);
-    color: var(--gray-500);
-
-    &:hover,
-    &:focus-visible,
-    &.is-copied {
-      border-color: rgba(255, 255, 255, 0.2);
-      color: var(--gray-900);
     }
   }
 
@@ -972,32 +953,6 @@ const showCopiedFeedback = (btn) => {
     background: #fff;
   }
 
-  &.is-dark .html-preview-render {
-    border-color: rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  &.is-dark .html-preview-loading-slot {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  &.is-dark .html-preview-loading-canvas {
-    background: transparent;
-  }
-
-  &.is-dark .html-preview-skeleton {
-    background: rgba(255, 255, 255, 0.09);
-  }
-
-  &.is-dark .html-preview-skeleton::after {
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      rgba(255, 255, 255, 0.14) 48%,
-      transparent 100%
-    );
-  }
-
   @media (max-width: 640px) {
     .html-preview-loading-slot {
       padding: 18px;
@@ -1069,20 +1024,5 @@ const showCopiedFeedback = (btn) => {
     }
   }
 
-  &.is-dark .svg-inline-render {
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 4px;
-  }
-
-  &.is-dark .svg-actions .svg-action-btn {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
-    color: var(--gray-300);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.15);
-      color: var(--gray-100);
-    }
-  }
 }
 </style>

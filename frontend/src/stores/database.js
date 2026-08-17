@@ -2,18 +2,14 @@ import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { databaseApi, documentApi, queryApi } from '@/apis/knowledge_api'
-import { useTaskerStore } from '@/stores/tasker'
-import { useUserStore } from '@/stores/user'
 import { useRouter } from 'vue-router'
 import { parseToShanghai } from '@/utils/time'
 import { canSelectFile, isProcessingFile } from '@/utils/knowledge_file_policy'
 
 export const useDatabaseStore = defineStore('database', () => {
   const router = useRouter()
-  const taskerStore = useTaskerStore()
-  const userStore = useUserStore()
 
-  // State
+  // 状态
   const databases = ref([])
   const database = ref({})
   const kbId = ref(null)
@@ -80,14 +76,24 @@ export const useDatabaseStore = defineStore('database', () => {
     setCurrentFileMap([])
   }
 
-  // Actions
+  // 重置知识库状态，用于组件卸载时清理
+  function resetDatabaseState() {
+    stopAutoRefresh()
+    state.autoRefresh = false
+    autoRefreshSource = null
+    autoRefreshManualOverride = false
+    kbId.value = null
+    database.value = {}
+    resetFileBrowser()
+  }
+
+  // 操作
   // 管理员获取所有知识库，普通用户获取有权限访问的知识库
   async function loadDatabases() {
     state.listLoading = true
     try {
-      const data = userStore.isAdmin
-        ? await databaseApi.getDatabases()
-        : await databaseApi.getAccessibleDatabases()
+      // 当前知识库接口暂不做用户隔离，统一读取同一份知识库列表。
+      const data = await databaseApi.getDatabases()
       const list = data?.databases || []
       databases.value = list.sort((a, b) => {
         const timeA = parseToShanghai(a.created_at)
@@ -112,11 +118,6 @@ export const useDatabaseStore = defineStore('database', () => {
     // 验证
     if (!formData.database_name?.trim()) {
       message.error('数据库名称不能为空')
-      return false
-    }
-
-    if (!formData.kb_type) {
-      message.error('请选择知识库类型')
       return false
     }
 
@@ -149,7 +150,7 @@ export const useDatabaseStore = defineStore('database', () => {
       database.value = { ...data, files: data?.files || currentFiles }
       ensureAutoRefreshForProcessing(data?.files, data?.stats)
 
-      // Only load query parameters if explicitly requested or if not loaded yet
+      // 仅在明确请求或尚未加载时加载查询参数
       if (!skipQueryParams && queryParams.value.length === 0) {
         await loadQueryParams(kbIdValue)
       }
@@ -341,7 +342,9 @@ export const useDatabaseStore = defineStore('database', () => {
 
     const nextStatus = options.status ?? fileBrowser.status
     const nextRecursive = options.recursive ?? nextStatus !== 'all'
-    const nextParentId = nextRecursive ? null : (options.parentId ?? fileBrowser.parentId)
+    const nextParentId = nextRecursive
+      ? null
+      : (Object.hasOwn(options, 'parentId') ? options.parentId : fileBrowser.parentId)
     const nextPathPrefix = nextRecursive ? '' : (options.pathPrefix ?? fileBrowser.pathPrefix)
     const nextPage = Number(options.page ?? fileBrowser.page) || 1
     const nextPageSize = Number(options.pageSize ?? fileBrowser.pageSize) || 100
@@ -402,8 +405,7 @@ export const useDatabaseStore = defineStore('database', () => {
       if (data?.stats) {
         database.value = {
           ...database.value,
-          stats: data.stats,
-          row_count: data.stats.row_count
+          stats: data.stats
         }
       }
       ensureAutoRefreshForProcessing(items, data?.stats)
@@ -474,20 +476,7 @@ export const useDatabaseStore = defineStore('database', () => {
       if (data.status === 'success' || data.status === 'queued') {
         const itemType = contentType === 'file' ? '文件' : 'URL'
         enableAutoRefresh('auto')
-        message.success(data.message || `${itemType}已提交处理，请在任务中心查看进度`)
-        if (data.task_id) {
-          taskerStore.registerQueuedTask({
-            task_id: data.task_id,
-            name: `知识库导入 (${kbId.value || ''})`,
-            task_type: 'knowledge_ingest',
-            message: data.message,
-            payload: {
-              kb_id: kbId.value,
-              count: items.length,
-              content_type: contentType
-            }
-          })
-        }
+        message.success(data.message || `${itemType}已提交处理`)
         await delayedRefresh() // 延迟1秒后刷新
         return true // Indicate success
       } else {
@@ -507,56 +496,14 @@ export const useDatabaseStore = defineStore('database', () => {
     if (fileIds.length === 0) return
     state.chunkLoading = true
     try {
-      const data = await documentApi.parseDocuments(kbId.value, fileIds)
-      if (data.status === 'success' || data.status === 'queued') {
-        enableAutoRefresh('auto')
-        message.success(data.message || '解析任务已提交')
-        if (data.task_id) {
-          taskerStore.registerQueuedTask({
-            task_id: data.task_id,
-            name: `文档解析 (${kbId.value})`,
-            task_type: 'knowledge_parse',
-            message: data.message,
-            payload: { kb_id: kbId.value, count: fileIds.length }
-          })
-        }
-        await delayedRefresh() // 延迟1秒后刷新
-        return true
-      } else {
-        message.error(data.message || '提交失败')
-        return false
-      }
-    } catch (error) {
-      console.error(error)
-      message.error(error.message || '请求失败')
-      return false
-    } finally {
-      state.chunkLoading = false
-    }
-  }
-
-  async function parsePendingFiles(count = 0) {
-    state.chunkLoading = true
-    try {
-      const data = await documentApi.parsePendingDocuments(kbId.value)
-      if (data.status === 'success' || data.status === 'queued') {
-        enableAutoRefresh('auto')
-        message.success(data.message || '解析任务已提交')
-        if (data.task_id) {
-          taskerStore.registerQueuedTask({
-            task_id: data.task_id,
-            name: `文档解析 (${kbId.value})`,
-            task_type: 'knowledge_parse',
-            message: data.message,
-            payload: { kb_id: kbId.value, count: data.queued_count || count, scope: 'pending' }
-          })
-        }
-        await delayedRefresh()
-        return true
-      } else {
-        message.error(data.message || '提交失败')
-        return false
-      }
+      const results = await Promise.all(
+        fileIds.map((docId) => documentApi.retryParseDocument(kbId.value, docId))
+      )
+      const queuedCount = results.length
+      enableAutoRefresh('auto')
+      message.success(`${queuedCount} 个解析任务已提交`)
+      await delayedRefresh()
+      return true
     } catch (error) {
       console.error(error)
       message.error(error.message || '请求失败')
@@ -571,24 +518,21 @@ export const useDatabaseStore = defineStore('database', () => {
     state.chunkLoading = true
     try {
       const data = await documentApi.indexDocuments(kbId.value, fileIds, params)
-      if (data.status === 'success' || data.status === 'queued') {
-        enableAutoRefresh('auto')
-        message.success(data.message || '入库任务已提交')
-        if (data.task_id) {
-          taskerStore.registerQueuedTask({
-            task_id: data.task_id,
-            name: `文档入库 (${kbId.value})`,
-            task_type: 'knowledge_index',
-            message: data.message,
-            payload: { kb_id: kbId.value, count: fileIds.length }
-          })
-        }
-        await delayedRefresh() // 延迟1秒后刷新
-        return true
-      } else {
-        message.error(data.message || '提交失败')
-        return false
+      const queuedItems = data.queued_items || []
+      const failedItems = data.failed_items || []
+
+      enableAutoRefresh('auto')
+
+      if (queuedItems.length > 0 && failedItems.length === 0) {
+        message.success(`${queuedItems.length} 个文件已提交入库`)
+      } else if (queuedItems.length > 0 && failedItems.length > 0) {
+        message.warning(`${queuedItems.length} 个文件已提交，${failedItems.length} 个文件无法入库`)
+      } else if (failedItems.length > 0) {
+        message.error(`${failedItems.length} 个文件无法入库`)
       }
+
+      await delayedRefresh()
+      return queuedItems.length > 0
     } catch (error) {
       console.error(error)
       message.error(error.message || '请求失败')
@@ -598,28 +542,25 @@ export const useDatabaseStore = defineStore('database', () => {
     }
   }
 
-  async function indexPendingFiles(params = {}, count = 0) {
+  async function indexPendingFiles(params = {}) {
     state.chunkLoading = true
     try {
       const data = await documentApi.indexPendingDocuments(kbId.value, params)
-      if (data.status === 'success' || data.status === 'queued') {
-        enableAutoRefresh('auto')
-        message.success(data.message || '入库任务已提交')
-        if (data.task_id) {
-          taskerStore.registerQueuedTask({
-            task_id: data.task_id,
-            name: `文档入库 (${kbId.value})`,
-            task_type: 'knowledge_index',
-            message: data.message,
-            payload: { kb_id: kbId.value, count: data.queued_count || count, scope: 'pending' }
-          })
-        }
-        await delayedRefresh()
-        return true
-      } else {
-        message.error(data.message || '提交失败')
-        return false
+      const queuedItems = data.queued_items || []
+      const failedItems = data.failed_items || []
+
+      enableAutoRefresh('auto')
+
+      if (queuedItems.length > 0 && failedItems.length === 0) {
+        message.success(`${queuedItems.length} 个文件已提交入库`)
+      } else if (queuedItems.length > 0 && failedItems.length > 0) {
+        message.warning(`${queuedItems.length} 个文件已提交，${failedItems.length} 个文件无法入库`)
+      } else if (failedItems.length > 0) {
+        message.error(`${failedItems.length} 个文件无法入库`)
       }
+
+      await delayedRefresh()
+      return queuedItems.length > 0
     } catch (error) {
       console.error(error)
       message.error(error.message || '请求失败')
@@ -644,37 +585,49 @@ export const useDatabaseStore = defineStore('database', () => {
     fileDetailFileId.value = null
   }
 
+  let queryParamsLoadingPromise = null
+
   async function loadQueryParams(id) {
     const kbIdValue = id || kbId.value
     if (!kbIdValue) return
 
-    state.queryParamsLoading = true
-    try {
-      const response = await queryApi.getKnowledgeBaseQueryParams(kbIdValue)
-      queryParams.value = response.params?.options || []
-
-      // Create a set of currently supported parameter keys
-      const supportedParamKeys = new Set(queryParams.value.map((param) => param.key))
-
-      // Remove unsupported parameters from meta
-      for (const key in meta) {
-        if (key !== 'kb_id' && !supportedParamKeys.has(key)) {
-          delete meta[key]
-        }
-      }
-
-      // Add default values for supported parameters that are not in meta
-      queryParams.value.forEach((param) => {
-        if (!(param.key in meta)) {
-          meta[param.key] = param.default
-        }
-      })
-    } catch (error) {
-      console.error('Failed to load query params:', error)
-      message.error('加载查询参数失败')
-    } finally {
-      state.queryParamsLoading = false
+    // 防止重复请求：如果正在加载相同的 kbId，直接返回现有的 Promise
+    if (queryParamsLoadingPromise && state.queryParamsLoading) {
+      return queryParamsLoadingPromise
     }
+
+    state.queryParamsLoading = true
+    queryParamsLoadingPromise = (async () => {
+      try {
+        const response = await queryApi.getKnowledgeBaseQueryParams(kbIdValue)
+        queryParams.value = response.params?.options || []
+
+        // 创建当前支持的参数键集合
+        const supportedParamKeys = new Set(queryParams.value.map((param) => param.key))
+
+        // 从 meta 中移除不支持的参数
+        for (const key in meta) {
+          if (key !== 'kb_id' && !supportedParamKeys.has(key)) {
+            delete meta[key]
+          }
+        }
+
+        // 为 meta 中不存在的支持参数添加默认值
+        queryParams.value.forEach((param) => {
+          if (!(param.key in meta)) {
+            meta[param.key] = param.default
+          }
+        })
+      } catch (error) {
+        console.error('Failed to load query params:', error)
+        message.error('加载查询参数失败')
+      } finally {
+        state.queryParamsLoading = false
+        queryParamsLoadingPromise = null
+      }
+    })()
+
+    return queryParamsLoadingPromise
   }
 
   function startAutoRefresh() {
@@ -766,7 +719,6 @@ export const useDatabaseStore = defineStore('database', () => {
     handleBatchDelete,
     addFiles,
     parseFiles,
-    parsePendingFiles,
     indexFiles,
     indexPendingFiles,
     openFileDetail,
@@ -776,6 +728,7 @@ export const useDatabaseStore = defineStore('database', () => {
     enterFolder,
     goToFolder,
     resetFileBrowser,
+    resetDatabaseState,
 
     startAutoRefresh,
     stopAutoRefresh,

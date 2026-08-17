@@ -1,17 +1,18 @@
 <script setup>
 import { ref, onMounted, computed, provide, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
-import { GithubOutlined } from '@ant-design/icons-vue'
 import {
   BarChart3,
-  ClipboardList,
   LibraryBig,
   Box,
   FolderKanban,
   PanelLeftClose,
   PanelLeftOpen,
   MessageCirclePlus,
-  Search
+  Search,
+  Settings,
+  Wrench,
+  GitBranch
 } from 'lucide-vue-next'
 
 import { useConfigStore } from '@/stores/config'
@@ -21,9 +22,7 @@ import { useChatUIStore } from '@/stores/chatUI'
 import { useDatabaseStore } from '@/stores/database'
 import { useInfoStore } from '@/stores/info'
 import { useTaskerStore } from '@/stores/tasker'
-import { useUserStore } from '@/stores/user'
 import { storeToRefs } from 'pinia'
-import UserInfoComponent from '@/components/UserInfoComponent.vue'
 
 import TaskCenterDrawer from '@/components/TaskCenterDrawer.vue'
 import SettingsModal from '@/components/SettingsModal.vue'
@@ -37,14 +36,7 @@ const chatUIStore = useChatUIStore()
 const databaseStore = useDatabaseStore()
 const infoStore = useInfoStore()
 const taskerStore = useTaskerStore()
-const userStore = useUserStore()
-const { activeCount: activeCountRef, isDrawerOpen } = storeToRefs(taskerStore)
-const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads } =
-  storeToRefs(chatThreadsStore)
-
-// Add state for GitHub stars
-const githubStars = ref(0)
-const isLoadingStars = ref(false)
+const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads, unreadThreadIds } = storeToRefs(chatThreadsStore)
 
 // Add state for settings modal
 const showSettingsModal = ref(false)
@@ -55,7 +47,7 @@ const conversationSearchOpen = ref(false)
 
 // Provide settings modal methods to child components
 const openSettingsModal = (tab) => {
-  settingsInitialTab.value = tab || (userStore.isAdmin ? 'base' : 'account')
+  settingsInitialTab.value = tab || 'base'
   showSettingsModal.value = true
 }
 
@@ -75,42 +67,22 @@ const getRemoteDatabase = async () => {
   }
 }
 
-// Fetch GitHub stars count
-const fetchGithubStars = async () => {
-  try {
-    isLoadingStars.value = true
-    // 公共API，可以直接使用fetch
-    const response = await fetch('https://api.github.com/repos/xerrors/Yuxi')
-    const data = await response.json()
-    githubStars.value = data.stargazers_count
-  } catch (error) {
-    console.error('获取GitHub stars失败:', error)
-  } finally {
-    isLoadingStars.value = false
-  }
-}
-
 onMounted(async () => {
   // 加载信息配置与知识库数据无依赖，可并行
   await Promise.all([infoStore.loadInfoConfig(), getRemoteDatabase()])
   await initAgentNavigation()
   await getRemoteConfig()
-  // 仅管理员加载任务中心数据
-  if (userStore.isAdmin) {
-    taskerStore.loadTasks()
-    fetchGithubStars() // Fetch GitHub stars on mount
-  }
+  taskerStore.loadTasks()
 })
 
 const route = useRoute()
 const router = useRouter()
 
-const activeTaskCount = computed(() => activeCountRef.value || 0)
 const activeConversationThreadId = computed(() => {
   return route.path.startsWith('/agent') ? currentThreadId.value : null
 })
 const organizationName = computed(() => {
-  return infoStore.organization.name || infoStore.branding.name || 'Yuxi'
+  return infoStore.organization.name || infoStore.branding.name || 'Qavor'
 })
 
 // 下面是导航菜单部分，添加智能体项
@@ -141,21 +113,34 @@ const mainList = computed(() => {
   })
 
   items.push({
-    name: '知识库 · 技能',
+    name: '知识库',
     path: '/extensions',
     activePaths: ['/extensions'],
     icon: LibraryBig,
     activeIcon: LibraryBig
   })
 
-  if (userStore.isSuperAdmin) {
-    items.push({
-      name: '数据总览',
-      path: '/dashboard',
-      icon: BarChart3,
-      activeIcon: BarChart3
-    })
-  }
+  items.push({
+    name: '工具',
+    path: '/tools',
+    activePaths: ['/tools'],
+    icon: Wrench,
+    activeIcon: Wrench
+  })
+
+  items.push({
+    name: '链路追踪',
+    path: '/traces',
+    icon: GitBranch,
+    activeIcon: GitBranch
+  })
+
+  items.push({
+    name: '数据总览',
+    path: '/dashboard',
+    icon: BarChart3,
+    activeIcon: BarChart3
+  })
 
   return items
 })
@@ -236,7 +221,7 @@ const handleRenameChat = async ({ chatId, title }) => {
 }
 
 const handleTogglePinChat = async (threadId) => {
-  const thread = threads.value.find((item) => item.id === threadId)
+  const thread = threads.value.find((item) => String(item.id) === String(threadId))
   if (!thread) return
   try {
     await chatThreadsStore.updateThread(threadId, null, !thread.is_pinned)
@@ -270,7 +255,7 @@ provide('settingsModal', {
     <div class="header">
       <div class="sidebar-brand" @click.stop>
         <router-link v-if="!sidebarCollapsed" to="/" class="brand-link">
-          <img :src="infoStore.organization.avatar" class="brand-avatar" />
+          <img src="/qavor-logo.png" alt="QAVOR Logo" class="brand-avatar" />
           <span class="brand-name">{{ organizationName }}</span>
         </router-link>
         <button
@@ -280,7 +265,11 @@ provide('settingsModal', {
           aria-label="展开侧边栏"
           @click="setSidebarCollapsed(false)"
         >
-          <img :src="infoStore.organization.avatar" class="brand-avatar brand-avatar-image" />
+          <img
+            src="/qavor-logo.png"
+            alt="QAVOR Logo"
+            class="brand-avatar brand-avatar-image"
+          />
           <PanelLeftOpen class="brand-expand-icon" size="20" />
         </button>
         <button
@@ -336,7 +325,6 @@ provide('settingsModal', {
           class="nav-item"
           :class="{ active: isNavItemActive(item) }"
           :active-class="item.action ? '' : 'active'"
-          @click.stop
         >
           <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
             <template #title>{{ item.name }}</template>
@@ -357,6 +345,7 @@ provide('settingsModal', {
           :chats-list="threads"
           :has-more-chats="hasMoreThreads"
           :is-loading-more="isLoadingMoreThreads"
+          :unread-thread-ids="unreadThreadIds"
           @select-chat="handleSelectChat"
           @delete-chat="handleDeleteChat"
           @rename-chat="handleRenameChat"
@@ -365,50 +354,19 @@ provide('settingsModal', {
         />
       </div>
       <div class="foo">
-        <div class="github nav-item" @click.stop>
+        <div class="nav-item" @click.stop="openSettingsModal('account')">
           <a-tooltip placement="right" :open="sidebarCollapsed ? undefined : false">
-            <template #title>欢迎 Star</template>
-            <a href="https://github.com/xerrors/Yuxi" target="_blank" class="github-link">
-              <GithubOutlined class="icon" />
-              <span class="nav-text">GitHub</span>
-              <span v-if="githubStars > 0" class="github-stars">
-                <span class="star-count">{{ (githubStars / 1000).toFixed(1) }}k</span>
-              </span>
-            </a>
+            <template #title>设置</template>
+            <Settings class="icon" size="18" />
           </a-tooltip>
-        </div>
-        <!-- 用户信息组件 -->
-        <div class="nav-item user-info" @click.stop>
-          <UserInfoComponent :show-role="!sidebarCollapsed">
-            <template v-if="userStore.isAdmin" #actions>
-              <a-tooltip placement="top" title="任务中心">
-                <button
-                  class="user-task-center"
-                  :class="{ active: isDrawerOpen }"
-                  type="button"
-                  aria-label="任务中心"
-                  @click.stop="taskerStore.openDrawer()"
-                >
-                  <a-badge
-                    :count="activeTaskCount"
-                    :overflow-count="99"
-                    class="task-center-badge"
-                    size="small"
-                  >
-                    <ClipboardList class="icon" size="16" />
-                  </a-badge>
-                </button>
-              </a-tooltip>
-            </template>
-          </UserInfoComponent>
+          <span class="nav-text">设置</span>
         </div>
       </div>
     </div>
-    <router-view v-slot="{ Component, route }" id="app-router-view">
-      <keep-alive v-if="route.meta.keepAlive !== false">
+    <router-view v-slot="{ Component }" id="app-router-view">
+      <keep-alive :include="['AgentView', 'AgentChatComponent', 'WorkspaceView']">
         <component :is="Component" />
       </keep-alive>
-      <component :is="Component" v-else />
     </router-view>
 
     <ConversationSearchModal
@@ -420,7 +378,7 @@ provide('settingsModal', {
     />
 
     
-    <TaskCenterDrawer v-if="userStore.isAdmin" />
+    <TaskCenterDrawer />
     <SettingsModal
       v-model:visible="showSettingsModal"
       :initial-tab="settingsInitialTab"
@@ -431,16 +389,16 @@ provide('settingsModal', {
 
 <style lang="less" scoped>
 // Less 变量定义
-@sidebar-width: 230px;
-@sidebar-collapsed-width: 56px;
-@sidebar-padding-y: 6px;
-@sidebar-padding-x: 8px;
+@sidebar-width: 280px;
+@sidebar-collapsed-width: 72px;
+@sidebar-padding-y: 12px;
+@sidebar-padding-x: 12px;
 @sidebar-padding: @sidebar-padding-y @sidebar-padding-x;
-@sidebar-border-width: 1px;
-@sidebar-item-height: 32px;
-@sidebar-item-padding-x: 10px;
-@sidebar-icon-size: 16px;
-@brand-avatar-size: 28px;
+@sidebar-border-width: 0px;
+@sidebar-item-height: 40px;
+@sidebar-item-padding-x: 12px;
+@sidebar-icon-size: 18px;
+@brand-avatar-size: 36px;
 @sidebar-collapsed-content-width: @sidebar-collapsed-width - (2 * @sidebar-padding-x) -
   @sidebar-border-width;
 @sidebar-collapsed-icon-padding-x: (
@@ -460,6 +418,9 @@ provide('settingsModal', {
   width: 100%;
   height: 100vh;
   min-width: var(--min-width);
+  background: #e8edf4;
+  padding: 0;
+  gap: 0;
 }
 
 div.header,
@@ -471,6 +432,11 @@ div.header,
 #app-router-view {
   flex: 1 1 auto;
   overflow-y: auto;
+  background: #ffffff;
+  border-radius: 0;
+  box-shadow: none;
+  margin-left: 0;
+  padding: 24px 32px;
 }
 
 .header {
@@ -479,14 +445,19 @@ div.header,
   flex: 0 0 @sidebar-width;
   justify-content: flex-start;
   align-items: stretch;
-  gap: 16px;
-  background-color: var(--main-5);
+  gap: 12px;
+  background: #f0f4f8;
   height: 100%;
   width: @sidebar-width;
-  border-right: 1px solid var(--gray-100);
+  border: none;
+  border-right: 1px solid #e2e8f0;
+  border-radius: 0;
   padding: @sidebar-padding;
   overflow: hidden;
   user-select: none;
+  position: relative;
+  z-index: 1;
+
   transition:
     width 0.18s ease,
     flex-basis 0.18s ease;
@@ -498,11 +469,11 @@ div.header,
     justify-content: flex-start;
     align-items: stretch;
     position: relative;
-    gap: 0;
+    gap: 4px;
   }
 
   .sidebar-conversations {
-    height: 100%;
+    flex: 1 1 0;
     min-height: 0;
     overflow: hidden;
   }
@@ -510,13 +481,22 @@ div.header,
   .sidebar-brand,
   :deep(.conversation-nav-section:not(.sidebar-conversations)),
   .github,
-  .user-info {
+  .user-info,
+  .sidebar-footer {
     flex-shrink: 0;
   }
 
   .fill {
     flex: 1 1 0;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .sidebar-footer {
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--gray-100);
   }
 
   .sidebar-brand {
@@ -525,6 +505,9 @@ div.header,
     justify-content: space-between;
     height: @sidebar-item-height;
     gap: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #d8e2ec;
+    margin-bottom: 8px;
   }
 
   .brand-link {
@@ -533,7 +516,7 @@ div.header,
     align-items: center;
     min-width: 0;
     height: @sidebar-item-height;
-    color: var(--gray-900);
+    color: #1e293b;
     text-decoration: none;
     border: 0;
     background: transparent;
@@ -545,18 +528,18 @@ div.header,
     flex: 0 0 @brand-avatar-size;
     width: @brand-avatar-size;
     height: @brand-avatar-size;
-    border-radius: 6px;
+    border-radius: 50%;
     object-fit: cover;
   }
 
   .brand-name {
     min-width: 0;
-    margin-left: 10px;
+    margin-left: 12px;
     overflow: hidden;
-    color: var(--gray-1000);
-    font-size: 15px;
-    font-weight: 650;
-    line-height: 20px;
+    color: #1e293b;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 26px;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -571,7 +554,7 @@ div.header,
     border: 1px solid transparent;
     border-radius: 8px;
     background: transparent;
-    color: var(--gray-600);
+    color: #64748b;
     cursor: pointer;
     transition:
       background-color 0.2s ease,
@@ -580,9 +563,9 @@ div.header,
 
     &:hover,
     &:focus-visible {
-      border-color: var(--main-50);
-      background: var(--main-20);
-      color: var(--main-color);
+      border-color: #cbd5e1;
+      background: #e2e8f0;
+      color: #2563b0;
       outline: none;
     }
   }
@@ -594,11 +577,11 @@ div.header,
     width: 100%;
     height: @sidebar-item-height;
     padding: 0 @sidebar-item-padding-x;
-    border: 1px solid transparent;
-    border-radius: 8px;
+    border: none;
+    border-radius: 10px;
     background-color: transparent;
-    color: var(--gray-700);
-    font-size: 14px;
+    color: #475569;
+    font-size: 16px;
     font-weight: 450;
     transition:
       background-color 0.2s ease-in-out,
@@ -617,10 +600,10 @@ div.header,
 
     .nav-text {
       min-width: 0;
-      max-width: 140px;
-      margin-left: 8px;
+      max-width: 180px;
+      margin-left: 14px;
       overflow: hidden;
-      line-height: 20px;
+      line-height: 24px;
       font-weight: 450;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -638,10 +621,28 @@ div.header,
     }
 
     &.active {
-      border-color: transparent;
-      background-color: color-mix(in srgb, var(--main-color) 6%, var(--gray-0));
+      background-color: rgba(37, 99, 176, 0.14);
       font-weight: 600;
+      color: #2563b0;
+
+      &:hover {
+        background-color: rgba(37, 99, 176, 0.14);
+      }
+    }
+
+    &.primary-action {
+      margin-bottom: 8px;
+      border-color: transparent;
+      background-color: var(--gray-0);
       color: var(--main-color);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+
+      &:hover {
+        border-color: transparent;
+        background-color: var(--gray-0);
+        color: var(--main-color);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      }
     }
 
     &.primary-action {
@@ -665,53 +666,8 @@ div.header,
 
     &:hover {
       border-color: transparent;
-      background-color: var(--main-20);
-      color: var(--main-color);
-    }
-
-    &.github {
-      margin-bottom: 8px;
-      &:hover {
-        border-color: transparent;
-      }
-
-      .github-link {
-        display: flex;
-        align-items: center;
-        width: 100%;
-        min-width: 0;
-        color: inherit;
-        text-decoration: none;
-      }
-
-      .icon {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: @sidebar-icon-size;
-        line-height: 1;
-      }
-
-      .github-stars {
-        display: flex;
-        align-items: center;
-        max-width: 48px;
-        margin-left: auto;
-        overflow: hidden;
-        font-size: 12px;
-        color: var(--gray-600);
-        background-color: var(--gray-100);
-        padding: 2px 8px;
-        border-radius: 6px;
-        white-space: nowrap;
-        transition:
-          opacity 0.12s ease,
-          max-width 0.18s ease;
-
-        .star-count {
-          font-weight: 600;
-        }
-      }
+      background-color: rgba(100, 116, 139, 0.1);
+      color: #2563b0;
     }
 
     &.api-docs {
@@ -736,66 +692,6 @@ div.header,
         }
       }
     }
-    &.user-info {
-      margin-bottom: 8px;
-      padding: 0 3px;
-      overflow: hidden;
-
-      :deep(.user-info-component) {
-        width: 100%;
-      }
-
-      :deep(.user-info-dropdown) {
-        width: 100%;
-        height: @sidebar-item-height;
-        border-radius: 8px;
-        transition:
-          background-color 0.2s ease,
-          color 0.2s ease;
-      }
-
-      :deep(.user-info-dropdown:hover) {
-        background: var(--main-20);
-        color: var(--main-color);
-      }
-      :deep(.user-name) {
-        flex: 1 1 auto;
-      }
-
-      :deep(.user-task-center) {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        padding: 0;
-        border: 1px solid transparent;
-        border-radius: 6px;
-        background: transparent;
-        color: var(--gray-600);
-        cursor: pointer;
-        transition:
-          background-color 0.2s ease,
-          color 0.2s ease;
-
-        &:hover,
-        &.active {
-          background: var(--main-30);
-          color: var(--main-color);
-        }
-
-        .task-center-badge {
-          display: flex;
-          justify-content: center;
-        }
-
-        .icon {
-          display: block;
-          width: 16px;
-          height: 16px;
-        }
-      }
-    }
   }
 }
 
@@ -806,9 +702,16 @@ div.header,
     align-items: stretch;
     padding: @sidebar-padding;
 
+    &::before {
+      width: 6px;
+    }
+
     .sidebar-brand {
       justify-content: flex-start;
       width: 100%;
+      border-bottom: none;
+      margin-bottom: 0;
+      padding-bottom: 0;
     }
 
     .brand-expand-button {
@@ -816,7 +719,7 @@ div.header,
       justify-content: flex-start;
       width: 100%;
       padding: 0;
-      border-radius: 8px;
+      border-radius: 10px;
 
       .brand-avatar-image {
         margin-left: @sidebar-collapsed-brand-padding-x;
@@ -827,12 +730,12 @@ div.header,
         margin-left: @sidebar-collapsed-brand-icon-padding-x;
         width: @sidebar-icon-size;
         height: @sidebar-icon-size;
-        color: var(--main-color);
+        color: #2563b0;
       }
 
       &:hover,
       &:focus-visible {
-        background: var(--main-20);
+        background: #e2e8f0;
         outline: none;
 
         .brand-avatar-image {
@@ -848,6 +751,7 @@ div.header,
     .nav {
       align-items: stretch;
       width: 100%;
+      gap: 4px;
     }
 
     .nav-item {
@@ -855,31 +759,11 @@ div.header,
       width: 100%;
       padding: 0 @sidebar-collapsed-icon-padding-x;
 
-      .nav-text,
-      .github-stars {
+      .nav-text {
         max-width: 0;
         margin-left: 0;
         opacity: 0;
         pointer-events: none;
-      }
-
-      &.github {
-        .github-link {
-          justify-content: flex-start;
-        }
-      }
-
-      &.user-info {
-        padding: 0 @sidebar-collapsed-avatar-padding-x;
-
-        :deep(.user-info-component),
-        :deep(.user-info-dropdown) {
-          justify-content: flex-start;
-        }
-
-        :deep(.user-info-actions) {
-          display: none;
-        }
       }
     }
   }

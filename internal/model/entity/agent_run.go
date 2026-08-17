@@ -2,12 +2,21 @@ package entity
 
 import "time"
 
+// Run 状态常量
+const (
+	StatusPending     = "pending"
+	StatusRunning     = "running"
+	StatusInterrupted = "interrupted"
+	StatusCompleted   = "completed"
+	StatusFailed      = "failed"
+	StatusCancelled   = "cancelled"
+)
+
 // AgentRun Agent运行任务实体
 type AgentRun struct {
 	ID                       string     `gorm:"type:varchar(64);primarykey;comment:Run ID（UUID）" json:"id"`
 	ConversationThreadID     string     `gorm:"type:varchar(64);not null;index;comment:对话线程ID" json:"conversation_thread_id"`
 	AgentSlug                string     `gorm:"type:varchar(64);not null;index;comment:Agent slug" json:"agent_slug"`
-	UID                      string     `gorm:"type:varchar(64);not null;index;comment:用户UID" json:"uid"`
 	Status                   string     `gorm:"type:varchar(32);not null;index;default:pending;comment:状态：pending/running/completed/failed/cancelled等" json:"status"`
 	RequestID                string     `gorm:"type:varchar(64);uniqueIndex;not null;index;comment:幂等性请求ID" json:"request_id"`
 	ConversationID           *uint      `gorm:"index;comment:对话ID" json:"conversation_id,omitempty"`
@@ -17,7 +26,9 @@ type AgentRun struct {
 	InputMessageID           *uint      `gorm:"comment:输入消息ID" json:"input_message_id,omitempty"`
 	OutputMessageID          *uint      `gorm:"comment:输出消息ID" json:"output_message_id,omitempty"`
 	LastEventID              string     `gorm:"type:varchar(64);comment:Redis Stream最后事件ID" json:"last_event_id,omitempty"`
-	InputPayload             JSON       `gorm:"type:json;not null;default:{};comment:原始输入payload" json:"input_payload"`
+	CheckpointID             string     `gorm:"type:varchar(128);comment:审批中断的checkpoint ID（resume用）" json:"checkpoint_id,omitempty"`
+	ApprovalInfo             JSON       `gorm:"type:json;comment:审批信息(action_requests+review_configs)" json:"approval_info,omitempty"`
+	InputPayload             JSON       `gorm:"type:json;not null;default:'{}';comment:原始输入payload" json:"input_payload"`
 	ErrorType                string     `gorm:"type:varchar(64);comment:错误类型" json:"error_type,omitempty"`
 	ErrorMessage             string     `gorm:"type:text;comment:错误信息" json:"error_message,omitempty"`
 	StartedAt                *time.Time `gorm:"comment:开始时间" json:"started_at,omitempty"`
@@ -35,13 +46,17 @@ func (AgentRun) TableName() string {
 	return "agent_runs"
 }
 
-// IsTerminal 判断是否为终态
+// IsTerminal 判断是否为不可恢复的终态（completed/failed/cancelled）。
+// interrupted 不算终态，可被 resume 恢复。
 func (r *AgentRun) IsTerminal() bool {
-	terminalStatuses := []string{"completed", "failed", "cancelled", "interrupted"}
-	for _, status := range terminalStatuses {
-		if r.Status == status {
-			return true
-		}
+	switch r.Status {
+	case StatusCompleted, StatusFailed, StatusCancelled:
+		return true
 	}
 	return false
+}
+
+// IsInterrupted 判断是否因工具审批中断（可恢复）
+func (r *AgentRun) IsInterrupted() bool {
+	return r.Status == StatusInterrupted
 }

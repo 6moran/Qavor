@@ -1,0 +1,52 @@
+import { apiGet } from './base'
+
+/**
+ * 链路追踪 API 模块
+ * 提供 Agent 对话执行链路（Trace）的查询能力
+ */
+
+const BASE_URL = '/api/v1/traces'
+const RUNS_URL = '/api/v1/runs'
+
+export const traceApi = {
+  /**
+   * Trace 列表（分页 + 筛选）
+   * @param {Object} params - keyword / agent_slug / conversation_id / status / model / tool / error_only / mismatch_only / from / to / page / page_size
+   * @returns {Promise} - { items, total }
+   */
+  listTraces: (params = {}) => {
+    // 与其它 API 一致：手动拼查询串（base.js 的 fetch 封装不处理 options.params）
+    const query = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        query.set(key, String(value))
+      }
+    })
+    const qs = query.toString()
+    return apiGet(qs ? `${BASE_URL}?${qs}` : BASE_URL).then(res => res?.data || { items: [], total: 0 })
+  },
+
+  /**
+   * Trace 详情（头部 + spans 平铺 + diagnostics）
+   * @param {string} traceId
+   * @returns {Promise} - { trace, run, spans, diagnostics }
+   */
+  getTrace: (traceId) => apiGet(`${BASE_URL}/${traceId}`).then(res => res?.data || null),
+
+  /**
+   * Span 完整详情（含 attributes），详情列表按需懒加载时调用。
+   * @param {string} traceId
+   * @param {string} spanId
+   * @returns {Promise} - TraceSpanItem
+   */
+  getSpan: (traceId, spanId) => apiGet(`${BASE_URL}/${encodeURIComponent(traceId)}/spans/${encodeURIComponent(spanId)}`).then(res => res?.data || null),
+
+  /**
+   * 通过 run_id 反查 trace_id
+   * @param {string} runId
+   * @returns {Promise} - { trace_id }
+   */
+  getTraceByRunId: (runId) => apiGet(`${RUNS_URL}/${encodeURIComponent(runId)}/trace`).then(res => res?.data || null)
+}
+
+export default traceApi

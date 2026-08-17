@@ -1,11 +1,11 @@
-import { apiAdminGet } from './base'
+import { apiGet } from './base'
 
 /**
  * 工具管理 API 模块
  * 包含系统内置工具的查询功能
  */
 
-const BASE_URL = '/api/system/tools'
+const BASE_URL = '/api/v1/system/tools'
 
 /**
  * 获取工具列表
@@ -14,7 +14,7 @@ const BASE_URL = '/api/system/tools'
  */
 export const getTools = async (category = null) => {
   const query = category ? `?${new URLSearchParams({ category }).toString()}` : ''
-  return apiAdminGet(`${BASE_URL}${query}`)
+  return apiGet(`${BASE_URL}${query}`)
 }
 
 /**
@@ -22,7 +22,7 @@ export const getTools = async (category = null) => {
  * @returns {Promise} - 工具选项
  */
 export const getToolOptions = async () => {
-  return apiAdminGet(`${BASE_URL}/options`)
+  return apiGet(`${BASE_URL}/options`)
 }
 
 export const toolApi = {

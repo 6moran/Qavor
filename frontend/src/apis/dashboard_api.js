@@ -1,8 +1,8 @@
-import { apiAdminGet } from './base'
+import { apiGet } from './base'
 
 /**
  * Dashboard API模块
- * 用于管理员查看所有用户的对话记录
+ * 用于管理员查看所有对话记录
  */
 
 export const dashboardApi = {
@@ -24,7 +24,7 @@ export const dashboardApi = {
     if (params.limit) queryParams.append('limit', params.limit)
     if (params.offset) queryParams.append('offset', params.offset)
 
-    return apiAdminGet(`/api/dashboard/conversations?${queryParams.toString()}`)
+    return apiGet(`/api/dashboard/conversations?${queryParams.toString()}`)
   },
 
   /**
@@ -33,15 +33,15 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - 对话详情
    */
   getConversationDetail: (threadId) => {
-    return apiAdminGet(`/api/dashboard/conversations/${threadId}`)
+    return apiGet(`/api/dashboard/conversations/${threadId}`)
   },
 
   /**
-   * 获取Dashboard统计信息
+   * 获取Dashboard基础统计信息
    * @returns {Promise<Object>} - 统计信息
    */
   getStats: () => {
-    return apiAdminGet('/api/dashboard/stats')
+    return apiGet('/api/dashboard/stats')
   },
 
   /**
@@ -56,68 +56,7 @@ export const dashboardApi = {
     if (params.rating && params.rating !== 'all') queryParams.append('rating', params.rating)
     if (params.agent_id) queryParams.append('agent_id', params.agent_id)
 
-    return apiAdminGet(`/api/dashboard/feedbacks?${queryParams.toString()}`)
-  },
-
-  // ========== 新增并行API接口 ==========
-
-  /**
-   * 获取用户活跃度统计
-   * @returns {Promise<Object>} - 用户活跃度统计信息
-   */
-  getUserStats: () => {
-    return apiAdminGet('/api/dashboard/stats/users')
-  },
-
-  /**
-   * 获取工具调用统计
-   * @returns {Promise<Object>} - 工具调用统计信息
-   */
-  getToolStats: () => {
-    return apiAdminGet('/api/dashboard/stats/tools')
-  },
-
-  /**
-   * 获取知识库统计
-   * @returns {Promise<Object>} - 知识库统计信息
-   */
-  getKnowledgeStats: () => {
-    return apiAdminGet('/api/dashboard/stats/knowledge')
-  },
-
-  /**
-   * 获取AI智能体分析数据
-   * @returns {Promise<Object>} - AI智能体分析信息
-   */
-  getAgentStats: () => {
-    return apiAdminGet('/api/dashboard/stats/agents')
-  },
-
-  /**
-   * 批量获取所有统计数据（并行请求）
-   * @returns {Promise<Object>} - 所有统计数据
-   */
-  getAllStats: async () => {
-    try {
-      const [basicStats, userStats, toolStats, knowledgeStats, agentStats] = await Promise.all([
-        apiAdminGet('/api/dashboard/stats'),
-        apiAdminGet('/api/dashboard/stats/users'),
-        apiAdminGet('/api/dashboard/stats/tools'),
-        apiAdminGet('/api/dashboard/stats/knowledge'),
-        apiAdminGet('/api/dashboard/stats/agents')
-      ])
-
-      return {
-        basic: basicStats,
-        users: userStats,
-        tools: toolStats,
-        knowledge: knowledgeStats,
-        agents: agentStats
-      }
-    } catch (error) {
-      console.error('批量获取统计数据失败:', error)
-      throw error
-    }
+    return apiGet(`/api/dashboard/feedbacks?${queryParams.toString()}`)
   },
 
   /**
@@ -127,6 +66,20 @@ export const dashboardApi = {
    * @returns {Promise<Object>} - 时间序列统计数据
    */
   getCallTimeseries: (type = 'models', timeRange = '14days') => {
-    return apiAdminGet(`/api/dashboard/stats/calls/timeseries?type=${type}&time_range=${timeRange}`)
+    return apiGet(`/api/dashboard/stats/calls/timeseries?type=${type}&time_range=${timeRange}`)
+  },
+
+  /**
+   * 仅获取基础统计数据（无需并行请求）
+   * @returns {Promise<Object>} - 基础统计数据
+   */
+  getAllStats: async () => {
+    try {
+      const basicStats = await apiGet('/api/dashboard/stats')
+      return { basic: basicStats }
+    } catch (error) {
+      console.error('获取基础统计数据失败:', error)
+      throw error
+    }
   }
 }

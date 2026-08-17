@@ -368,7 +368,7 @@
               onChange: handlePageChange,
               onShowSizeChange: handlePageSizeChange
             }"
-            :scroll="{ x: resultTableScrollX, y: 'calc(100dvh - 254px)' }"
+            :scroll="{ x: resultTableScrollX, y: 'calc(100dvh - 300px)' }"
             :class="{ 'table-nowrap': !resultAutoWrap }"
             size="small"
             :loading="resultsLoading"
@@ -453,7 +453,6 @@ import { evaluationApi } from '@/apis/knowledge_api'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
 import { BarChart3, ChevronDown, ClipboardList, RefreshCw, X } from 'lucide-vue-next'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
-import { useTaskerStore } from '@/stores/tasker'
 
 const props = defineProps({
   kbId: {
@@ -463,9 +462,6 @@ const props = defineProps({
 })
 
 defineEmits(['switch-to-benchmarks'])
-
-// 使用任务中心 store
-const taskerStore = useTaskerStore()
 
 // 状态
 const selectedDatasetId = ref(null)
@@ -887,7 +883,6 @@ const startEvaluation = async () => {
       evaluationDropdownOpen.value = false
       configForm.name = buildDefaultEvaluationName()
       loadEvaluationHistory()
-      taskerStore.loadTasks()
     } else {
       message.error(response.message || '启动评估失败')
     }
@@ -1604,16 +1599,20 @@ onUnmounted(() => {
   z-index: 1000;
   width: 100vw;
   height: 100dvh;
-  padding: 12px;
+  padding: 40px;
   box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--dark-25);
   overflow: hidden;
 }
 
 :global(.evaluation-detail-panel) {
   width: 100%;
-  height: calc(100dvh - 24px);
-  max-height: calc(100dvh - 24px);
+  max-width: 1200px;
+  height: calc(100dvh - 80px);
+  max-height: calc(100dvh - 80px);
   display: flex;
   flex-direction: column;
   overflow: hidden;

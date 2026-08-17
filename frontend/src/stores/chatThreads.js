@@ -10,19 +10,36 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
   const currentThreadId = ref(null)
   const hasMoreThreads = ref(true)
   const isLoadingMoreThreads = ref(false)
+  const unreadThreadIds = ref(new Set())
 
   const currentThread = computed(() => {
     if (!currentThreadId.value) return null
-    return threads.value.find((thread) => thread.id === currentThreadId.value) || null
+    return threads.value.find((thread) => String(thread.id) === String(currentThreadId.value)) || null
   })
 
   const setCurrentThreadId = (threadId) => {
     currentThreadId.value = threadId || null
   }
 
+  const markThreadUnread = (threadId) => {
+    if (!threadId) return
+    const id = String(threadId)
+    if (id === String(currentThreadId.value)) return
+    unreadThreadIds.value = new Set([...unreadThreadIds.value, id])
+  }
+
+  const clearThreadUnread = (threadId) => {
+    if (!threadId) return
+    const id = String(threadId)
+    if (!unreadThreadIds.value.has(id)) return
+    const next = new Set(unreadThreadIds.value)
+    next.delete(id)
+    unreadThreadIds.value = next
+  }
+
   const upsertThread = (thread) => {
     if (!thread?.id) return
-    const index = threads.value.findIndex((item) => item.id === thread.id)
+    const index = threads.value.findIndex((item) => String(item.id) === String(thread.id))
     if (index >= 0) {
       threads.value[index] = { ...threads.value[index], ...thread }
       return
@@ -37,7 +54,7 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
       hasMoreThreads.value = Boolean(fetchedThreads && fetchedThreads.length >= PAGE_SIZE)
       if (
         currentThreadId.value &&
-        !threads.value.find((thread) => thread.id === currentThreadId.value)
+        !threads.value.find((thread) => String(thread.id) === String(currentThreadId.value))
       ) {
         currentThreadId.value = null
       }
@@ -133,7 +150,10 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     currentThread,
     hasMoreThreads,
     isLoadingMoreThreads,
+    unreadThreadIds,
     setCurrentThreadId,
+    markThreadUnread,
+    clearThreadUnread,
     upsertThread,
     loadThreads,
     loadMoreThreads,

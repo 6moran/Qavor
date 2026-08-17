@@ -2,17 +2,26 @@ package config
 
 import (
 	"fmt"
-	"github.com/joho/godotenv"
-	"github.com/spf13/viper"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/joho/godotenv"
+	"github.com/spf13/viper"
 )
 
 // atoiOrDefault 将字符串转换为 int，失败时返回默认值
 func atoiOrDefault(s string, defaultVal int) int {
 	if v, err := strconv.Atoi(s); err == nil {
+		return v
+	}
+	return defaultVal
+}
+
+// atoi64OrDefault 将字符串转换为 int64，失败时返回默认值
+func atoi64OrDefault(s string, defaultVal int64) int64 {
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return v
 	}
 	return defaultVal
@@ -49,6 +58,15 @@ func Load(configPath string) (*Config, error) {
 	if err := v.Unmarshal(config); err != nil {
 		return nil, fmt.Errorf("解析配置文件失败: %w", err)
 	}
+	config.DocumentQueue.ApplyDefaults()
+	config.DocumentParser.ApplyDefaults()
+	config.RAG.ApplyDefaults()
+	config.SSE.ApplyDefaults()
+	config.Agent.ApplyDefaults()
+	config.Run.ApplyDefaults()
+	config.Trace.ApplyDefaults()
+	config.WebSearch.ApplyDefaults()
+	config.Memory.ApplyDefaults()
 
 	err := godotenv.Load(".env")
 	if err != nil {
@@ -106,14 +124,26 @@ func Load(configPath string) (*Config, error) {
 	if val := os.Getenv("MINIO_REGION"); val != "" {
 		config.Database.MinIO.Region = val
 	}
+	if val := os.Getenv("MINIO_PUBLIC_ENDPOINT"); val != "" {
+		config.Database.MinIO.PublicEndpoint = val
+	}
+	if val := os.Getenv("MINIO_MAX_FILE_SIZE"); val != "" {
+		config.Database.MinIO.MaxFileSize = atoi64OrDefault(val, config.Database.MinIO.MaxFileSize)
+	}
+	if val := os.Getenv("QAVOR_AUTH_ADMIN_USERNAME"); val != "" {
+		config.Auth.AdminUsername = val
+	}
+	if val := os.Getenv("QAVOR_AUTH_ADMIN_PASSWORD"); val != "" {
+		config.Auth.AdminPassword = val
+	}
 	if val := os.Getenv("JWT_SECRET"); val != "" {
 		config.JWT.Secret = val
 	}
-	if val := os.Getenv("JWT_ACCESS_EXPIRE"); val != "" {
-		config.JWT.AccessExpire = time.Duration(atoiOrDefault(val, int(config.JWT.AccessExpire))) * time.Hour
+	if val := os.Getenv("QAVOR_JWT_SECRET"); val != "" {
+		config.JWT.Secret = val
 	}
-	if val := os.Getenv("JWT_REFRESH_EXPIRE"); val != "" {
-		config.JWT.RefreshExpire = time.Duration(atoiOrDefault(val, int(config.JWT.RefreshExpire))) * time.Hour
+	if val := os.Getenv("JWT_EXPIRE"); val != "" {
+		config.JWT.ExpireHours = time.Duration(atoiOrDefault(val, int(config.JWT.ExpireHours))) * time.Hour
 	}
 	if val := os.Getenv("APP_MODE"); val != "" {
 		config.App.Mode = val
@@ -121,24 +151,53 @@ func Load(configPath string) (*Config, error) {
 	if val := os.Getenv("APP_PORT"); val != "" {
 		config.App.Port = atoiOrDefault(val, config.App.Port)
 	}
-	// Email 环境变量覆盖
-	if val := os.Getenv("EMAIL_SMTP_HOST"); val != "" {
-		config.Email.SMTP.Host = val
+	// RAG 环境变量覆盖（env 覆盖在 ApplyDefaults 之后执行，需手动同步兼容字段）
+	if val := os.Getenv("RAG_CHUNK_TOKENS"); val != "" {
+		config.RAG.ChunkTokens = atoiOrDefault(val, config.RAG.ChunkTokens)
 	}
-	if val := os.Getenv("EMAIL_SMTP_PORT"); val != "" {
-		config.Email.SMTP.Port = atoiOrDefault(val, config.Email.SMTP.Port)
+	if val := os.Getenv("RAG_CHUNK_OVERLAP_TOKENS"); val != "" {
+		config.RAG.ChunkOverlapTokens = atoiOrDefault(val, config.RAG.ChunkOverlapTokens)
 	}
-	if val := os.Getenv("EMAIL_SMTP_ACCOUNT"); val != "" {
-		config.Email.SMTP.Account = val
+	if val := os.Getenv("RAG_TOP_K"); val != "" {
+		config.RAG.TopK = atoiOrDefault(val, config.RAG.TopK)
+		// 未单独配置 RAG_VECTOR_TOP_K 时，将 RAG_TOP_K 同步为向量检索 TopK。
+		if _, ok := os.LookupEnv("RAG_VECTOR_TOP_K"); !ok {
+			config.RAG.VectorTopK = config.RAG.TopK
+		}
 	}
-	if val := os.Getenv("EMAIL_SMTP_AUTH_CODE"); val != "" {
-		config.Email.SMTP.AuthCode = val
+	if val := os.Getenv("RAG_VECTOR_TOP_K"); val != "" {
+		config.RAG.VectorTopK = atoiOrDefault(val, config.RAG.VectorTopK)
 	}
-	if val := os.Getenv("EMAIL_FROM"); val != "" {
-		config.Email.From = val
+	if val := os.Getenv("RAG_SCORE_THRESHOLD"); val != "" {
+		if f, err := strconv.ParseFloat(val, 64); err == nil {
+			config.RAG.ScoreThreshold = f
+		}
 	}
-	if val := os.Getenv("EMAIL_FROM_NAME"); val != "" {
-		config.Email.FromName = val
+	if val := os.Getenv("RAG_REQUEST_TIMEOUT_SECONDS"); val != "" {
+		config.RAG.RequestTimeoutSeconds = atoiOrDefault(val, config.RAG.RequestTimeoutSeconds)
+	}
+	if val := os.Getenv("RAG_EMBEDDING_BATCH_SIZE"); val != "" {
+		config.RAG.Embedding.BatchSize = atoiOrDefault(val, config.RAG.Embedding.BatchSize)
+	}
+	// WebSearch 环境变量覆盖（API Key 建议通过环境变量注入，避免提交到代码仓库）
+	if val := os.Getenv("WEB_SEARCH_PROVIDER"); val != "" {
+		config.WebSearch.Provider = val
+	}
+	if val := os.Getenv("WEB_SEARCH_BASE_URL"); val != "" {
+		config.WebSearch.BaseURL = val
+	}
+	if val := os.Getenv("WEB_SEARCH_API_KEY"); val != "" {
+		config.WebSearch.APIKey = val
+	}
+	// QAVOR_ 前缀的环境变量（与 viper SetEnvPrefix 对齐）
+	if val := os.Getenv("QAVOR_WEB_SEARCH_PROVIDER"); val != "" {
+		config.WebSearch.Provider = val
+	}
+	if val := os.Getenv("QAVOR_WEB_SEARCH_BASE_URL"); val != "" {
+		config.WebSearch.BaseURL = val
+	}
+	if val := os.Getenv("QAVOR_WEB_SEARCH_API_KEY"); val != "" {
+		config.WebSearch.APIKey = val
 	}
 
 	globalConfig = config
@@ -153,11 +212,15 @@ func Get() *Config {
 	return globalConfig
 }
 
-// MustLoad 加载配置，失败时 panic
-func MustLoad(configPath string) *Config {
-	config, err := Load(configPath)
-	if err != nil {
-		panic(err)
+// ApplyDefaults 为未显式配置的 SSE 参数设置默认值
+func (c *SSEConfig) ApplyDefaults() {
+	if c.MaxStreamTime <= 0 {
+		c.MaxStreamTime = 300 // 5分钟
 	}
-	return config
+	if c.HeartbeatInterval <= 0 {
+		c.HeartbeatInterval = 15 // 15秒
+	}
+	if c.MaxConcurrentTasks <= 0 {
+		c.MaxConcurrentTasks = 5 // 5个并发任务
+	}
 }

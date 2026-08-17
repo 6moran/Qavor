@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { Plus, RefreshCw, Trash2, SquarePen, Bot, MessageCirclePlus } from 'lucide-vue-next'
+import { Plus, RefreshCw, Trash2, SquarePen, Bot, MessageCirclePlus, Star } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 
 import { agentApi } from '@/apis/agent_api'
 import AgentEditModal from '@/components/model-management/AgentEditModal.vue'
 import { isBuiltinAgent, useAgentStore } from '@/stores/agent'
+import { useChatThreadsStore } from '@/stores/chatThreads'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import FallbackAvatar from '@/components/common/FallbackAvatar.vue'
@@ -14,18 +15,29 @@ import ExtensionCardGrid from '@/components/extensions/ExtensionCardGrid.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
 
 const agentStore = useAgentStore()
+const chatThreadsStore = useChatThreadsStore()
 const router = useRouter()
 const agentLoading = ref(false)
 const searchQuery = ref('')
 
-const agentBackendOptions = ref([])
+const agentBackendOptions = ref([
+  { label: '主智能体', value: 'ChatbotAgent' },
+  { label: '子智能体', value: 'SubAgentBackend' }
+])
 const managedAgents = ref([])
 const agentEditModalRef = ref(null)
 
 const normalizeAgent = (agent) => {
   const agentId = agent?.agent_id || agent?.slug || agent?.id
   return agentId
-    ? { ...agent, id: agentId, agent_id: agentId, slug: agent?.slug || agentId }
+    ? {
+        ...agent,
+        id: agentId,
+        agent_id: agentId,
+        slug: agent?.slug || agentId,
+        can_manage: agent?.can_manage ?? true,
+        is_builtin: agent?.is_builtin ?? false
+      }
     : agent
 }
 
@@ -61,6 +73,12 @@ const groupedAgents = computed(() => {
   ].filter((group) => group.agents.length > 0)
 })
 
+// 是否可以设置默认智能体（至少有2个主智能体）
+const canSetDefault = computed(() => {
+  const mainAgents = managedAgents.value.filter((agent) => !agent.is_subagent)
+  return mainAgents.length >= 2
+})
+
 const agentStats = computed(() => ({
   total: managedAgents.value.length,
   builtin: managedAgents.value.filter(isBuiltinAgent).length,
@@ -72,23 +90,11 @@ const canManageAgent = (agent) => !!agent?.can_manage
 const getAgentDefaultIconSrc = (agent) => (agent.id ? generatePixelAvatar(agent.id) : '')
 
 // ============ Agent Operations ============
-const loadAgentBackends = async () => {
-  try {
-    const response = await agentApi.getAgentBackends()
-    agentBackendOptions.value = (response.backends || []).map((backend) => ({
-      label: backend.name || backend.backend_id,
-      value: backend.backend_id
-    }))
-  } catch (error) {
-    message.error(error.message || '加载智能体后端失败')
-  }
-}
-
 const loadAgents = async () => {
   agentLoading.value = true
   try {
     const response = await agentApi.getAgents({ includeSubagents: true })
-    managedAgents.value = (response.agents || []).map(normalizeAgent)
+    managedAgents.value = (response?.data || []).map(normalizeAgent)
   } catch (error) {
     message.error(error.message || '加载智能体失败')
   } finally {
@@ -137,8 +143,27 @@ const deleteAgent = async (agent) => {
   })
 }
 
+const setDefaultAgent = async (agent) => {
+  if (agent.is_default) {
+    message.info('该智能体已是默认智能体')
+    return
+  }
+  try {
+    await agentApi.setDefault(agent.id)
+    await refreshAgentLists()
+    message.success(`已将 ${agent.name} 设为默认智能体`)
+    // 当前无活动会话时，立即把选中智能体切换为新默认，使新建会话无需刷新即可生效；
+    // 有活动会话时保留「已绑定会话不可切换」机制，不做切换，刷新后按默认选中。
+    if (!chatThreadsStore.currentThreadId) {
+      await agentStore.selectAgent(agent.id)
+    }
+  } catch (error) {
+    message.error(error.message || '设置默认智能体失败')
+  }
+}
+
 onMounted(async () => {
-  await Promise.all([loadAgentBackends(), loadAgents()])
+  await loadAgents()
 })
 
 defineExpose({
@@ -181,12 +206,12 @@ defineExpose({
             :default-icon="Bot"
             :tags="[]"
             class="config-card agent-card"
+            :class="{ 'is-default': agent.is_default }"
             @click="canManageAgent(agent) && openEditAgentModal(agent)"
           >
             <template #icon>
               <FallbackAvatar
                 class="agent-card-icon-image"
-                :src="agent.icon"
                 :default-src="getAgentDefaultIconSrc(agent)"
                 :name="agent.name || agent.id"
                 :seed="agent.id || agent.name"
@@ -199,6 +224,16 @@ defineExpose({
 
             <template v-if="canManageAgent(agent)" #card-more-action-corner>
               <a-menu>
+                <a-menu-item
+                  v-if="canSetDefault && !agent.is_default && !agent.is_subagent"
+                  key="setDefault"
+                  @click.stop="setDefaultAgent(agent)"
+                >
+                  <span class="lucide-menu-item">
+                    <Star :size="14" />
+                    <span>设为默认</span>
+                  </span>
+                </a-menu-item>
                 <a-menu-item key="edit" @click.stop="openEditAgentModal(agent)">
                   <span class="lucide-menu-item">
                     <SquarePen :size="14" />
@@ -269,10 +304,10 @@ defineExpose({
   gap: 8px;
   padding: 12px var(--page-padding) 0;
   color: var(--gray-500);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.4px;
-  line-height: 18px;
+  line-height: 20px;
 }
 
 .agent-card-icon-image {
@@ -303,7 +338,7 @@ defineExpose({
   background: var(--gray-100);
   box-shadow: none;
   color: var(--gray-800);
-  font-size: 12px;
+  font-size: 14px;
 
   &:hover {
     border: 0;
@@ -319,6 +354,24 @@ defineExpose({
   &:focus-visible {
     outline: 2px solid var(--main-200);
     outline-offset: 2px;
+  }
+}
+
+/* 默认智能体标识 */
+.agent-card.is-default {
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 24px 24px 0 0;
+    border-color: var(--main-color) transparent transparent transparent;
+    z-index: 1;
   }
 }
 

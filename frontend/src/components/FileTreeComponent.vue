@@ -4,10 +4,10 @@
       :selected-keys="selectedKeys"
       :expanded-keys="expandedKeys"
       :tree-data="treeData"
-      :load-data="loadData ? internalLoadData : undefined"
       :show-icon="showIcon"
       :block-node="blockNode"
       :show-line="showLine"
+      :expand-action="false"
       class="custom-file-tree"
       @update:selected-keys="handleSelectedUpdate"
       @update:expanded-keys="handleExpandedUpdate"
@@ -33,7 +33,7 @@
 
       <!-- Custom Title Slot -->
       <template #title="{ data }">
-        <div class="tree-node-wrapper" @click="handleNodeClick(data)">
+        <div class="tree-node-wrapper">
           <div class="tree-node-content">
             <slot name="title" :node="data">
               <span class="node-title-text" :title="data.title">{{ data.title }}</span>
@@ -53,7 +53,7 @@ import { ref } from 'vue'
 import { FileText } from 'lucide-vue-next'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 
-const props = defineProps({
+defineProps({
   treeData: {
     type: Array,
     required: true,
@@ -96,36 +96,12 @@ const props = defineProps({
 const emit = defineEmits([
   'update:selectedKeys',
   'update:expandedKeys',
-  'select',
-  'nodeClick',
-  'toggleFolder'
+  'select'
 ])
 
 const loadingKeys = ref(new Set())
 
-const setNodeLoading = (key, isLoading) => {
-  const nextLoadingKeys = new Set(loadingKeys.value)
-  if (isLoading) {
-    nextLoadingKeys.add(key)
-  } else {
-    nextLoadingKeys.delete(key)
-  }
-  loadingKeys.value = nextLoadingKeys
-}
-
 const isNodeLoading = (key) => loadingKeys.value.has(key)
-
-const internalLoadData = async (treeNode) => {
-  if (!props.loadData) return
-
-  const key = treeNode?.key
-  if (key) setNodeLoading(key, true)
-  try {
-    await props.loadData(treeNode)
-  } finally {
-    if (key) setNodeLoading(key, false)
-  }
-}
 
 const handleSelectedUpdate = (keys) => {
   emit('update:selectedKeys', keys)
@@ -135,29 +111,8 @@ const handleExpandedUpdate = (keys) => {
   emit('update:expandedKeys', keys)
 }
 
-const handleSelect = (selectedKeys, info) => {
-  emit('select', selectedKeys, info)
-}
-
-const handleNodeClick = (data) => {
-  emit('nodeClick', data)
-
-  const isFolder = data.isLeaf === false || (data.children && Array.isArray(data.children))
-
-  if (isFolder) {
-    const key = data.key
-    const newExpandedKeys = [...props.expandedKeys]
-    const index = newExpandedKeys.indexOf(key)
-
-    if (index > -1) {
-      newExpandedKeys.splice(index, 1)
-    } else {
-      newExpandedKeys.push(key)
-    }
-
-    emit('update:expandedKeys', newExpandedKeys)
-    emit('toggleFolder', data, newExpandedKeys.indexOf(key) > -1)
-  }
+const handleSelect = (...args) => {
+  emit('select', ...args)
 }
 </script>
 

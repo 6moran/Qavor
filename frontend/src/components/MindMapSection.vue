@@ -129,6 +129,52 @@ const useSvgTextFallback = (() => {
 // 方法
 // ============================================================================
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+// 轮询间隔与上限（生成由后端异步执行,前端轮询 GET /mindmap 感知完成状态）
+const POLL_INTERVAL = 3000
+const POLL_TIMEOUT = 10 * 60 * 1000
+
+/**
+ * 轮询等待后台导图生成完成。
+ * @returns {Promise<Object>} 生成完成的导图节点
+ */
+const pollMindmapGeneration = async () => {
+  const deadline = Date.now() + POLL_TIMEOUT
+  while (Date.now() < deadline) {
+    await sleep(POLL_INTERVAL)
+    let current = null
+    try {
+      current = await mindmapApi.getByDatabase(props.kbId)
+    } catch {
+      // 轮询请求偶发失败时继续下一次
+    }
+    if (!current) continue
+    if (current.has_mindmap && current.mindmap) {
+      return current.mindmap
+    }
+    if (!current.generating) {
+      throw new Error(current.generate_error || '生成失败，请重试')
+    }
+  }
+  throw new Error('生成超时，请稍后刷新查看')
+}
+
+/**
+ * 应用导图结果并渲染。
+ */
+const applyMindmapResult = async (mindmap, successMsg) => {
+  if (!mindmap) return
+  mindmapData.value = mindmap
+  await nextTick()
+  // 增加延迟确保DOM完全渲染，特别是使用v-if条件渲染时
+  setTimeout(() => {
+    renderMindmap(mindmap)
+    if (successMsg) message.success(successMsg)
+  }, 200)
+  await checkMindmapDiff()
+}
+
 /**
  * 加载思维导图
  */
@@ -150,10 +196,10 @@ const loadMindmap = async () => {
     if (mindmap) {
       await nextTick()
 
-      // 延迟渲染，确保DOM完全更新
+      // 延迟渲染，确保DOM完全更新（使用v-if条件渲染时需要更长延迟）
       setTimeout(() => {
         renderMindmap(mindmap)
-      }, 100)
+      }, 200)
     }
 
     await checkMindmapDiff()
@@ -176,7 +222,7 @@ const loadMindmap = async () => {
 }
 
 /**
- * 生成思维导图
+ * 生成思维导图（异步：接口立即返回,轮询等待后台生成完成）
  */
 const generateMindmap = async () => {
   if (!props.kbId) return
@@ -190,18 +236,15 @@ const generateMindmap = async () => {
       '' // 无自定义提示
     )
 
-    mindmapData.value = response.mindmap
+    // 后端可能直接返回已保存导图（增量且文件无变化），无需轮询
+    if (response.mindmap) {
+      await applyMindmapResult(response.mindmap, '思维导图生成成功！')
+      return
+    }
 
-    // 等待DOM更新
-    await nextTick()
-
-    // 再延迟一点，确保SVG元素完全渲染
-    setTimeout(() => {
-      renderMindmap(response.mindmap)
-      message.success('思维导图生成成功！')
-    }, 100)
-
-    await checkMindmapDiff()
+    // 后台生成中，轮询 GET /mindmap 直到完成
+    const mindmap = await pollMindmapGeneration()
+    await applyMindmapResult(mindmap, '思维导图生成成功！')
   } catch (error) {
     console.error('生成思维导图失败:', error)
     const errorMsg = error?.message || String(error)
@@ -238,7 +281,7 @@ const checkMindmapDiff = async () => {
 }
 
 /**
- * 增量更新思维导图
+ * 增量更新思维导图（异步：接口立即返回,轮询等待后台生成完成）
  */
 const incrementalUpdate = async () => {
   if (!props.kbId) return
@@ -248,20 +291,18 @@ const incrementalUpdate = async () => {
 
     const response = await mindmapApi.generateMindmap(props.kbId, [], '', true)
 
-    mindmapData.value = response.mindmap
-
-    await nextTick()
-
-    setTimeout(() => {
-      renderMindmap(response.mindmap)
+    // 后端可能直接返回已保存导图（自动清理已删除文件，无需 AI）
+    if (response.mindmap) {
       if (response.no_ai_needed) {
-        message.success('思维导图已更新（自动清理已删除文件）')
+        await applyMindmapResult(response.mindmap, '思维导图已更新（自动清理已删除文件）')
       } else {
-        message.success('增量更新完成！')
+        await applyMindmapResult(response.mindmap, '增量更新完成！')
       }
-    }, 100)
+      return
+    }
 
-    await checkMindmapDiff()
+    const mindmap = await pollMindmapGeneration()
+    await applyMindmapResult(mindmap, '增量更新完成！')
   } catch (error) {
     console.error('增量更新失败:', error)
     const errorMsg = error?.message || String(error)
@@ -456,15 +497,18 @@ const renderMindmap = async (data, retryCount = 0) => {
   if (!data) return
 
   if (!mindmapSvg.value || !ensureSvgViewportSize()) {
-    // 如果SVG或尺寸还没准备好，最多重试3次
-    if (retryCount < 3) {
+    // 如果SVG或尺寸还没准备好，最多重试5次，增加延迟以适应条件渲染场景
+    if (retryCount < 5) {
       setTimeout(() => {
         renderMindmap(data, retryCount + 1)
-      }, 100)
+      }, 150)
       return
     } else {
-      console.error('无法获取SVG容器，渲染失败')
-      message.error('渲染失败：无法找到SVG容器')
+      console.error('无法获取SVG容器，渲染失败', {
+        svgExists: !!mindmapSvg.value,
+        retryCount
+      })
+      message.error('渲染失败：无法找到SVG容器，请尝试刷新页面')
       return
     }
   }

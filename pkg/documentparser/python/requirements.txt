@@ -1,0 +1,11 @@
+﻿# 文档解析模块依赖包
+# Office 文档(docx/pptx/xlsx)使用 Docling 转换;图片与 PDF 使用 RapidOCR 识别
+
+docling>=2.68.0                   # Office 文档 -> Markdown
+rapidocr>=3.0.0                   # 图片 OCR(PP-OCRv5)
+onnxruntime>=1.17.0               # RapidOCR 推理引擎(必装,rapidocr 不自动拉取)
+pymupdf>=1.24.0                   # PDF 渲染为图片
+Pillow>=10.0.0                    # 图像处理
+numpy>=1.26.0                     # RapidOCR 依赖
+opencv-python-headless>=4.9.0     # RapidOCR 依赖(无 GUI 环境)
+requests>=2.31.0                  # 通用 OCR API 客户端(api_ocr.py)

@@ -8,8 +8,6 @@ bin/
 dist/
 build/
 
-# Test binary, built with `go test -c`
-*.test
 
 # Output of the go coverage tool
 *.out
@@ -43,6 +41,7 @@ configs/*.local
 
 # Claude Code
 .claude/
+.worktrees/
 
 # Logs
 logs/
@@ -74,3 +73,16 @@ frontend/node_modules/
 *.bak
 *.tmp
 *.temp
+
+AGENT.md
+
+.superpowers/
+
+# Python
+__pycache__/
+*.pyc
+qavor/
+
+data/
+
+.workbuddy/

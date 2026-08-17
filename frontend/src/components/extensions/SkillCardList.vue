@@ -38,7 +38,6 @@
         </template>
         <template v-else>
           <a-button size="small" type="link" @click="handleBatchSelectAll">全选</a-button>
-          <a-button size="small" type="link" @click="handleBatchSelectInvert">反选</a-button>
           <a-button size="small" type="link" @click="handleBatchSelectNone">清空</a-button>
           <a-button
             type="primary"
@@ -55,7 +54,7 @@
     </PageShoulder>
 
     <div
-      v-if="visibleSkillGroups.length === 0"
+      v-if="filteredInstalledSkills.length === 0"
       class="extension-card-grid-empty-state skill-empty-state"
     >
       <div class="skill-empty-card">
@@ -76,25 +75,18 @@
     </div>
 
     <template v-else>
-      <template v-for="group in visibleSkillGroups" :key="group.key">
-        <div class="extension-section-header">{{ group.title }}</div>
-        <ExtensionCardGrid :min-width="280">
-          <div
-            v-for="skill in group.skills"
-            :key="`${group.key}:${skill.slug}`"
-            class="card-wrapper"
+      <ExtensionCardGrid :min-width="280">
+        <div
+          v-for="skill in filteredInstalledSkills"
+          :key="skill.slug"
+          class="card-wrapper"
             :class="{
-              selected: !skill.isRecommendation && selectedCardSlugs.includes(skill.slug),
-              'batch-mode': isBatchDeleteMode && !skill.isRecommendation
+              selected: selectedCardSlugs.includes(skill.slug),
+              'batch-mode': isBatchDeleteMode
             }"
           >
             <a-checkbox
-              v-if="
-                !skill.isRecommendation &&
-                isBatchDeleteMode &&
-                canManageSkill(skill) &&
-                skill.sourceType !== 'builtin'
-              "
+              v-if="isBatchDeleteMode && skill.sourceType !== 'builtin'"
               :checked="selectedCardSlugs.includes(skill.slug)"
               @change="handleToggleCardSelect(skill.slug)"
               class="card-select-checkbox"
@@ -107,47 +99,24 @@
               :default-icon="WandSparkles"
               @click="handleCardClick(skill)"
               :class="{
-                'card-clickable-select': isBatchDeleteMode && !skill.isRecommendation,
-                'recommendation-card': skill.isRecommendation
+                'card-clickable-select': isBatchDeleteMode
               }"
             >
               <template #actions>
                 <button
-                  v-if="skill.isRecommendation"
                   type="button"
                   class="skill-enabled-action"
-                  :class="{ loading: isRecommendedSkillInstalling(skill.source) }"
-                  :disabled="isRecommendedSkillInstallDisabled(skill.source)"
-                  aria-label="安装推荐 Skill"
-                  @click.stop="handleRecommendedSkillInstall(skill)"
-                >
-                  <LoaderCircle
-                    v-if="isRecommendedSkillInstalling(skill.source)"
-                    :size="15"
-                    class="action-icon action-icon-spin"
-                  />
-                  <Plus v-else :size="15" class="action-icon" />
-                </button>
-                <button
-                  v-else
-                  type="button"
-                  class="skill-enabled-action"
-                  :class="{ enabled: skill.enabled !== false }"
-                  :disabled="!canManageSkill(skill) || isSkillToggling(skill.slug)"
+                  :disabled="isSkillToggling(skill.slug)"
                   :aria-label="skill.enabled === false ? '启用 Skill' : '禁用 Skill'"
                   @click.stop="handleToggleSkillEnabled(skill)"
                 >
-                  <Plus v-if="skill.enabled === false" :size="15" class="action-icon" />
-                  <template v-else>
-                    <Check :size="15" class="action-icon action-icon-check" />
-                    <Minus :size="15" class="action-icon action-icon-minus" />
-                  </template>
+                  <Plus v-if="skill.enabled === false" :size="15" class="action-icon action-icon--enable" />
+                  <Minus v-else :size="15" class="action-icon action-icon--disable" />
                 </button>
               </template>
             </InfoCard>
           </div>
         </ExtensionCardGrid>
-      </template>
     </template>
 
     <a-modal
@@ -185,7 +154,7 @@
           <div class="skill-preview-actions">
             <a-switch
               :checked="previewSkill.enabled !== false"
-              :disabled="!canManageSkill(previewSkill) || isSkillToggling(previewSkill.slug)"
+              :disabled="isSkillToggling(previewSkill.slug)"
               :loading="isSkillToggling(previewSkill.slug)"
               size="small"
               @change="handlePreviewToggle"
@@ -237,20 +206,13 @@
     >
       <div class="remote-install-panel modal-mode">
         <div class="install-setup-stage">
-          <a-tabs
-            v-model:activeKey="activeTab"
-            :disabled="installingRemoteSkill"
-            class="install-tabs"
-          >
-            <!-- Tab 1: 按仓库拉取 -->
-            <a-tab-pane key="repo" tab="按仓库拉取">
-              <div class="tab-content-wrapper">
-                <a-form layout="vertical" class="remote-install-form">
+          <div class="tab-content-wrapper">
+            <a-form layout="vertical" class="remote-install-form">
                   <div class="repo-input-row">
                     <div class="repo-input-field">
                       <a-input
                         v-model:value="remoteInstallForm.source"
-                        placeholder="来源仓库，如 anthropics/skills 或 GitHub URL"
+                        placeholder="GitHub 仓库地址，如 https://github.com/anthropics/skills"
                         :disabled="installingRemoteSkill"
                       >
                         <template #suffix>
@@ -314,17 +276,11 @@
                     </a-button>
                   </div>
                   <div class="repo-hint-text">
-                    支持 `owner/repo` 或 GitHub URL。可前往
+                    当前仅支持 GitHub 仓库拉取。可前往
                     <a href="https://skills.sh/" target="_blank" rel="noopener noreferrer"
                       >skills.sh</a
                     >
-                    查询开源 skills。 也支持 ModelScope 单个 Skill
-                    地址，每次仅限安装一个：`https://modelscope.cn/skills/&lt;skill-id&gt;`。 Skill
-                    ID 可在
-                    <a href="https://modelscope.cn/skills" target="_blank" rel="noopener noreferrer"
-                      >ModelScope Skill 市场</a
-                    >
-                    进入详情后从地址栏获取。
+                    查询开源 skills。
                   </div>
 
                   <!-- 仓库技能分页多选列表 -->
@@ -342,9 +298,6 @@
                         <div class="op-buttons">
                           <a-button size="small" type="link" @click="handleRepoSelectAll"
                             >全选</a-button
-                          >
-                          <a-button size="small" type="link" @click="handleRepoSelectInvert"
-                            >反选</a-button
                           >
                           <a-button size="small" type="link" @click="handleRepoSelectNone"
                             >清空</a-button
@@ -400,123 +353,8 @@
                       </div>
                     </template>
                   </div>
-                </a-form>
-              </div>
-            </a-tab-pane>
-
-            <!-- Tab 2: 全局搜索发现 -->
-            <a-tab-pane key="search" tab="全局搜索发现">
-              <div class="tab-content-wrapper">
-                <a-form layout="vertical" class="remote-install-form">
-                  <div class="repo-input-row">
-                    <div class="repo-input-field">
-                      <a-input
-                        v-model:value="searchKeyword"
-                        placeholder="输入 web、python 等关键字进行全局查找"
-                        :disabled="installingRemoteSkill"
-                        @pressEnter="handleSearchRemoteSkills"
-                      />
-                    </div>
-                    <a-button
-                      type="primary"
-                      :loading="searchingRemoteSkills"
-                      :disabled="installingRemoteSkill"
-                      @click="handleSearchRemoteSkills"
-                    >
-                      查找技能
-                    </a-button>
-                  </div>
-                  <div class="repo-hint-text">
-                    直接输入关键字检索 skills.sh 上的开源 Skills 并批量拉取安装。
-                  </div>
-
-                  <!-- 搜索结果列表 -->
-                  <div v-if="searchedSkills.length" class="skills-list-section">
-                    <template v-if="hasSingleSearchedSkill">
-                      <div class="single-remote-skill-card">
-                        <div class="single-remote-skill-header">
-                          <div class="single-remote-skill-name">
-                            {{ singleSearchedSkill.name }}
-                          </div>
-                          <a-tag
-                            v-if="singleSearchedSkill.installs"
-                            color="blue"
-                            class="skill-item-installs"
-                          >
-                            {{ singleSearchedSkill.installs }}
-                          </a-tag>
-                        </div>
-                        <div class="single-remote-skill-meta">
-                          {{ singleSearchedSkill.source }}
-                        </div>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <div class="list-operations-bar">
-                        <div class="op-buttons">
-                          <a-button size="small" type="link" @click="handleSearchSelectAll"
-                            >全选</a-button
-                          >
-                          <a-button size="small" type="link" @click="handleSearchSelectInvert"
-                            >反选</a-button
-                          >
-                          <a-button size="small" type="link" @click="handleSearchSelectNone"
-                            >清空</a-button
-                          >
-                        </div>
-                      </div>
-                      <div class="skills-list-viewport">
-                        <a-list
-                          size="small"
-                          :pagination="{ pageSize: 5, size: 'small', showSizeChanger: false }"
-                          :data-source="searchedSkills"
-                          class="remote-skills-list-container"
-                        >
-                          <template #renderItem="{ item }">
-                            <a-list-item>
-                              <div class="search-skill-item-row">
-                                <div class="skill-name-col">
-                                  <a-checkbox
-                                    :checked="
-                                      selectedSearchSkills.some(
-                                        (s) => s.name === item.name && s.source === item.source
-                                      )
-                                    "
-                                    @change="(e) => handleToggleSearchSkill(item, e.target.checked)"
-                                    :disabled="installingRemoteSkill"
-                                  >
-                                    <span class="skill-item-name">{{ item.name }}</span>
-                                  </a-checkbox>
-                                </div>
-                                <div class="skill-repo-col">
-                                  <a-tooltip :title="item.source" placement="topLeft">
-                                    <span class="skill-item-repo">{{ item.source }}</span>
-                                  </a-tooltip>
-                                </div>
-                                <div class="skill-install-col">
-                                  <a-tag
-                                    v-if="item.installs"
-                                    color="blue"
-                                    class="skill-item-installs"
-                                  >
-                                    {{ item.installs }}
-                                  </a-tag>
-                                </div>
-                              </div>
-                            </a-list-item>
-                          </template>
-                        </a-list>
-                      </div>
-                      <div class="remote-skill-summary">
-                        已选择 {{ selectedSearchSkills.length }} / 共找到
-                        {{ searchedSkills.length }} 个 skills。
-                      </div>
-                    </template>
-                  </div>
-                </a-form>
-              </div>
-            </a-tab-pane>
-          </a-tabs>
+            </a-form>
+          </div>
 
           <!-- 底部操作区 -->
           <div class="modal-footer-actions">
@@ -526,67 +364,13 @@
             <a-button
               type="primary"
               :loading="installingRemoteSkill"
-              :disabled="
-                activeTab === 'repo'
-                  ? selectedRepoSkills.length === 0
-                  : selectedSearchSkills.length === 0
-              "
+              :disabled="selectedRepoSkills.length === 0"
               @click="startInstallRemoteSkills"
             >
-              解析并确认 (已选
-              {{ activeTab === 'repo' ? selectedRepoSkills.length : selectedSearchSkills.length }}
-              个)
+              解析并确认 (已选 {{ selectedRepoSkills.length }} 个)
             </a-button>
           </div>
         </div>
-      </div>
-    </a-modal>
-
-    <a-modal
-      v-model:open="draftConfirmVisible"
-      title="确认添加 Skill"
-      width="720px"
-      :confirm-loading="draftConfirmLoading"
-      :closable="!draftConfirmLoading"
-      :mask-closable="!draftConfirmLoading"
-      :keyboard="!draftConfirmLoading"
-      ok-text="确认添加"
-      cancel-text="取消"
-      @ok="confirmSkillDraft"
-      @cancel="cancelSkillDraft"
-    >
-      <div v-if="pendingDraft" class="skill-draft-confirm-panel">
-        <div class="draft-source-row">
-          <span class="draft-source-label">来源</span>
-          <span>{{ pendingDraft.source || sourceTypeLabel(pendingDraft.source_type) }}</span>
-        </div>
-        <div class="draft-items-list">
-          <div
-            v-for="item in pendingDraft.items"
-            :key="`${item.source || pendingDraft.source || 'local'}:${item.slug || item.name}`"
-            class="draft-item"
-            :class="{ failed: item.success === false }"
-          >
-            <div class="draft-item-main">
-              <div class="draft-item-title">{{ item.name || item.slug }}</div>
-              <div class="draft-item-desc">{{ item.description || item.error || '暂无描述' }}</div>
-              <div v-if="item.warnings?.length" class="draft-item-warning">
-                {{ item.warnings.join('；') }}
-              </div>
-            </div>
-            <a-tag v-if="item.success === false" color="red">解析失败</a-tag>
-            <a-tag v-else color="blue">{{
-              sourceTypeLabel(item.source_type || pendingDraft.source_type)
-            }}</a-tag>
-          </div>
-        </div>
-        <div class="draft-share-title">生效范围</div>
-        <ShareConfigForm
-          ref="shareConfigFormRef"
-          v-model="draftShareConfig"
-          :auto-select-user-dept="true"
-          :allowed-access-levels="pendingDraft.allowed_access_levels || ['user']"
-        />
       </div>
     </a-modal>
   </div>
@@ -603,61 +387,15 @@ import {
   WandSparkles,
   History,
   Trash2,
-  Check,
   Plus,
-  Minus,
-  LoaderCircle
+  Minus
 } from 'lucide-vue-next'
 import { skillApi } from '@/apis/skill_api'
 import ExtensionCardGrid from './ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import { formatExtensionCardTitle } from '@/utils/extensionDisplayName'
-
-const RECOMMENDED_SKILLS = [
-  {
-    slug: 'skill-creator',
-    name: 'skill-creator',
-    description:
-      '创建、维护和改进 Agent Skill，适合编写 SKILL.md、设计使用流程、整理依赖与优化技能说明。',
-    source: 'https://modelscope.cn/skills/@anthropics/skill-creator',
-    aliases: ['skill-creator', 'Skill Creator']
-  },
-  {
-    slug: 'frontend-design',
-    name: 'frontend-design',
-    description:
-      '提供前端界面与交互设计建议，适合规划页面结构、组件状态、响应式布局和可访问性细节。',
-    source: 'https://modelscope.cn/skills/@anthropics/frontend-design',
-    aliases: ['frontend-design', 'Frontend Design']
-  },
-  {
-    slug: 'docx',
-    name: 'docx',
-    description:
-      '读取、编辑和生成 Word DOCX 文档，适合处理正文、表格、批注、样式和文档结构化内容。',
-    source: 'https://modelscope.cn/skills/@anthropics/docx',
-    aliases: ['docx', 'DOCX']
-  },
-  {
-    slug: 'xlsx',
-    name: 'xlsx',
-    description:
-      '读取、分析和生成 Excel XLSX 表格，适合处理多工作表数据、公式结果、统计汇总和结构化导出。',
-    source: 'https://modelscope.cn/skills/@anthropics/xlsx',
-    aliases: ['xlsx', 'XLSX']
-  },
-  {
-    slug: 'pdf',
-    name: 'pdf',
-    description:
-      '读取、提取和分析 PDF 文档内容，适合从报告、论文、合同等文件中整理要点、定位证据并生成摘要。',
-    source: 'https://modelscope.cn/skills/@anthropics/pdf',
-    aliases: ['pdf', 'PDF']
-  }
-]
 
 const router = useRouter()
 
@@ -679,10 +417,8 @@ const skillPreviewLoading = ref(false)
 const skillPreviewError = ref('')
 const deletingPreviewSkill = ref(false)
 let previewRequestSeq = 0
-const installingRecommendedSources = ref([])
 
 const remoteInstallModalVisible = ref(false)
-const activeTab = ref('repo') // 'repo' 或 'search'
 
 const remoteInstallForm = reactive({
   source: 'https://github.com/anthropics/skills',
@@ -694,20 +430,8 @@ const selectedRepoSkills = ref([])
 const hasSingleRepoSkill = computed(() => remoteSkillOptions.value.length === 1)
 const singleRepoSkill = computed(() => remoteSkillOptions.value[0] || null)
 
-const searchKeyword = ref('')
-const searchingRemoteSkills = ref(false)
-const searchedSkills = ref([])
-const selectedSearchSkills = ref([])
-const hasSingleSearchedSkill = computed(() => searchedSkills.value.length === 1)
-const singleSearchedSkill = computed(() => searchedSkills.value[0] || null)
 
 const repoHistory = ref([])
-const allowedSkillAccessLevels = ref(['user'])
-const draftConfirmVisible = ref(false)
-const draftConfirmLoading = ref(false)
-const pendingDraft = ref(null)
-const draftShareConfig = ref({ access_level: 'user', department_ids: [], user_uids: [] })
-const shareConfigFormRef = ref(null)
 
 const matchesSearch = (skill) => {
   if (!searchQuery.value) return true
@@ -723,55 +447,16 @@ const installedSkillCards = computed(() =>
   }))
 )
 
-const installedSkillKeys = computed(() => {
-  const keys = new Set()
-  installedSkillCards.value.forEach((skill) => {
-    const identifiers = [skill.slug, skill.name]
-    identifiers.forEach((value) => {
-      if (value) keys.add(String(value).toLowerCase())
-    })
-  })
-  return keys
-})
-
-const recommendedSkillCards = computed(() =>
-  RECOMMENDED_SKILLS.filter(
-    (skill) => !skill.aliases.some((alias) => installedSkillKeys.value.has(alias.toLowerCase()))
-  ).map((skill) => ({
-    ...skill,
-    sourceType: 'recommended',
-    isRecommendation: true
-  }))
-)
-
 const filteredInstalledSkills = computed(() => installedSkillCards.value.filter(matchesSearch))
-const skillGroups = computed(() => [
-  {
-    key: 'recommended',
-    title: '推荐',
-    skills: isBatchDeleteMode.value ? [] : recommendedSkillCards.value.filter(matchesSearch)
-  },
-  {
-    key: 'builtin',
-    title: '内置',
-    skills: filteredInstalledSkills.value.filter((skill) => skill.sourceType === 'builtin')
-  },
-  {
-    key: 'uploaded',
-    title: '上传的',
-    skills: filteredInstalledSkills.value.filter((skill) => skill.sourceType !== 'builtin')
-  }
-])
-const visibleSkillGroups = computed(() => skillGroups.value.filter((group) => group.skills.length))
+
 const filteredDeletableSkills = computed(() =>
   filteredInstalledSkills.value.filter(
-    (skill) => canManageSkill(skill) && skill.sourceType !== 'builtin'
+    (skill) => skill.sourceType !== 'builtin'
   )
 )
 const canDeletePreviewSkill = computed(
   () =>
     !!previewSkill.value &&
-    canManageSkill(previewSkill.value) &&
     previewSkill.value.sourceType !== 'builtin'
 )
 
@@ -786,43 +471,13 @@ const filteredRepoSkills = computed(() => {
   )
 })
 
-// 批量选择/反选/清空管理
+// 批量选择/清空管理
 const handleRepoSelectAll = () => {
   selectedRepoSkills.value = filteredRepoSkills.value.map((item) => item.name)
 }
 const handleRepoSelectNone = () => {
   selectedRepoSkills.value = []
 }
-const handleRepoSelectInvert = () => {
-  const currentSelected = new Set(selectedRepoSkills.value)
-  const newSelected = []
-  filteredRepoSkills.value.forEach((item) => {
-    if (!currentSelected.has(item.name)) {
-      newSelected.push(item.name)
-    }
-  })
-  selectedRepoSkills.value = newSelected
-}
-
-const handleSearchSelectAll = () => {
-  selectedSearchSkills.value = [...searchedSkills.value]
-}
-const handleSearchSelectNone = () => {
-  selectedSearchSkills.value = []
-}
-const handleSearchSelectInvert = () => {
-  const newSelected = []
-  searchedSkills.value.forEach((item) => {
-    const isSelected = selectedSearchSkills.value.some(
-      (s) => s.name === item.name && s.source === item.source
-    )
-    if (!isSelected) {
-      newSelected.push(item)
-    }
-  })
-  selectedSearchSkills.value = newSelected
-}
-
 const handleToggleRepoSkill = (name, checked) => {
   if (checked) {
     if (!selectedRepoSkills.value.includes(name)) {
@@ -833,20 +488,6 @@ const handleToggleRepoSkill = (name, checked) => {
   }
 }
 
-const handleToggleSearchSkill = (item, checked) => {
-  if (checked) {
-    const isExist = selectedSearchSkills.value.some(
-      (s) => s.name === item.name && s.source === item.source
-    )
-    if (!isExist) {
-      selectedSearchSkills.value.push(item)
-    }
-  } else {
-    selectedSearchSkills.value = selectedSearchSkills.value.filter(
-      (s) => !(s.name === item.name && s.source === item.source)
-    )
-  }
-}
 
 const sourceTypeLabel = (sourceType) => {
   if (sourceType === 'builtin') return '内置'
@@ -854,16 +495,10 @@ const sourceTypeLabel = (sourceType) => {
   return '上传'
 }
 
-const canManageSkill = (skill) => skill?.can_manage !== false
 const isSkillToggling = (slug) => togglingSkillSlugs.value.includes(slug)
-const isRecommendedSkillInstalling = (source) => installingRecommendedSources.value.includes(source)
-const isRecommendedSkillInstallDisabled = (source) =>
-  installingRecommendedSources.value.length > 0 ||
-  draftConfirmVisible.value ||
-  isRecommendedSkillInstalling(source)
 
 const navigateToDetail = (skill) => {
-  router.push({ path: `/extensions/skill/${encodeURIComponent(skill.slug)}` })
+  router.push({ path: `/tools/skill/${encodeURIComponent(skill.slug)}` })
 }
 
 const closeSkillPreview = () => {
@@ -897,9 +532,6 @@ const goToPreviewSkillManagement = () => {
 }
 
 const handleCardClick = (skill) => {
-  if (skill?.isRecommendation) {
-    return
-  }
   if (isBatchDeleteMode.value) {
     handleToggleCardSelect(skill.slug)
   } else {
@@ -909,7 +541,7 @@ const handleCardClick = (skill) => {
 
 const handleToggleCardSelect = (slug) => {
   const target = installedSkillCards.value.find((skill) => skill.slug === slug)
-  if (!canManageSkill(target) || target?.sourceType === 'builtin') return
+  if (target?.sourceType === 'builtin') return
   const idx = selectedCardSlugs.value.indexOf(slug)
   if (idx > -1) {
     selectedCardSlugs.value.splice(idx, 1)
@@ -919,7 +551,7 @@ const handleToggleCardSelect = (slug) => {
 }
 
 const handleToggleSkillEnabled = async (skill) => {
-  if (!skill || !canManageSkill(skill) || isSkillToggling(skill.slug)) return
+  if (!skill || isSkillToggling(skill.slug)) return
   const enabled = skill.enabled === false
   togglingSkillSlugs.value.push(skill.slug)
   try {
@@ -978,23 +610,12 @@ const confirmDeletePreviewSkill = () => {
 
 const handleBatchSelectAll = () => {
   selectedCardSlugs.value = filteredInstalledSkills.value
-    .filter((skill) => canManageSkill(skill) && skill.sourceType !== 'builtin')
+    .filter((skill) => skill.sourceType !== 'builtin')
     .map((skill) => skill.slug)
 }
 
 const handleBatchSelectNone = () => {
   selectedCardSlugs.value = []
-}
-
-const handleBatchSelectInvert = () => {
-  const currentSet = new Set(selectedCardSlugs.value)
-  const nextSelected = []
-  filteredInstalledSkills.value.forEach((skill) => {
-    if (canManageSkill(skill) && skill.sourceType !== 'builtin' && !currentSet.has(skill.slug)) {
-      nextSelected.push(skill.slug)
-    }
-  })
-  selectedCardSlugs.value = nextSelected
 }
 
 const exitBatchDeleteMode = () => {
@@ -1005,7 +626,7 @@ const exitBatchDeleteMode = () => {
 const handleBatchDelete = () => {
   const deletableSlugs = selectedCardSlugs.value.filter((slug) => {
     const target = installedSkillCards.value.find((skill) => skill.slug === slug)
-    return canManageSkill(target) && target?.sourceType !== 'builtin'
+    return target?.sourceType !== 'builtin'
   })
   if (deletableSlugs.length === 0) return
 
@@ -1045,7 +666,6 @@ const fetchSkills = async () => {
   try {
     const skillResult = await skillApi.listSkills()
     skills.value = skillResult?.data || []
-    allowedSkillAccessLevels.value = skillResult?.allowed_access_levels || ['user']
   } catch {
     message.error('加载失败')
   } finally {
@@ -1062,105 +682,30 @@ const beforeSkillUpload = (file) => {
   return true
 }
 
-const cloneShareConfig = (config) => ({
-  access_level: config?.access_level || 'user',
-  department_ids: [...(config?.department_ids || [])],
-  user_uids: [...(config?.user_uids || [])]
-})
-
-const resetDraftConfirmation = () => {
-  draftConfirmVisible.value = false
-  draftConfirmLoading.value = false
-  pendingDraft.value = null
-  draftShareConfig.value = { access_level: 'user', department_ids: [], user_uids: [] }
-}
-
-const normalizePendingDraft = (draftPayload) => {
-  const drafts = Array.isArray(draftPayload) ? draftPayload : [draftPayload]
-  const validDrafts = drafts.filter((item) => item?.draft_id)
-  const first = validDrafts[0] || {}
-  return {
-    ...first,
-    draft_ids: validDrafts.map((item) => item.draft_id),
-    source: validDrafts.length === 1 ? first.source : `${validDrafts.length} 个来源`,
-    items: validDrafts.flatMap((draft) =>
-      (draft.items || []).map((item) => ({
-        ...item,
-        source: draft.source,
-        source_type: draft.source_type
-      }))
-    ),
-    default_share_config: first.default_share_config || cloneShareConfig(null),
-    allowed_access_levels: first.allowed_access_levels || allowedSkillAccessLevels.value
-  }
-}
-
-const openDraftConfirmation = async (draftPayload) => {
-  const draft = normalizePendingDraft(draftPayload)
-  if (!draft.draft_ids.length || !draft.items.some((item) => item.success !== false)) {
-    await Promise.allSettled(
-      draft.draft_ids.map((draftId) => skillApi.discardSkillInstallDraft(draftId))
-    )
-    message.error('没有可添加的 Skill')
-    return false
-  }
-  pendingDraft.value = draft
-  draftShareConfig.value = cloneShareConfig(draft.default_share_config)
-  draftConfirmVisible.value = true
-  return true
-}
-
-const cancelSkillDraft = async () => {
-  if (draftConfirmLoading.value) return
-  const draftIds = pendingDraft.value?.draft_ids || []
-  resetDraftConfirmation()
-  await Promise.allSettled(draftIds.map((draftId) => skillApi.discardSkillInstallDraft(draftId)))
-}
-
-const confirmSkillDraft = async () => {
-  const validation = shareConfigFormRef.value?.validate?.()
-  if (validation && !validation.valid) {
-    message.warning(validation.message || '请完善 Skill 生效范围')
-    return
-  }
-
-  const draftIds = pendingDraft.value?.draft_ids || []
-  if (!draftIds.length) return
-
-  draftConfirmLoading.value = true
-  try {
-    const results = []
-    for (const draftId of draftIds) {
-      const res = await skillApi.confirmSkillInstallDraft(draftId, draftShareConfig.value)
-      results.push(...(res?.data || []))
-    }
-    const successCount = results.filter((item) => item.success).length
-    const failedCount = results.length - successCount
-    if (failedCount === 0) {
-      message.success(`已添加 ${successCount} 个 Skill`)
-    } else {
-      message.warning(`添加完成：成功 ${successCount} 个，失败 ${failedCount} 个`)
-    }
-    remoteInstallModalVisible.value = false
-    resetDraftConfirmation()
-    await fetchSkills()
-  } catch (error) {
-    message.error(error?.response?.data?.detail || error.message || '确认添加 Skill 失败')
-  } finally {
-    draftConfirmLoading.value = false
-  }
-}
-
 const handleImportUpload = async ({ file, onSuccess, onError }) => {
   importing.value = true
   try {
     const result = await skillApi.prepareSkillUpload(file)
-    if (await openDraftConfirmation(result?.data)) {
-      message.success('解析完成，请确认 Skill 生效范围')
+    const items = result?.data || []
+    const successItems = items.filter(item => item.success)
+    const failedItems = items.filter(item => !item.success)
+
+    if (successItems.length > 0) {
+      message.success(`已安装 ${successItems.length} 个 Skill`)
+      await fetchSkills()
+    }
+
+    if (failedItems.length > 0) {
+      const errors = failedItems.map(item => `${item.slug}: ${item.error}`).join('\n')
+      message.warning(`部分安装失败：\n${errors}`)
+    }
+
+    if (items.length === 0) {
+      message.error('没有可添加的 Skill')
     }
     onSuccess?.(result)
   } catch (e) {
-    message.error(e?.response?.data?.detail || e.message || '解析 Skill 失败')
+    message.error(e?.response?.data?.detail || e.message || '安装 Skill 失败')
     onError?.(e)
   } finally {
     importing.value = false
@@ -1170,11 +715,8 @@ const handleImportUpload = async ({ file, onSuccess, onError }) => {
 const handleOpenRemoteInstall = () => {
   if (!remoteInstallModalVisible.value) {
     selectedRepoSkills.value = []
-    selectedSearchSkills.value = []
     remoteSkillOptions.value = []
-    searchedSkills.value = []
     repoFilterKeyword.value = ''
-    searchKeyword.value = ''
   }
   remoteInstallModalVisible.value = true
 }
@@ -1191,7 +733,7 @@ const rememberRemoteSource = (source) => {
     history = history.slice(0, 10)
   }
   repoHistory.value = history
-  localStorage.setItem('yuxi_remote_repo_history', JSON.stringify(history))
+  localStorage.setItem('qavor_remote_repo_history', JSON.stringify(history))
 }
 
 const handleListRemoteSkills = async () => {
@@ -1224,57 +766,9 @@ const handleListRemoteSkills = async () => {
   }
 }
 
-const handleRecommendedSkillInstall = async (skill) => {
-  if (!skill?.source || isRecommendedSkillInstallDisabled(skill.source)) {
-    return
-  }
-
-  installingRecommendedSources.value.push(skill.source)
-  activeTab.value = 'repo'
-  remoteInstallForm.source = skill.source
-  remoteSkillOptions.value = []
-  selectedRepoSkills.value = []
-  repoFilterKeyword.value = ''
-
-  try {
-    const listResult = await skillApi.listRemoteSkills(skill.source)
-    const options = listResult?.data || []
-    remoteSkillOptions.value = options
-    const aliasSet = new Set(
-      (skill.aliases || [skill.slug, skill.name]).map((item) => item.toLowerCase())
-    )
-    const matchedSkill =
-      options.length === 1
-        ? options[0]
-        : options.find((item) => aliasSet.has(String(item.name || '').toLowerCase()))
-
-    if (!matchedSkill?.name) {
-      remoteInstallModalVisible.value = true
-      message.warning('已拉取推荐来源，请选择要安装的 Skill')
-      return
-    }
-
-    selectedRepoSkills.value = [matchedSkill.name]
-    rememberRemoteSource(skill.source)
-    const prepareResult = await skillApi.prepareRemoteSkills({
-      source: skill.source,
-      skills: [matchedSkill.name]
-    })
-    if (await openDraftConfirmation(prepareResult?.data)) {
-      message.success('解析完成，请确认 Skill 生效范围')
-    }
-  } catch (error) {
-    message.error(error?.response?.data?.detail || error.message || '解析推荐 Skill 失败')
-  } finally {
-    installingRecommendedSources.value = installingRecommendedSources.value.filter(
-      (source) => source !== skill.source
-    )
-  }
-}
-
 const loadHistory = () => {
   try {
-    const raw = localStorage.getItem('yuxi_remote_repo_history')
+    const raw = localStorage.getItem('qavor_remote_repo_history')
     if (raw) {
       repoHistory.value = JSON.parse(raw)
     }
@@ -1285,12 +779,12 @@ const loadHistory = () => {
 
 const deleteHistoryItem = (item) => {
   repoHistory.value = repoHistory.value.filter((h) => h !== item)
-  localStorage.setItem('yuxi_remote_repo_history', JSON.stringify(repoHistory.value))
+  localStorage.setItem('qavor_remote_repo_history', JSON.stringify(repoHistory.value))
 }
 
 const clearAllHistory = () => {
   repoHistory.value = []
-  localStorage.removeItem('yuxi_remote_repo_history')
+  localStorage.removeItem('qavor_remote_repo_history')
   message.success('历史记录已清空')
 }
 
@@ -1302,74 +796,44 @@ const handleSelectHistory = ({ key }) => {
   remoteInstallForm.source = key
 }
 
-const handleSearchRemoteSkills = async () => {
-  const query = searchKeyword.value.trim()
-  if (!query) {
-    message.warning('请输入搜索关键字')
-    return
-  }
-  searchingRemoteSkills.value = true
-  try {
-    const result = await skillApi.searchRemoteSkills(query)
-    searchedSkills.value = result?.data || []
-    selectedSearchSkills.value = searchedSkills.value.length === 1 ? [...searchedSkills.value] : []
-    if (!searchedSkills.value.length) {
-      message.warning('未搜索到相关的 Skills')
-    } else if (searchedSkills.value.length === 1) {
-      message.success('搜索到 1 个 Skill，已自动选中')
-    } else {
-      message.success(`搜索到 ${searchedSkills.value.length} 个 Skills`)
-    }
-  } catch (error) {
-    message.error(error?.response?.data?.detail || error.message || '搜索远程 Skills 失败')
-  } finally {
-    searchingRemoteSkills.value = false
-  }
-}
 
 const startInstallRemoteSkills = async () => {
   installingRemoteSkill.value = true
 
   try {
-    const drafts = []
-    if (activeTab.value === 'repo') {
-      const source = remoteInstallForm.source.trim()
-      const skillsToInstall = [...selectedRepoSkills.value]
-      const result = await skillApi.prepareRemoteSkills({ source, skills: skillsToInstall })
-      drafts.push(result?.data)
-    } else {
-      const groups = {}
-      selectedSearchSkills.value.forEach((item) => {
-        if (!groups[item.source]) groups[item.source] = []
-        groups[item.source].push(item.name)
-      })
+    const source = remoteInstallForm.source.trim()
+    const skillsToInstall = [...selectedRepoSkills.value]
+    const result = await skillApi.prepareRemoteSkills({ source, skills: skillsToInstall })
 
-      for (const [source, sourceSkills] of Object.entries(groups)) {
-        const result = await skillApi.prepareRemoteSkills({ source, skills: sourceSkills })
-        drafts.push(result?.data)
-      }
+    const items = result?.data || []
+    const successItems = items.filter(item => item.success)
+    const failedItems = items.filter(item => !item.success)
+
+    if (successItems.length > 0) {
+      remoteInstallModalVisible.value = false
+      message.success(`已安装 ${successItems.length} 个 Skill`)
+      await fetchSkills()
     }
 
-    if (await openDraftConfirmation(drafts)) {
-      remoteInstallModalVisible.value = false
-      message.success('解析完成，请确认 Skill 生效范围')
+    if (failedItems.length > 0) {
+      const errors = failedItems.map(item => `${item.slug}: ${item.error}`).join('\n')
+      message.warning(`部分安装失败：\n${errors}`)
+    }
+
+    if (items.length === 0) {
+      message.error('没有可添加的 Skill')
     }
   } catch (error) {
-    message.error(error?.response?.data?.detail || error.message || '解析远程 Skill 失败')
+    message.error(error?.response?.data?.detail || error.message || '安装远程 Skill 失败')
   } finally {
     installingRemoteSkill.value = false
   }
 }
 
-watch(activeTab, () => {
-  selectedRepoSkills.value = []
-  selectedSearchSkills.value = []
-})
 
 watch(remoteInstallModalVisible, (visible) => {
   if (!visible && !installingRemoteSkill.value) {
     selectedRepoSkills.value = []
-    selectedSearchSkills.value = []
   }
 })
 
@@ -1526,33 +990,18 @@ defineExpose({
     cursor: wait;
     opacity: 1;
   }
-
-  &.enabled {
-    color: var(--color-success-700);
-
-    .action-icon-minus {
-      display: none;
-    }
-
-    &:hover,
-    &:focus {
-      border-color: var(--color-error-200, #ffccc7);
-      background: var(--color-error-50, #fff2f0);
-      color: var(--color-error-700, #cf1322);
-
-      .action-icon-check {
-        display: none;
-      }
-
-      .action-icon-minus {
-        display: block;
-      }
-    }
-  }
 }
 
 .action-icon {
   flex-shrink: 0;
+
+  &--enable {
+    color: var(--color-success-700);
+  }
+
+  &--disable {
+    color: var(--color-error-700);
+  }
 }
 
 .action-icon-spin {
@@ -1942,53 +1391,6 @@ defineExpose({
     }
   }
 
-  .search-skill-item-row {
-    display: flex;
-    align-items: center;
-    width: 100%;
-    gap: 16px;
-
-    .skill-name-col {
-      width: 280px;
-      flex-shrink: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-
-      :deep(.ant-checkbox-wrapper) {
-        display: flex;
-        align-items: center;
-        width: 100%;
-      }
-    }
-
-    .skill-repo-col {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .skill-install-col {
-      width: 90px;
-      flex-shrink: 0;
-      text-align: right;
-    }
-
-    .skill-item-name {
-      font-weight: 600;
-      color: var(--gray-900);
-    }
-
-    .skill-item-repo {
-      display: block;
-      font-size: 12px;
-      color: var(--gray-400);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      cursor: help;
-    }
-  }
-
   .modal-footer-actions {
     display: flex;
     justify-content: flex-end;
@@ -2088,11 +1490,4 @@ defineExpose({
   }
 }
 
-:deep(.recommendation-card) {
-  cursor: default;
-  &:hover {
-    border-color: var(--gray-150);
-    background: linear-gradient(45deg, var(--gray-0) 0%, var(--gray-25) 100%);
-  }
-}
 </style>

@@ -138,7 +138,7 @@ test('replacement Run SSE 的增量 chunk 会连续进入前端渲染处理', as
     onGoingConv: { msgChunks: oldMessages }
   }
   const originalStreamRequestEvents = agentApi.streamRequestEvents
-  const originalStreamAgentRunEvents = agentApi.streamAgentRunEvents
+  const originalCreateAgentRunStream = agentApi.createAgentRunStream
   const textEncoder = new TextEncoder()
   let runStreamController
   let replacementRun
@@ -156,7 +156,7 @@ test('replacement Run SSE 的增量 chunk 会连续进入前端渲染处理', as
     new Response('event: run_created\ndata: {"run_id":"run-2"}\n\n', {
       headers: { 'Content-Type': 'text/event-stream' }
     })
-  agentApi.streamAgentRunEvents = async () =>
+  agentApi.createAgentRunStream = async () =>
     new Response(
       new ReadableStream({
         start(controller) {
@@ -234,7 +234,7 @@ test('replacement Run SSE 的增量 chunk 会连续进入前端渲染处理', as
     assert.equal(threadState.runLastSeq, '3-0')
   } finally {
     agentApi.streamRequestEvents = originalStreamRequestEvents
-    agentApi.streamAgentRunEvents = originalStreamAgentRunEvents
+    agentApi.createAgentRunStream = originalCreateAgentRunStream
   }
 })
 
@@ -249,9 +249,10 @@ test('旧 Run 的延迟 AbortError 不覆盖新 Run 状态', async () => {
     onGoingConv: { msgChunks: {} }
   }
   const streamControllers = new Map()
-  const originalStreamAgentRunEvents = agentApi.streamAgentRunEvents
-  agentApi.streamAgentRunEvents = async (runId, _afterSeq, { signal }) =>
-    new Response(
+  const originalCreateAgentRunStream = agentApi.createAgentRunStream
+  agentApi.createAgentRunStream = async (payload, { signal }) => {
+    const runId = payload?.resume?.run_id
+    return new Response(
       new ReadableStream({
         start(controller) {
           streamControllers.set(runId, controller)
@@ -270,6 +271,7 @@ test('旧 Run 的延迟 AbortError 不覆盖新 Run 状态', async () => {
       }),
       { headers: { 'Content-Type': 'text/event-stream' } }
     )
+  }
 
   const runStream = createRunStream({
     threadState,
@@ -294,7 +296,7 @@ test('旧 Run 的延迟 AbortError 不覆盖新 Run 状态', async () => {
     threadState.runStreamAbortController.abort()
     await Promise.allSettled([oldRun, newRun])
   } finally {
-    agentApi.streamAgentRunEvents = originalStreamAgentRunEvents
+    agentApi.createAgentRunStream = originalCreateAgentRunStream
   }
 })
 
@@ -310,8 +312,8 @@ test('旧 Run 终态清理保留排队 Request SSE', async () => {
     requestStreams: { 'request-2': { controller: new AbortController() } }
   }
   const resetCalls = []
-  const originalStreamAgentRunEvents = agentApi.streamAgentRunEvents
-  agentApi.streamAgentRunEvents = async () =>
+  const originalCreateAgentRunStream = agentApi.createAgentRunStream
+  agentApi.createAgentRunStream = async () =>
     new Response(
       'event: end\ndata: {"run_id":"run-1","payload":{"status":"completed"}}\n\n',
       { headers: { 'Content-Type': 'text/event-stream' } }
@@ -330,6 +332,6 @@ test('旧 Run 终态清理保留排队 Request SSE', async () => {
     assert.deepEqual(resetCalls, [{ preserveRequestStreams: true }])
     assert.equal(threadState.requestStreams['request-2'].controller.signal.aborted, false)
   } finally {
-    agentApi.streamAgentRunEvents = originalStreamAgentRunEvents
+    agentApi.createAgentRunStream = originalCreateAgentRunStream
   }
 })

@@ -2,9 +2,6 @@
   <a-modal v-model:open="visible" title="添加文件" width="800px" @cancel="handleCancel">
     <template #footer>
       <div class="footer-container">
-        <a-button type="link" class="help-link-btn" @click="openDocLink">
-          <CircleHelp :size="14" /> 文档处理说明
-        </a-button>
         <div class="footer-buttons">
           <a-button key="back" @click="handleCancel">取消</a-button>
           <a-button
@@ -30,21 +27,19 @@
             class="custom-segmented"
           />
         </div>
-        <div class="auto-index-toggle">
-          <a-checkbox v-model:checked="autoIndex">上传后自动入库</a-checkbox>
-        </div>
+
       </div>
 
       <!-- 2. 配置面板 -->
       <div
         class="settings-panel"
-        v-if="folderTreeData.length > 0 || uploadMode !== 'url' || autoIndex"
+        v-if="folderTreeData.length > 0 || shouldShowOcrSelector"
       >
         <!-- 第一行：存储位置 + OCR 引擎 -->
         <div
           class="setting-row"
-          v-if="folderTreeData.length > 0 || uploadMode !== 'url'"
-          :class="{ 'two-cols': uploadMode !== 'url' && folderTreeData.length > 0 }"
+          v-if="folderTreeData.length > 0 || shouldShowOcrSelector"
+          :class="{ 'two-cols': shouldShowOcrSelector && folderTreeData.length > 0 }"
         >
           <div class="col-item" v-if="folderTreeData.length > 0">
             <div class="setting-label">存储位置</div>
@@ -64,43 +59,38 @@
             </div>
             <p class="param-description">选择文件保存的目标文件夹</p>
           </div>
-          <div class="col-item" v-if="uploadMode !== 'url'">
-            <div class="setting-label">OCR 引擎（仅应用于 PDF/图片文件）</div>
+          <div class="col-item" v-if="shouldShowOcrSelector">
+            <div class="setting-label">
+              OCR 引擎
+              <span v-if="hasImageFiles" class="required-badge">必须</span>
+              <span v-else class="recommended-badge">建议</span>
+            </div>
             <div class="setting-content">
               <OCRSelector
                 v-model="processingParams.ocr_engine"
                 :disabled="chunkLoading"
+                :include-disable="hasPdfFiles && !hasImageFiles"
                 @change="ocrEngineTouched = true"
                 @options-loaded="handleOcrOptionsLoaded"
               />
+              <p class="param-description" v-if="hasPdfFiles && !hasImageFiles">
+                <Info :size="12" />
+                <span>文本型 PDF 可直接解析；若 PDF 为扫描版或拍照版，启用 OCR 可识别其中文字</span>
+              </p>
             </div>
           </div>
         </div>
 
-        <!-- 第二行：自动入库配置 (仅在开启时显示) -->
-        <div class="setting-row" v-if="autoIndex">
-          <div class="col-item">
-            <div class="setting-label">入库参数配置</div>
-            <div class="setting-content">
-              <ChunkParamsConfig
-                :temp-chunk-params="indexParams"
-                :show-qa-split="true"
-                :show-chunk-size-overlap="true"
-                :show-preset="true"
-                :allow-preset-follow-default="true"
-                :database-preset-id="
-                  store.database?.additional_params?.chunk_preset_id || 'general'
-                "
-              />
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- PDF/图片OCR提醒 (Alert样式优化) -->
-      <div v-if="hasPdfOrImageFiles && !isOcrEnabled" class="inline-alert warning">
+      <div v-if="hasImageFiles && !isOcrEnabled" class="inline-alert warning">
         <Info :size="16" />
-        <span>检测到PDF或图片文件，建议启用 OCR 以提取文本内容</span>
+        <span>检测到图片文件，必须启用 OCR 才能提取文本内容</span>
+      </div>
+      <div v-else-if="hasPdfFiles && !isOcrEnabled" class="inline-alert info">
+        <Info :size="16" />
+        <span>检测到 PDF 文件。文本型 PDF 无需 OCR 即可解析；若为扫描版或拍照版 PDF，建议启用 OCR</span>
       </div>
 
       <!-- 文件上传区域 -->
@@ -116,7 +106,7 @@
           :accept="acceptedFileTypes"
           :before-upload="beforeUpload"
           :customRequest="customRequest"
-          :action="'/api/knowledge/files/upload?kb_id=' + kbId"
+          :action="'/api/v1/knowledge/files/upload?kb_id=' + kbId"
           :headers="getAuthHeaders()"
           @change="handleFileUpload"
           @drop="handleDrop"
@@ -339,12 +329,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, h } from 'vue'
+import { ref, computed, watch, h } from 'vue'
 import { message, Upload, Modal } from 'ant-design-vue'
 import { useUserStore } from '@/stores/user'
 import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
-import { fileApi, documentApi } from '@/apis/knowledge_api'
+import { fileApi, documentApi, processingJobApi } from '@/apis/knowledge_api'
+import { unwrapKnowledgeResponse } from '@/apis/knowledge_response'
 import { getWorkspaceTree } from '@/apis/workspace_api'
 import {
   FileUp,
@@ -352,7 +343,6 @@ import {
   FolderOpen,
   ArrowLeft,
   RotateCw,
-  CircleHelp,
   Info,
   Download,
   Trash2,
@@ -361,8 +351,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-vue-next'
-import { buildChunkParamsPayload } from '@/utils/chunkUtils'
-import ChunkParamsConfig from '@/components/ChunkParamsConfig.vue'
+import { pollDocumentProcessingJobs } from '@/utils/document_processing_jobs'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import OCRSelector from '@/components/OCRSelector.vue'
 
@@ -424,7 +413,9 @@ watch(
       applyDefaultOcrEngine()
       selectedFolderId.value = props.currentFolderId
       isFolderUpload.value = props.isFolderMode
-      uploadMode.value = props.mode || (props.isFolderMode ? 'folder' : 'file')
+      // 仅暴露已可用的模式；后端接口未就绪的 url / workspace 一律回退到 file，避免 segmented 无对应选项
+      const requestedMode = props.mode || (props.isFolderMode ? 'folder' : 'file')
+      uploadMode.value = ['file', 'folder'].includes(requestedMode) ? requestedMode : 'file'
       if (uploadMode.value === 'workspace') {
         loadWorkspaceFiles()
       }
@@ -432,7 +423,22 @@ watch(
   }
 )
 
-const DEFAULT_SUPPORTED_TYPES = ['.txt', '.pdf', '.jpg', '.jpeg', '.md', '.docx']
+// 与后端 ingestion.Parser 支持的格式保持一致:
+// .txt/.md 直读;.docx/.pptx/.xlsx 经 Docling 转换;.pdf 与图片经 RapidOCR 识别
+const DEFAULT_SUPPORTED_TYPES = [
+  '.txt',
+  '.md',
+  '.docx',
+  '.pptx',
+  '.xlsx',
+  '.pdf',
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.bmp',
+  '.tiff',
+  '.tif'
+]
 
 const normalizeExtensions = (extensions) => {
   if (!Array.isArray(extensions)) {
@@ -447,15 +453,6 @@ const normalizeExtensions = (extensions) => {
 }
 
 const supportedFileTypes = ref(normalizeExtensions(DEFAULT_SUPPORTED_TYPES))
-
-const applySupportedFileTypes = (extensions) => {
-  const normalized = normalizeExtensions(extensions)
-  if (normalized.length > 0) {
-    supportedFileTypes.value = normalized
-  } else {
-    supportedFileTypes.value = normalizeExtensions(DEFAULT_SUPPORTED_TYPES)
-  }
-}
 
 const acceptedFileTypes = computed(() => {
   if (!supportedFileTypes.value.length) {
@@ -489,19 +486,6 @@ const isSupportedExtension = (fileName) => {
   const ext = fileName.slice(lastDotIndex).toLowerCase()
   return supportedFileTypes.value.includes(ext) || ext === '.zip'
 }
-
-const loadSupportedFileTypes = async () => {
-  try {
-    const data = await fileApi.getSupportedFileTypes()
-    applySupportedFileTypes(data?.file_types)
-  } catch (error) {
-    console.error('获取支持的文件类型失败:', error)
-    message.warning('获取支持的文件类型失败，已使用默认配置')
-    applySupportedFileTypes(DEFAULT_SUPPORTED_TYPES)
-  }
-}
-
-onMounted(loadSupportedFileTypes)
 
 const visible = computed({
   get: () => props.visible,
@@ -594,20 +578,6 @@ const uploadModeOptions = computed(() => [
       h(FolderUp, { size: 16, class: 'option-icon' }),
       h('span', { class: 'option-text' }, '上传文件夹')
     ])
-  },
-  {
-    value: 'url',
-    label: h('div', { class: 'segmented-option' }, [
-      h(Link, { size: 16, class: 'option-icon' }),
-      h('span', { class: 'option-text' }, '解析 URL')
-    ])
-  },
-  {
-    value: 'workspace',
-    label: h('div', { class: 'segmented-option' }, [
-      h(FolderOpen, { size: 16, class: 'option-icon' }),
-      h('span', { class: 'option-text' }, '工作区')
-    ])
   }
 ])
 
@@ -654,7 +624,7 @@ watch(fileList, (newFileList) => {
 })
 
 // URL 列表
-// Item structure: { url: string, status: 'fetching'|'success'|'error', data: object|null, error: string }
+// 项目结构：{ url: string, status: 'fetching'|'success'|'error', data: object|null, error: string }
 const urlList = ref([])
 const newUrl = ref('')
 const fetchingUrls = ref(false)
@@ -815,20 +785,6 @@ const ocrEngineTouched = ref(false)
 const processingParams = ref({
   ocr_engine: DEFAULT_OCR_ENGINE
 })
-
-// 自动入库相关
-const autoIndex = ref(false)
-const indexParams = ref({
-  chunk_preset_id: '',
-  chunk_parser_config: {}
-})
-
-const buildAutoIndexParams = () => {
-  return buildChunkParamsPayload(indexParams.value, {
-    includeSizeOverlap: true
-  })
-}
-
 const isFolderUpload = ref(false)
 
 // 计算属性：是否启用了OCR
@@ -838,30 +794,54 @@ const isOcrEnabled = computed(() => {
 
 // 上传模式切换相关逻辑已移除
 
-// 计算属性：是否有PDF或图片文件
-const hasPdfOrImageFiles = computed(() => {
-  if (fileList.value.length === 0) {
-    return false
+const PDF_EXTENSIONS = new Set(['.pdf'])
+const IMAGE_EXTENSIONS = new Set([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.bmp',
+  '.tiff',
+  '.tif',
+  '.gif',
+  '.webp'
+])
+
+const getFileExtension = (filePath) => {
+  const normalizedPath = String(filePath || '').split(/[?#]/, 1)[0]
+  const lastDotIndex = normalizedPath.lastIndexOf('.')
+  return lastDotIndex === -1 ? '' : normalizedPath.slice(lastDotIndex).toLowerCase()
+}
+
+const selectedFilePaths = computed(() => {
+  if (uploadMode.value === 'workspace') {
+    return selectedWorkspacePaths.value
   }
-
-  const pdfExtensions = ['.pdf']
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.gif', '.webp']
-  const ocrExtensions = [...pdfExtensions, ...imageExtensions]
-
-  return fileList.value.some((file) => {
-    if (file.status !== 'done') {
-      return false
-    }
-
-    const filePath = file.response?.file_path || file.name
-    if (!filePath) {
-      return false
-    }
-
-    const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase()
-    return ocrExtensions.includes(ext)
-  })
+  if (uploadMode.value === 'file' || uploadMode.value === 'folder') {
+    return fileList.value
+      .map((file) => file.response?.file_path || file.name)
+      .filter(Boolean)
+  }
+  return []
 })
+
+const hasPdfFiles = computed(() =>
+  selectedFilePaths.value.some((filePath) => PDF_EXTENSIONS.has(getFileExtension(filePath)))
+)
+const hasImageFiles = computed(() =>
+  selectedFilePaths.value.some((filePath) => IMAGE_EXTENSIONS.has(getFileExtension(filePath)))
+)
+const hasPdfOrImageFiles = computed(() => hasPdfFiles.value || hasImageFiles.value)
+const shouldShowOcrSelector = computed(
+  () => uploadMode.value !== 'url' && hasPdfOrImageFiles.value
+)
+
+const buildCurrentProcessingParams = () => {
+  const params = { ...processingParams.value }
+  if (!shouldShowOcrSelector.value) {
+    delete params.ocr_engine
+  }
+  return params
+}
 
 // 计算属性：是否有ZIP文件
 const hasZipFiles = computed(() => {
@@ -918,14 +898,32 @@ watch(
 
 // 验证OCR服务可用性
 const validateOcrService = () => {
-  if (!isOcrEnabled.value) {
+  if (!shouldShowOcrSelector.value) {
     return true
   }
 
+  // 图片文件必须启用 OCR
+  if (hasImageFiles.value && !isOcrEnabled.value) {
+    message.error('检测到图片文件，必须启用 OCR 才能提取文本内容')
+    return false
+  }
+
+  // 如果 OCR 被禁用（disable），可以直接提交（文本型 PDF 无需 OCR）
+  if (processingParams.value.ocr_engine === 'disable') {
+    return true
+  }
+
+  // 如果 OCR 已启用但选项尚未加载完成，提示用户等待
+  if (ocrEngineOptions.value.length === 0) {
+    message.warning('OCR 引擎选项正在加载中，请稍后重试')
+    return false
+  }
+
+  // 检查当前选择的引擎是否在可用选项中
   if (
     !ocrEngineOptions.value.some((option) => option.value === processingParams.value.ocr_engine)
   ) {
-    message.error('OCR 引擎选项尚未加载，请稍后重试')
+    message.warning('当前选择的 OCR 引擎不可用，请重新选择')
     return false
   }
 
@@ -1101,9 +1099,17 @@ const runUploadTask = (task) => {
       return
     }
 
+    const uploadParams = new URLSearchParams({ kb_id: currentKbId })
+    if (selectedFolderId.value) {
+      uploadParams.set('parent_id', selectedFolderId.value)
+    }
+
     const xhr = new XMLHttpRequest()
     task.xhr = xhr
-    xhr.open('POST', `/api/knowledge/files/upload?kb_id=${currentKbId}`)
+    xhr.open(
+      'POST',
+      `/api/v1/knowledge/files/upload?${uploadParams}`
+    )
 
     const headers = getAuthHeaders()
     for (const [key, value] of Object.entries(headers)) {
@@ -1130,11 +1136,12 @@ const runUploadTask = (task) => {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
           const response = JSON.parse(xhr.responseText)
+          const data = unwrapKnowledgeResponse(response)
           if (fileUid) {
             uploadTaskStatus.value[fileUid] = 'done'
             uploadTaskProgress.value[fileUid] = 100
           }
-          onSuccess(response, xhr)
+          onSuccess(data, xhr)
           resolve()
         } catch (error) {
           if (fileUid) {
@@ -1153,7 +1160,7 @@ const runUploadTask = (task) => {
         errorResp = {}
       }
       file.response = errorResp
-      const error = new Error(errorResp.detail || 'Upload failed')
+      const error = new Error(errorResp.message || errorResp.detail || 'Upload failed')
       if (fileUid) {
         uploadTaskStatus.value[fileUid] = 'error'
       }
@@ -1214,12 +1221,88 @@ const getAuthHeaders = () => {
   return userStore.getAuthHeaders()
 }
 
-const openDocLink = () => {
-  window.open(
-    'https://xerrors.github.io/Yuxi/advanced/document-processing.html',
-    '_blank',
-    'noopener'
+const monitorProcessingJobs = async (processingJobIds) => {
+  if (processingJobIds.length === 0) return
+
+  const notificationKey = `document-processing-${Date.now()}`
+  message.loading({
+    key: notificationKey,
+    content: `正在解析 ${processingJobIds.length} 个文档`,
+    duration: 0
+  })
+  try {
+    const jobs = await pollDocumentProcessingJobs(processingJobIds, {
+      fetchJob: (jobId) => processingJobApi.get(jobId)
+    })
+    await store.getDatabaseInfo(undefined, true)
+    await store.loadDocumentFiles({ isBackground: true })
+
+    const failedJobs = jobs.filter((job) => job.status === 'failed')
+    const cancelledJobs = jobs.filter((job) => job.status === 'cancelled')
+    if (failedJobs.length > 0) {
+      const errorMessage = failedJobs.find((job) => job.error_message)?.error_message
+      message.error({
+        key: notificationKey,
+        content: errorMessage || `${failedJobs.length} 个文档解析失败`
+      })
+    } else if (cancelledJobs.length > 0) {
+      message.warning({
+        key: notificationKey,
+        content: `${cancelledJobs.length} 个文档解析已取消`
+      })
+    } else {
+      message.success({
+        key: notificationKey,
+        content: `${jobs.length} 个文档解析完成`
+      })
+    }
+  } catch (error) {
+    console.error('查询文档处理任务失败:', error)
+    message.warning({
+      key: notificationKey,
+      content: error.message || '文档仍在后台处理，请稍后查看文件列表'
+    })
+  }
+}
+
+const finalizePersistedUploads = async () => {
+  const completedUploads = fileList.value.filter((file) => file.status === 'done')
+  if (completedUploads.length === 0) {
+    return false
+  }
+
+  const isPersistedByCurrentApi = completedUploads.every(
+    (file) => file.response?.file_id && file.response?.kb_id === kbId.value
   )
+  if (!isPersistedByCurrentApi) {
+    return false
+  }
+  const processingJobIds = completedUploads
+    .map((file) => file.response?.processing_job_id)
+    .filter(Boolean)
+
+  store.state.chunkLoading = true
+  try {
+    await store.getDatabaseInfo(undefined, true)
+    await store.loadDocumentFiles({ isBackground: true })
+    message.success(
+      processingJobIds.length > 0 ? '文件已进入解析队列' : '文件已添加到知识库'
+    )
+    if (processingJobIds.length > 0) {
+      void monitorProcessingJobs(processingJobIds)
+    }
+    emit('success')
+    fileList.value = []
+    sameNameFiles.value = []
+    handleCancel()
+  } catch (error) {
+    console.error('刷新知识库文件列表失败:', error)
+    message.error('文件已上传，但刷新文件列表失败，请稍后重试')
+  } finally {
+    store.state.chunkLoading = false
+  }
+
+  return true
 }
 
 const chunkData = async () => {
@@ -1248,7 +1331,6 @@ const chunkData = async () => {
         return
       }
 
-      const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
       const items = []
       const content_hashes = {}
       const file_sizes = {}
@@ -1259,22 +1341,9 @@ const chunkData = async () => {
         if (item.content_hash) content_hashes[filePath] = item.content_hash
         if (Number.isFinite(item.size)) file_sizes[filePath] = item.size
         mergeSameNameFiles(item.same_name_files)
-
-        const ext = filePath.substring(filePath.lastIndexOf('.')).toLowerCase()
-        if (imageExtensions.includes(ext) && !isOcrEnabled.value) {
-          message.error({
-            content: '检测到图片文件，必须启用 OCR 才能提取文本内容。',
-            duration: 5
-          })
-          return
-        }
       }
 
-      const params = { ...processingParams.value, content_hashes, file_sizes }
-      if (autoIndex.value) {
-        params.auto_index = true
-        Object.assign(params, buildAutoIndexParams())
-      }
+      const params = { ...buildCurrentProcessingParams(), content_hashes, file_sizes }
 
       await store.addFiles({
         items,
@@ -1329,11 +1398,7 @@ const chunkData = async () => {
 
     try {
       store.state.chunkLoading = true
-      const params = { ...processingParams.value }
-      if (autoIndex.value) {
-        params.auto_index = true
-        Object.assign(params, buildAutoIndexParams())
-      }
+      const params = buildCurrentProcessingParams()
 
       // 构造 _preprocessed_map 和 items (minio urls)
       const items = []
@@ -1375,7 +1440,9 @@ const chunkData = async () => {
   }
 
   // 文件模式处理
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif']
+  if (await finalizePersistedUploads()) {
+    return
+  }
 
   // 提取已上传的文件信息
   const items = []
@@ -1390,16 +1457,6 @@ const chunkData = async () => {
     items.push(file_path)
     if (content_hash) content_hashes[file_path] = content_hash
     if (Number.isFinite(file.response?.size)) file_sizes[file_path] = file.response.size
-
-    // 检查是否需要OCR
-    const ext = file_path.substring(file_path.lastIndexOf('.')).toLowerCase()
-    if (imageExtensions.includes(ext) && !isOcrEnabled.value) {
-      message.error({
-        content: '检测到图片文件，必须启用 OCR 才能提取文本内容。',
-        duration: 5
-      })
-      return
-    }
   }
 
   if (items.length === 0) {
@@ -1409,11 +1466,7 @@ const chunkData = async () => {
 
   try {
     store.state.chunkLoading = true
-    const params = { ...processingParams.value, content_hashes, file_sizes }
-    if (autoIndex.value) {
-      params.auto_index = true
-      Object.assign(params, buildAutoIndexParams())
-    }
+    const params = { ...buildCurrentProcessingParams(), content_hashes, file_sizes }
 
     await store.addFiles({
       items,
@@ -1460,18 +1513,6 @@ const chunkData = async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.auto-index-toggle {
-  display: flex;
-  align-items: center;
-  padding-right: 4px;
-
-  :deep(.ant-checkbox-wrapper) {
-    font-size: 13px;
-    color: var(--gray-600);
-    font-weight: 500;
-  }
 }
 
 .help-link-btn {
@@ -1539,6 +1580,26 @@ const chunkData = async () => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.required-badge,
+.recommended-badge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.required-badge {
+  background: var(--color-error-50);
+  color: var(--color-error-600);
+  border: 1px solid var(--color-error-200);
+}
+
+.recommended-badge {
+  background: var(--color-warning-50);
+  color: var(--color-warning-600);
+  border: 1px solid var(--color-warning-200);
 }
 
 .action-icon {
@@ -1673,6 +1734,12 @@ const chunkData = async () => {
     background: var(--color-warning-50);
     border: 1px solid var(--color-warning-200);
     color: var(--color-warning-700);
+  }
+
+  &.info {
+    background: var(--color-info-50);
+    border: 1px solid var(--color-info-200);
+    color: var(--color-info-700);
   }
 }
 
@@ -2187,14 +2254,6 @@ const chunkData = async () => {
   }
 }
 
-.auto-index-params {
-  margin-top: 8px;
-  padding: 12px;
-  background: var(--gray-0);
-  border: 1px solid var(--gray-200);
-  border-radius: 6px;
-}
-
 .setting-label .ant-checkbox {
   margin-right: 8px;
 }
@@ -2204,10 +2263,6 @@ const chunkData = async () => {
     flex-direction: column;
     align-items: stretch;
     gap: 10px;
-  }
-
-  .auto-index-toggle {
-    padding-right: 0;
   }
 
   .progress-header {

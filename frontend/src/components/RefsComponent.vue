@@ -84,8 +84,6 @@ import { ref, computed, reactive, watch } from 'vue'
 import { useClipboard } from '@vueuse/core'
 import { message as antMessage } from 'ant-design-vue'
 import {
-  ThumbsUp,
-  ThumbsDown,
   Bot,
   Copy,
   Check,
@@ -205,15 +203,7 @@ const copyText = async (text) => {
 }
 
 const showRefs = computed(() => {
-  // 如果只是为了显示模型信息，不需要检查状态
-  if (props.showRefs && Array.isArray(props.showRefs) && props.showRefs.includes('model')) {
-    return true
-  }
-  // 原有的逻辑
-  return (
-    (msg.value.role == 'received' || msg.value.role == 'assistant') &&
-    msg.value.status == 'finished'
-  )
+  return props.showRefs === true || (Array.isArray(props.showRefs) && props.showRefs.length > 0)
 })
 
 // 添加重新生成方法
@@ -228,57 +218,6 @@ const getModelName = (msg) => {
   }
   return null
 }
-// Handle like action
-const likeThisResponse = async (msg) => {
-  if (feedbackState.hasSubmitted) {
-    antMessage.info('您已经提交过反馈了')
-    return
-  }
-
-  if (!msg?.id) {
-    antMessage.error('无法提交反馈：消息ID不存在')
-    console.error('Message object:', msg)
-    return
-  }
-
-  try {
-    submittingFeedback.value = true
-    await agentApi.submitMessageFeedback(msg.id, 'like', null)
-
-    feedbackState.hasSubmitted = true
-    feedbackState.rating = 'like'
-
-    antMessage.success('感谢您的反馈！')
-  } catch (error) {
-    console.error('Failed to submit like feedback:', error)
-    if (error.message?.includes('already submitted')) {
-      antMessage.info('您已经提交过反馈了')
-      feedbackState.hasSubmitted = true
-    } else {
-      antMessage.error('提交反馈失败，请稍后重试')
-    }
-  } finally {
-    submittingFeedback.value = false
-  }
-}
-
-// Handle dislike action
-const dislikeThisResponse = async (msg) => {
-  if (feedbackState.hasSubmitted) {
-    antMessage.info('您已经提交过反馈了')
-    return
-  }
-
-  if (!msg?.id) {
-    antMessage.error('无法提交反馈：消息ID不存在')
-    console.error('Message object:', msg)
-    return
-  }
-
-  // Open modal to get reason
-  dislikeModalVisible.value = true
-}
-
 // Submit dislike feedback with reason
 const submitDislikeFeedback = async () => {
   try {

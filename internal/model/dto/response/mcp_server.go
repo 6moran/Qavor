@@ -8,7 +8,6 @@ import (
 // MCPServerResponse MCP服务器响应
 type MCPServerResponse struct {
 	ID             uint             `json:"id"`
-	Slug           string           `json:"slug"`
 	Name           string           `json:"name"`
 	Description    string           `json:"description,omitempty"`
 	Transport      string           `json:"transport"`
@@ -19,12 +18,9 @@ type MCPServerResponse struct {
 	Headers        entity.JSON      `json:"headers,omitempty"`
 	Timeout        *int             `json:"timeout,omitempty"`
 	SSEReadTimeout *int             `json:"sse_read_timeout,omitempty"`
-	Tags           entity.JSONArray `json:"tags,omitempty"`
-	Icon           string           `json:"icon,omitempty"`
 	Enabled        int              `json:"enabled"`
 	DisabledTools  entity.JSONArray `json:"disabled_tools,omitempty"`
-	CreatedBy      string           `json:"created_by"`
-	UpdatedBy      string           `json:"updated_by"`
+	Status         string           `json:"status"`
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
 }
@@ -33,4 +29,17 @@ type MCPServerResponse struct {
 type MCPServerListResponse struct {
 	Total int64               `json:"total"`
 	Items []MCPServerResponse `json:"items"`
+}
+
+// MCPToolResponse MCP工具响应
+type MCPToolResponse struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// MCPTestResponse MCP连接测试响应
+type MCPTestResponse struct {
+	ServerName    string `json:"server_name,omitempty"`
+	ServerVersion string `json:"server_version,omitempty"`
 }

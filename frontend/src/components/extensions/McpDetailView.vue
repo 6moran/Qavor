@@ -9,23 +9,13 @@
         <span>返回</span>
       </button>
       <div class="detail-title-area">
-        <span class="detail-icon">{{ server?.icon || '🔌' }}</span>
         <div class="detail-title-text">
-          <h2>{{ server?.name || name }}</h2>
+          <h2>{{ server?.name || serverName }}</h2>
           <span class="detail-subtitle">{{ server?.transport || '' }}</span>
         </div>
       </div>
       <div class="detail-actions">
         <a-space :size="8">
-          <button
-            type="button"
-            @click="handleTestServer"
-            :disabled="testLoading"
-            class="lucide-icon-btn extension-panel-action extension-panel-action-secondary"
-          >
-            <Zap :size="14" v-if="!testLoading" />
-            <span>测试</span>
-          </button>
           <button
             type="button"
             @click="startEdit"
@@ -77,14 +67,12 @@
                         <span>基础信息</span>
                         <small>定义 MCP 的名称、描述与展示方式。</small>
                       </div>
-                      <div class="form-grid form-grid-three">
-                        <a-form-item label="MCP 标识" required class="form-item">
-                          <a-input v-model:value="editForm.slug" disabled />
-                        </a-form-item>
+                      <div class="form-grid">
                         <a-form-item label="MCP 名称" required class="form-item">
                           <a-input
                             v-model:value="editForm.name"
-                            placeholder="请输入 MCP 展示名称"
+                            placeholder="请输入 MCP 名称，作为唯一标识"
+                            disabled
                           />
                         </a-form-item>
                         <a-form-item label="传输类型" required class="form-item">
@@ -95,13 +83,6 @@
                             <a-select-option value="sse">sse</a-select-option>
                             <a-select-option value="stdio">stdio</a-select-option>
                           </a-select>
-                        </a-form-item>
-                        <a-form-item label="图标" class="form-item">
-                          <a-input
-                            v-model:value="editForm.icon"
-                            placeholder="输入 emoji，如 🧠"
-                            :maxlength="2"
-                          />
                         </a-form-item>
                       </div>
                       <a-form-item label="描述" class="form-item form-item-full">
@@ -156,14 +137,6 @@
                           />
                         </a-form-item>
                       </template>
-                      <a-form-item label="标签" class="form-item form-item-full">
-                        <a-select
-                          v-model:value="editForm.tags"
-                          mode="tags"
-                          placeholder="输入标签后回车添加"
-                          style="width: 100%"
-                        />
-                      </a-form-item>
                     </section>
 
                     <section class="form-section">
@@ -236,15 +209,6 @@
                       }}</a-tag>
                     </span>
                   </div>
-                  <div
-                    class="info-item"
-                    v-if="Array.isArray(server.tags) && server.tags.length > 0"
-                  >
-                    <label>标签</label>
-                    <span>
-                      <a-tag v-for="tag in server.tags" :key="tag">{{ tag }}</a-tag>
-                    </span>
-                  </div>
                   <template
                     v-if="server.transport === 'streamable_http' || server.transport === 'sse'"
                   >
@@ -293,10 +257,6 @@
                   <div class="info-item">
                     <label>更新时间</label>
                     <span>{{ formatTime(server.updated_at) }}</span>
-                  </div>
-                  <div class="info-item">
-                    <label>创建人</label>
-                    <span>{{ server.created_by }}</span>
                   </div>
                 </div>
               </div>
@@ -407,7 +367,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import {
   ArrowLeft,
-  Zap,
   Pencil,
   Trash2,
   Plus,
@@ -425,12 +384,11 @@ import McpEnvEditor from '@/components/McpEnvEditor.vue'
 
 const route = useRoute()
 const router = useRouter()
-const slug = computed(() => decodeURIComponent(route.params.slug ?? route.params.name))
+const serverName = computed(() => decodeURIComponent(route.params.name))
 
 const loading = ref(false)
 const server = ref(null)
 const detailTab = ref('general')
-const testLoading = ref(null)
 
 const tools = ref([])
 const toolsLoading = ref(false)
@@ -442,7 +400,6 @@ const isEditing = ref(false)
 const editLoading = ref(false)
 
 const editForm = reactive({
-  slug: '',
   name: '',
   description: '',
   transport: 'streamable_http',
@@ -453,13 +410,11 @@ const editForm = reactive({
   headersText: '',
   timeout: null,
   sse_read_timeout: null,
-  tags: [],
-  icon: ''
 })
 
 const actionLabel = computed(() => {
   if (server.value?.enabled === false) return '添加'
-  return server.value?.created_by === 'system' ? '移除' : '删除'
+  return '删除'
 })
 
 const filteredTools = computed(() => {
@@ -480,7 +435,7 @@ const isStdioTransport = computed(
 )
 
 const goBack = () => {
-  router.push({ path: '/extensions', query: { tab: 'mcp' } })
+  router.push({ path: '/tools', query: { tab: 'mcp' } })
 }
 
 const formatTime = (timeStr) => formatFullDateTime(timeStr)
@@ -492,7 +447,6 @@ const getTransportColor = (transport) => {
 
 const resetEditForm = (data) => {
   Object.assign(editForm, {
-    slug: data?.slug || '',
     name: data?.name || '',
     description: data?.description || '',
     transport: data?.transport || 'streamable_http',
@@ -502,9 +456,7 @@ const resetEditForm = (data) => {
     env: data?.env || null,
     headersText: data?.headers ? JSON.stringify(data.headers, null, 2) : '',
     timeout: data?.timeout,
-    sse_read_timeout: data?.sse_read_timeout,
-    tags: data?.tags || [],
-    icon: data?.icon || ''
+    sse_read_timeout: data?.sse_read_timeout
   })
 }
 
@@ -541,9 +493,7 @@ const buildEditPayload = () => {
     env: editForm.env,
     headers,
     timeout: editForm.timeout || null,
-    sse_read_timeout: editForm.sse_read_timeout || null,
-    tags: editForm.tags.length > 0 ? editForm.tags : null,
-    icon: editForm.icon || null
+    sse_read_timeout: editForm.sse_read_timeout || null
   }
 }
 
@@ -574,7 +524,7 @@ const handleSaveEdit = async () => {
 
   try {
     editLoading.value = true
-    const result = await mcpApi.updateMcpServer(server.value.slug, data)
+    const result = await mcpApi.updateMcpServer(server.value.name, data)
     if (result.success) {
       message.success('MCP 更新成功')
       isEditing.value = false
@@ -592,12 +542,12 @@ const handleSaveEdit = async () => {
 const fetchServer = async () => {
   try {
     loading.value = true
-    const result = await mcpApi.getMcpServer(slug.value)
+    const result = await mcpApi.getMcpServer(serverName.value)
     if (result.success) {
       if (result.data?.enabled === false) {
         server.value = null
         message.info('请先添加 MCP 后再查看详情')
-        router.replace({ path: '/extensions', query: { tab: 'mcp' } })
+        router.replace({ path: '/tools', query: { tab: 'mcp' } })
         return
       }
       server.value = result.data
@@ -616,7 +566,7 @@ const fetchTools = async () => {
   try {
     toolsLoading.value = true
     toolsError.value = null
-    const result = await mcpApi.getMcpServerTools(server.value.slug)
+    const result = await mcpApi.getMcpServerTools(server.value.name)
     if (result.success) {
       tools.value = result.data || []
     } else {
@@ -635,7 +585,7 @@ const handleToggleTool = async (tool) => {
   if (!server.value) return
   try {
     toggleToolLoading.value = tool.name
-    const result = await mcpApi.toggleMcpServerTool(server.value.slug, tool.name)
+    const result = await mcpApi.toggleMcpServerTool(server.value.name, tool.name)
     if (result.success) {
       message.success(result.message)
       const targetTool = tools.value.find((t) => t.name === tool.name)
@@ -659,31 +609,10 @@ const copyToolName = async (toolName) => {
   }
 }
 
-const handleTestServer = async () => {
-  if (!server.value) return
-  try {
-    testLoading.value = server.value.name
-    const result = await mcpApi.testMcpServer(server.value.slug)
-    if (result.success) {
-      message.success(result.message)
-    } else {
-      message.warning(result.message || '连接失败')
-    }
-  } catch (err) {
-    message.error(err.message || '测试失败')
-  } finally {
-    testLoading.value = null
-  }
-}
-
 const handleDangerAction = async () => {
   if (!server.value) return
   if (server.value.enabled === false) {
     await handleSetServerEnabled(server.value, true)
-    return
-  }
-  if (server.value.created_by === 'system') {
-    await handleSetServerEnabled(server.value, false)
     return
   }
   confirmDeleteServer(server.value)
@@ -691,7 +620,7 @@ const handleDangerAction = async () => {
 
 const handleSetServerEnabled = async (srv, enabled) => {
   try {
-    const result = await mcpApi.updateMcpServerStatus(srv.slug, enabled)
+    const result = await mcpApi.updateMcpServerStatus(srv.name, enabled)
     if (result.success) {
       message.success(result.message || `MCP 已${enabled ? '添加' : '移除'}`)
       await fetchServer()
@@ -712,10 +641,10 @@ const confirmDeleteServer = (srv) => {
     cancelText: '取消',
     async onOk() {
       try {
-        const result = await mcpApi.deleteMcpServer(srv.slug)
+        const result = await mcpApi.deleteMcpServer(srv.name)
         if (result.success) {
           message.success('MCP 删除成功')
-          router.push({ path: '/extensions', query: { tab: 'mcp' } })
+          router.push({ path: '/tools', query: { tab: 'mcp' } })
         } else {
           message.error(result.message || '删除失败')
         }

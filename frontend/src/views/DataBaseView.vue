@@ -11,25 +11,11 @@
     />
 
     <PageShoulder v-model:search="searchQuery" search-placeholder="搜索知识库...">
-      <template #filters>
-        <a-select
-          v-model:value="typeFilter"
-          style="width: 120px"
-          placeholder="全部类型"
-          allow-clear
-        >
-          <a-select-option :value="null">全部类型</a-select-option>
-          <a-select-option v-for="t in kbTypes" :key="t" :value="t">
-            {{ getKbTypeLabel(t) }}
-          </a-select-option>
-        </a-select>
-      </template>
       <template #actions>
         <a-button
           type="primary"
           class="lucide-icon-btn"
-          :disabled="!kbTypes.length"
-          @click="state.openNewDatabaseModel = true"
+          @click="openNewDatabaseModal"
         >
           <Plus :size="16" /> 新建知识库
         </a-button>
@@ -47,40 +33,70 @@
       destroyOnClose
     >
       <div class="new-database-form">
-        <!-- 知识库类型选择 -->
-        <div class="form-section">
-          <h3 class="section-title">知识库类型<span class="required-mark">*</span></h3>
-          <div class="kb-type-cards">
-            <div
-              v-for="(typeInfo, typeKey) in orderedKbTypes"
-              :key="typeKey"
-              class="kb-type-card"
-              :class="{ active: newDatabase.kb_type === typeKey }"
-              :data-type="typeKey"
-              @click="handleKbTypeChange(typeKey)"
-            >
-              <div class="card-header">
-                <component :is="getKbTypeIcon(typeKey)" class="type-icon" />
-                <span class="type-title">{{ getKbTypeLabel(typeKey) }}</span>
-              </div>
-              <div class="card-description">{{ getKbTypeDescription(typeInfo) }}</div>
-            </div>
-          </div>
-        </div>
-
         <div class="form-section">
           <h3 class="section-title">知识库名称<span class="required-mark">*</span></h3>
           <a-input v-model:value="newDatabase.name" placeholder="新建知识库名称" />
         </div>
 
-        <div v-if="selectedKbTypeInfo?.requires_embedding_model" class="form-grid two-columns">
+        <div class="form-grid two-columns">
           <div class="form-section compact-section">
             <h3 class="section-title">嵌入模型</h3>
-            <EmbeddingModelSelector
-              v-model:value="newDatabase.embedding_model_spec"
+            <a-select
+              v-model:value="newDatabase.embedding_model_id"
+              :loading="modelsLoading"
               class="full-width"
               placeholder="请选择嵌入模型"
+            >
+              <a-select-option
+                v-for="option in embeddingModelOptions"
+                :key="option.id"
+                :value="option.value"
+              >
+                <div class="model-option">
+                  <div class="model-option-title">
+                    <span>{{ option.label }}</span>
+                    <span class="model-option-id">#{{ option.id }}</span>
+                  </div>
+                  <div class="model-option-remark" :title="option.remark">
+                    {{ option.remark }}
+                  </div>
+                </div>
+              </a-select-option>
+            </a-select>
+          </div>
+
+          <div class="form-section compact-section">
+            <h3 class="section-title">问答模型<span class="required-mark">*</span></h3>
+            <a-select
+              v-model:value="newDatabase.chat_model_id"
+              :loading="modelsLoading"
+              class="full-width"
+              placeholder="请选择问答模型"
+            >
+              <a-select-option v-for="option in chatModelOptions" :key="option.id" :value="option.value">
+                <div class="model-option">
+                  <div class="model-option-title">
+                    <span>{{ option.label }}</span>
+                    <span class="model-option-id">#{{ option.id }}</span>
+                  </div>
+                  <div class="model-option-remark" :title="option.remark">
+                    {{ option.remark }}
+                  </div>
+                </div>
+              </a-select-option>
+            </a-select>
+          </div>
+
+          <div class="form-section compact-section">
+            <h3 class="section-title">Rerank 模型</h3>
+            <a-input
+              :value="globalRerankModelDisplay"
+              :loading="ragSettingsLoading"
+              disabled
             />
+            <a-button type="link" class="settings-link" @click="openRagSettings">
+              前往设置
+            </a-button>
           </div>
 
           <div class="form-section compact-section">
@@ -99,70 +115,20 @@
           </div>
         </div>
 
-        <div v-if="createParamOptions.length" class="form-grid three-columns">
-          <div
-            v-for="field in createParamOptions"
-            :key="field.key"
-            class="form-section compact-section"
-          >
-            <h3 class="section-title">
-              {{ field.label || field.key
-              }}<span v-if="field.required" class="required-mark">*</span>
-            </h3>
-            <a-input-password
-              v-if="field.type === 'password'"
-              v-model:value="newDatabase.additional_params[field.key]"
-              :placeholder="field.placeholder"
-            />
-            <a-input-number
-              v-else-if="field.type === 'number'"
-              v-model:value="newDatabase.additional_params[field.key]"
-              :min="field.min"
-              :max="field.max"
-              :step="field.step"
-              class="full-width"
-            />
-            <a-switch
-              v-else-if="field.type === 'boolean'"
-              v-model:checked="newDatabase.additional_params[field.key]"
-            />
-            <a-select
-              v-else-if="field.type === 'select'"
-              v-model:value="newDatabase.additional_params[field.key]"
-              :options="field.options || []"
-              class="full-width"
-            />
-            <a-input
-              v-else
-              v-model:value="newDatabase.additional_params[field.key]"
-              :placeholder="field.placeholder"
-            />
-            <p v-if="field.description" class="field-hint">{{ field.description }}</p>
-          </div>
-        </div>
-
         <div class="form-section">
-          <h3 class="section-title">知识库描述</h3>
+          <h3 class="section-title">知识库描述<span class="required-mark">*</span></h3>
           <p class="field-hint description-hint">
             在智能体流程中，这里的描述会作为工具的描述。智能体会根据知识库的标题和描述来选择合适的工具。所以这里描述的越详细，智能体越容易选择到合适的工具。
           </p>
           <AiTextarea
             v-model="newDatabase.description"
             :name="newDatabase.name"
+            :chat-model-id="newDatabase.chat_model_id"
             placeholder="新建知识库描述"
             :auto-size="{ minRows: 3, maxRows: 10 }"
           />
         </div>
 
-        <!-- 共享配置 -->
-        <div class="form-section compact-section">
-          <h3 class="section-title">共享设置</h3>
-          <ShareConfigForm
-            ref="shareConfigFormRef"
-            v-model="shareConfig"
-            :auto-select-user-dept="true"
-          />
-        </div>
       </div>
       <template #footer>
         <a-button key="back" @click="cancelCreateDatabase">取消</a-button>
@@ -170,7 +136,6 @@
           key="submit"
           type="primary"
           :loading="dbState.creating"
-          :disabled="!selectedKbTypeInfo"
           @click="handleCreateDatabase"
           >创建</a-button
         >
@@ -188,15 +153,14 @@
       v-else-if="!databases || databases.length === 0"
       title="暂无知识库"
       description="创建知识库后，可以上传文件并配置检索、图谱和评估能力。"
-      :icon="getKbTypeIcon('milvus')"
+      :icon="Database"
     >
       <template #actions>
         <a-button
           type="primary"
           size="large"
           class="lucide-icon-btn"
-          :disabled="!kbTypes.length"
-          @click="state.openNewDatabaseModel = true"
+          @click="openNewDatabaseModal"
         >
           <template #icon>
             <Plus :size="16" />
@@ -218,7 +182,7 @@
         @click="navigateToDatabase(database)"
       >
         <template #icon>
-          <component :is="getKbTypeIcon(database.kb_type || 'milvus')" :size="20" />
+          <Database :size="20" />
         </template>
         <template #card-more-action-corner>
           <a-menu @click="({ key }) => handleDatabaseAction(key, database)">
@@ -249,32 +213,32 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive, watch, computed } from 'vue'
+import { ref, onMounted, reactive, watch, computed, inject } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
+import { useConfigStore } from '@/stores/config'
 import { QuestionCircleOutlined } from '@ant-design/icons-vue'
-import { Copy, Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import { Copy, Database, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import { message, Modal } from 'ant-design-vue'
-import { databaseApi, typeApi } from '@/apis/knowledge_api'
+import { databaseApi, modelApi } from '@/apis/knowledge_api'
 import PageHeader from '@/components/shared/PageHeader.vue'
 import PageShoulder from '@/components/shared/PageShoulder.vue'
 import ResourceEmptyState from '@/components/shared/ResourceEmptyState.vue'
-import EmbeddingModelSelector from '@/components/EmbeddingModelSelector.vue'
-import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import ExtensionCardGrid from '@/components/extensions/ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
 import dayjs, { parseToShanghai } from '@/utils/time'
 import AiTextarea from '@/components/AiTextarea.vue'
 import { useChunkPresetOptions } from '@/composables/useChunkPresetOptions'
-import { getKbTypeLabel, getKbTypeIcon, getKbTypeColor, kbUtils } from '@/utils/kb_utils'
 import { DEFAULT_CHUNK_PRESET_ID } from '@/utils/chunkUtils'
+import { buildKnowledgeBaseCreateRequest } from '@/utils/knowledge_base_create'
+import { buildModelSelectOptions } from '@/utils/model_options'
 
 const route = useRoute()
 const router = useRouter()
-const configStore = useConfigStore()
 const databaseStore = useDatabaseStore()
+const configStore = useConfigStore()
+const { openSettingsModal } = inject('settingsModal', {})
 const {
   chunkPresetSelectOptions: chunkPresetOptions,
   chunkPresetLoading,
@@ -294,9 +258,7 @@ const knowledgeViewItems = [
   { key: 'documents', label: '文档知识库', path: '/extensions?tab=knowledge' }
 ]
 
-const kbTypes = computed(() => Object.keys(supportedKbTypes.value))
 const searchQuery = ref('')
-const typeFilter = ref(null)
 
 const filteredDatabases = computed(() => {
   let list = databases.value
@@ -308,9 +270,6 @@ const filteredDatabases = computed(() => {
         (db.description && db.description.toLowerCase().includes(q))
     )
   }
-  if (typeFilter.value) {
-    list = list.filter((db) => (db.kb_type || 'milvus') === typeFilter.value)
-  }
   return list
 })
 
@@ -318,23 +277,26 @@ const state = reactive({
   openNewDatabaseModel: false
 })
 
-const createDefaultShareConfig = () => ({
-  access_level: 'global',
-  department_ids: [],
-  user_uids: []
-})
-
-const shareConfig = ref(createDefaultShareConfig())
-const shareConfigFormRef = ref(null)
+const embeddingModels = ref([])
+const chatModels = ref([])
+const modelsLoading = ref(false)
+const ragSettingsLoading = ref(false)
+const globalRerankModelDisplay = computed(
+  () => configStore.ragSettings.rerankModelName || '未配置，将使用 RRF 融合结果'
+)
+const embeddingModelOptions = computed(() =>
+  buildModelSelectOptions(embeddingModels.value)
+)
+const chatModelOptions = computed(() =>
+  buildModelSelectOptions(chatModels.value)
+)
 
 const createEmptyDatabaseForm = () => ({
   name: '',
   description: '',
-  embedding_model_spec: configStore.config?.embed_model,
-  kb_type: '',
-  storage: '',
-  chunk_preset_id: DEFAULT_CHUNK_PRESET_ID,
-  additional_params: {}
+  embedding_model_id: undefined,
+  chat_model_id: undefined,
+  chunk_preset_id: DEFAULT_CHUNK_PRESET_ID
 })
 
 const newDatabase = reactive(createEmptyDatabaseForm())
@@ -343,52 +305,64 @@ const selectedPresetDescription = computed(() =>
   getChunkPresetDescription(newDatabase.chunk_preset_id)
 )
 
-// 支持的知识库类型
-const supportedKbTypes = ref({})
-
-// 有序的知识库类型
-const orderedKbTypes = computed(() => supportedKbTypes.value)
-
-const selectedKbTypeInfo = computed(() => supportedKbTypes.value[newDatabase.kb_type] || null)
-
-const createParamOptions = computed(() => selectedKbTypeInfo.value?.create_params?.options || [])
-
-const getKbTypeDescription = (typeInfo) => typeInfo?.description || ''
-
-const resetCreateParamValues = () => {
-  newDatabase.additional_params = {}
-  for (const field of createParamOptions.value) {
-    if ('default' in field) {
-      newDatabase.additional_params[field.key] = field.default
-    } else if (field.type === 'boolean') {
-      newDatabase.additional_params[field.key] = false
-    } else {
-      newDatabase.additional_params[field.key] = ''
-    }
+const loadModels = async () => {
+  modelsLoading.value = true
+  try {
+    const [embedding, chat] = await Promise.all([modelApi.list('embedding'), modelApi.list('chat')])
+    embeddingModels.value = embedding.filter((model) => model.enabled !== false)
+    chatModels.value = chat.filter((model) => model.enabled !== false)
+  } catch (error) {
+    console.error('加载模型列表失败:', error)
+  } finally {
+    modelsLoading.value = false
+    sanitizePrefilledModels()
   }
 }
 
-// 加载支持的知识库类型
-const loadSupportedKbTypes = async () => {
+const loadRagSettings = async () => {
+  ragSettingsLoading.value = true
   try {
-    const data = await typeApi.getKnowledgeBaseTypes()
-    supportedKbTypes.value = data.kb_types || {}
-    newDatabase.kb_type = kbTypes.value[0] || ''
-    resetCreateParamValues()
+    await configStore.refreshRagSettings()
   } catch (error) {
-    console.error('加载知识库类型失败:', error)
-    supportedKbTypes.value = {}
-    newDatabase.kb_type = ''
-    resetCreateParamValues()
-    message.error('加载知识库类型失败，请稍后重试')
+    console.error('加载全局 Rerank 设置失败:', error)
+  } finally {
+    ragSettingsLoading.value = false
   }
+}
+
+const openRagSettings = () => {
+  openSettingsModal?.('base')
 }
 
 const resetNewDatabase = () => {
   Object.assign(newDatabase, createEmptyDatabaseForm())
-  newDatabase.kb_type = kbTypes.value[0] || ''
-  resetCreateParamValues()
-  shareConfig.value = createDefaultShareConfig()
+}
+
+// 用系统设置里的默认模型预填创建表单（可手动修改）
+const applyDefaultModelPrefill = () => {
+  const config = configStore.config || {}
+  newDatabase.chat_model_id = config.default_model ? Number(config.default_model) : undefined
+  newDatabase.embedding_model_id = config.embed_model ? Number(config.embed_model) : undefined
+  sanitizePrefilledModels()
+}
+
+// 校验预填的模型是否在可选列表中，已禁用/下线则回退为空
+const sanitizePrefilledModels = () => {
+  if (modelsLoading.value) return
+  const chatIds = new Set(chatModelOptions.value.map((o) => Number(o.value)))
+  const embedIds = new Set(embeddingModelOptions.value.map((o) => Number(o.value)))
+  if (newDatabase.chat_model_id && !chatIds.has(Number(newDatabase.chat_model_id))) {
+    newDatabase.chat_model_id = undefined
+  }
+  if (newDatabase.embedding_model_id && !embedIds.has(Number(newDatabase.embedding_model_id))) {
+    newDatabase.embedding_model_id = undefined
+  }
+}
+
+const openNewDatabaseModal = () => {
+  resetNewDatabase()
+  applyDefaultModelPrefill()
+  state.openNewDatabaseModel = true
 }
 
 const cancelCreateDatabase = () => {
@@ -427,74 +401,22 @@ const formatCreatedTime = (createdAt) => {
   return `${years} 年前创建`
 }
 
-// 处理知识库类型改变
-const handleKbTypeChange = (type) => {
-  console.log('知识库类型改变:', type)
-  resetNewDatabase()
-  newDatabase.kb_type = type
-  resetCreateParamValues()
-}
-
 // 构建请求数据（只负责表单数据转换）
-const buildRequestData = () => {
-  const requestData = {
-    database_name: newDatabase.name.trim(),
-    description: newDatabase.description?.trim() || '',
-    kb_type: newDatabase.kb_type,
-    additional_params: {}
-  }
-
-  if (selectedKbTypeInfo.value?.requires_embedding_model) {
-    requestData.embedding_model_spec =
-      newDatabase.embedding_model_spec || configStore.config.embed_model
-    requestData.additional_params.chunk_preset_id =
-      newDatabase.chunk_preset_id || DEFAULT_CHUNK_PRESET_ID
-  }
-
-  requestData.share_config = {
-    access_level: shareConfig.value.access_level,
-    department_ids:
-      shareConfig.value.access_level === 'department' ? shareConfig.value.department_ids || [] : [],
-    user_uids: shareConfig.value.access_level === 'user' ? shareConfig.value.user_uids || [] : []
-  }
-
-  // 根据类型添加特定配置
-  if (['milvus'].includes(newDatabase.kb_type)) {
-    if (newDatabase.storage) {
-      requestData.additional_params.storage = newDatabase.storage
-    }
-  }
-
-  for (const field of createParamOptions.value) {
-    const value = newDatabase.additional_params[field.key]
-    requestData.additional_params[field.key] = typeof value === 'string' ? value.trim() : value
-  }
-
-  return requestData
-}
+const buildRequestData = () => buildKnowledgeBaseCreateRequest(newDatabase)
 
 // 创建按钮处理
 const handleCreateDatabase = async () => {
-  if (!selectedKbTypeInfo.value) {
-    message.error('知识库类型加载失败，无法创建知识库')
+  if (!newDatabase.embedding_model_id) {
+    message.error('请选择嵌入模型')
     return
   }
-
-  for (const field of createParamOptions.value) {
-    if (!field.required) continue
-    const value = newDatabase.additional_params[field.key]
-    if (value === undefined || value === null || (typeof value === 'string' && !value.trim())) {
-      message.error(`请填写${field.label || field.key}`)
-      return
-    }
+  if (!newDatabase.chat_model_id) {
+    message.error('请选择问答模型')
+    return
   }
-
-  if (shareConfigFormRef.value) {
-    const validation = shareConfigFormRef.value.validate()
-    if (!validation.valid) {
-      message.warning(validation.message)
-      return
-    }
+  if (!newDatabase.description?.trim()) {
+    message.error('请填写知识库描述')
+    return
   }
 
   const requestData = buildRequestData()
@@ -512,22 +434,18 @@ const cardSubtitle = (database) => {
   if (database.created_at) {
     parts.push(formatCreatedTime(database.created_at))
   }
-  if (!kbUtils.isReadOnlyDatabase(database)) {
-    parts.push(`${database.row_count || 0} 文件`)
-  }
+  parts.push(`${database.stats?.file_count || 0} 文件`)
   return parts.join(' · ')
 }
 
 const cardTags = (database) => {
-  const tags = [
-    {
-      name: getKbTypeLabel(database.kb_type || 'milvus'),
-      color: getKbTypeColor(database.kb_type || 'milvus')
-    }
-  ]
-  if (database.embedding_model_spec) {
+  const tags = []
+  const embeddingModel = embeddingModels.value.find(
+    (model) => model.id === database.embedding_model_id
+  )
+  if (embeddingModel) {
     tags.push({
-      name: database.embedding_model_spec.split('/').slice(-1)[0],
+      name: embeddingModel.name,
       color: 'blue'
     })
   }
@@ -600,7 +518,8 @@ watch(
 
 onMounted(() => {
   loadChunkPresetOptions()
-  loadSupportedKbTypes()
+  loadModels()
+  loadRagSettings()
   databaseStore.loadDatabases()
 })
 
@@ -633,6 +552,12 @@ defineExpose({
     gap: 6px;
   }
 
+  .settings-link {
+    align-self: flex-start;
+    height: auto;
+    padding: 0;
+  }
+
   .form-grid {
     display: grid;
     gap: 16px;
@@ -659,6 +584,44 @@ defineExpose({
 
   .compact-model-selector {
     height: 40px;
+  }
+
+  .model-option {
+    min-width: 0;
+    padding: 2px 0;
+    line-height: 1.35;
+  }
+
+  .model-option-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--gray-800);
+    font-weight: 500;
+  }
+
+  .model-option-title > span:first-child,
+  .model-option-remark {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .model-option-title > span:first-child {
+    min-width: 0;
+  }
+
+  .model-option-id {
+    flex: 0 0 auto;
+    color: var(--gray-400);
+    font-size: 11px;
+    font-weight: 400;
+  }
+
+  .model-option-remark {
+    color: var(--gray-500);
+    font-size: 12px;
   }
 
   .section-title {

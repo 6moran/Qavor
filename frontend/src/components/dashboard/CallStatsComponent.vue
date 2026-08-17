@@ -4,29 +4,26 @@
       <template #extra>
         <div class="simple-controls">
           <div class="simple-toggle-group">
-            <!-- <span class="simple-toggle-label">时间</span> -->
             <span
               v-for="opt in timeRangeOptions"
               :key="opt.value"
               class="simple-toggle"
               :class="{ active: callTimeRange === opt.value }"
               @click="switchTimeRange(opt.value)"
-              >{{ opt.label }}
+            >{{ opt.label }}
             </span>
           </div>
           <div class="divider"></div>
           <div class="simple-toggle-group">
-            <!-- <span class="simple-toggle-label">类型</span> -->
             <span
               v-for="opt in dataTypeOptions"
               :key="opt.value"
               class="simple-toggle"
               :class="{ active: callDataType === opt.value }"
               @click="switchDataType(opt.value)"
-              >{{ opt.label }}
+            >{{ opt.label }}
             </span>
           </div>
-          <!-- <div class="subtitle">总计：{{ callStatsData?.total_count || 0 }}</div> -->
         </div>
       </template>
 
@@ -40,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, defineExpose, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import * as echarts from 'echarts'
 import { dashboardApi } from '@/apis/dashboard_api'
 import { getColorByIndex, truncateLegend } from '@/utils/chartColors'
@@ -61,20 +58,19 @@ const themeStore = useThemeStore()
 // state
 const callStatsData = ref(null)
 const callStatsLoading = ref(false)
-const callTimeRange = ref('14days')
-const callDataType = ref('agents')
+const callTimeRange = ref('7days')
+const callDataType = ref('tokens')
 const timeRangeOptions = [
-  { value: '14hours', label: '近14小时' },
-  { value: '14days', label: '近14天' },
-  { value: '14weeks', label: '近14周' }
+  { value: 'today', label: '今天' },
+  { value: '7days', label: '近7天' },
+  { value: 'thisMonth', label: '本月' }
 ]
 const dataTypeOptions = [
   { value: 'models', label: '模型调用' },
   { value: 'agents', label: '智能体调用' },
-  { value: 'tokens', label: 'Token消耗' },
-  { value: 'tools', label: '工具调用' }
+  { value: 'tokens', label: 'Token消耗' }
 ]
-const isTokenView = computed(() => callDataType.value === 'tokens')
+const isTokenView = computed(() => true)
 
 const formatTokenValue = (value) => {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -111,6 +107,7 @@ const callStatsChartRef = ref(null)
 let callStatsChart = null
 let retryTimer = null
 let hoveredSeriesName = null
+let resizeObserver = null
 const retryCount = ref(0)
 const maxRetry = 20
 
@@ -118,7 +115,8 @@ const loadCallStats = async () => {
   callStatsLoading.value = true
   try {
     const response = await dashboardApi.getCallTimeseries(callDataType.value, callTimeRange.value)
-    callStatsData.value = response
+    // Go 后端返回 {code, message, data} 信封，需解包
+    callStatsData.value = response.data || response
     await nextTick()
     renderCallStatsChart()
   } catch (error) {
@@ -132,7 +130,6 @@ const renderCallStatsChart = () => {
   const container = callStatsChartRef.value
   if (!container || !callStatsData.value) return
 
-  // 若父卡片仍在 loading，等待 loading 结束
   if (props.loading) {
     scheduleRetry()
     return
@@ -157,15 +154,26 @@ const renderCallStatsChart = () => {
 
   callStatsChart = echarts.init(container)
 
+  // 监听容器尺寸变化，自动调整图表大小
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+  }
+  resizeObserver = new ResizeObserver(() => {
+    if (callStatsChart) {
+      callStatsChart.resize()
+    }
+  })
+  resizeObserver.observe(container)
+
   const data = callStatsData.value.data || []
   const categories = callStatsData.value.categories || []
 
   const xAxisData = data.map((item) => {
     const date = item.date
-    if (callTimeRange.value === '14hours') {
+    if (callTimeRange.value === 'today') {
       return date.split(' ')[1]
-    } else if (callTimeRange.value === '14weeks') {
-      return `第${date.split('-')[1]}周`
+    } else if (callTimeRange.value === 'thisMonth') {
+      return date.split('-').slice(1).join('-')
     } else {
       return date.split('-').slice(1).join('-')
     }
@@ -178,24 +186,37 @@ const renderCallStatsChart = () => {
     return agentNames[cat] || cat
   }
 
-  const series = categories.map((category, index) => ({
-    name: resolveCategoryLabel(category),
-    type: 'bar',
-    stack: 'total',
-    emphasis: { focus: 'series' },
-    data: data.map((item) => item.data[category] || 0),
-    itemStyle: {
-      color: getColorByIndex(index),
-      borderRadius: 0
-    }
-  }))
+  let series
+  if (callDataType.value === 'tokens') {
+    // 总Token统计：所有类别汇总为一条折线
+    const totalData = data.map((item) => {
+      let total = 0
+      categories.forEach((cat) => { total += item.data[cat] || 0 })
+      return total
+    })
+    series = [{
+      name: '总Token',
+      type: 'line',
+      smooth: true,
+      data: totalData,
+      itemStyle: { color: getColorByIndex(0) }
+    }]
+  } else {
+    series = categories.map((category, index) => ({
+      name: resolveCategoryLabel(category),
+      type: 'line',
+      smooth: true,
+      data: data.map((item) => item.data[category] || 0),
+      itemStyle: { color: getColorByIndex(index) }
+    }))
+  }
 
   const option = {
     grid: {
       left: '3%',
       right: '4%',
-      top: '5%' /* 减少顶部留白 */,
-      bottom: 50 /* 减少底部留白，从60减少到50 */,
+      top: '5%',
+      bottom: 50,
       containLabel: true
     },
     xAxis: {
@@ -237,19 +258,22 @@ const renderCallStatsChart = () => {
           result += `<span style="${itemStyle}">${truncatedName}: ${formatValueForDisplay(param.value)}</span><br/>`
         })
         const labelMap = {
-          models: '模型调用',
-          agents: '智能体调用',
-          tokens: 'Token消耗',
-          tools: '工具调用'
+          models: '模型Token消耗',
+          agents: '智能体Token消耗',
+          tokens: '总Token消耗',
+          }
+        if (callDataType.value === 'tokens') {
+          const grandTotal = formatValueForDisplay(total)
+          return `<div style="font-weight:bold;margin-bottom:5px">${labelMap[callDataType.value]}</div><strong>总消耗: ${grandTotal}</strong>`
         }
         const formattedTotal = formatValueForDisplay(total)
         return `<div style="font-weight:bold;margin-bottom:5px">${labelMap[callDataType.value]}</div>${result}<strong>总计: ${formattedTotal}</strong>`
       }
     },
     legend: {
-      type: 'scroll',
-      data: categories.map(resolveCategoryLabel),
-      bottom: 5 /* 调整图例位置，从0改为5 */,
+      type: callDataType.value === 'tokens' ? 'plain' : 'scroll',
+      data: callDataType.value === 'tokens' ? [series[0]?.name || '总Token'] : categories.map(resolveCategoryLabel),
+      bottom: 5,
       textStyle: { color: getCSSVariable('--gray-500'), fontSize: 12 },
       itemWidth: 14,
       itemHeight: 14,
@@ -274,12 +298,26 @@ const renderCallStatsChart = () => {
 }
 
 const scheduleRetry = () => {
-  if (retryCount.value >= maxRetry) return
   if (retryTimer) clearTimeout(retryTimer)
   retryTimer = setTimeout(() => {
+    // 如果容器仍然没有尺寸，设置 ResizeObserver 等待布局完成
+    const container = callStatsChartRef.value
+    if (container && (!container.clientWidth || !container.clientHeight)) {
+      if (!resizeObserver) {
+        resizeObserver = new ResizeObserver(() => {
+          if (callStatsData.value && !callStatsChart) {
+            renderCallStatsChart()
+          } else if (callStatsChart) {
+            callStatsChart.resize()
+          }
+        })
+        resizeObserver.observe(container)
+      }
+      return
+    }
     retryCount.value += 1
     renderCallStatsChart()
-  }, 100)
+  }, retryCount.value >= maxRetry ? 500 : 100)
 }
 
 const handleResize = () => {
@@ -290,6 +328,10 @@ const resizeListenerOptions = { passive: true }
 
 const cleanup = () => {
   window.removeEventListener('resize', handleResize, resizeListenerOptions)
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
   if (retryTimer) {
     clearTimeout(retryTimer)
     retryTimer = null
@@ -360,15 +402,17 @@ onUnmounted(() => {
 .call-stats .chart-container {
   height: 100%;
   flex: 1;
+  min-height: 250px;
   padding: 0; /* 移除默认padding */
 }
 
 .call-stats .chart {
   height: 100% !important;
+  min-height: 250px;
   width: 100%;
-  padding: 0; /* 移除chart的padding */
-  border: none; /* 移除chart的border */
-  background-color: transparent; /* 移除背景色 */
+  padding: 0;
+  border: none;
+  background-color: transparent;
 }
 
 .simple-controls {

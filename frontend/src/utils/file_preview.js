@@ -12,7 +12,14 @@ const IMAGE_EXTENSIONS = new Set([
 ])
 const PDF_EXTENSIONS = new Set(['.pdf'])
 const HTML_EXTENSIONS = new Set(['.html', '.htm'])
-const OFFICE_EXTENSIONS = new Set(['.docx', '.pptx'])
+const OFFICE_EXTENSIONS = new Set(['.docx', '.pptx', '.xlsx'])
+// Office 具体类型 → 渲染分支类型（docx-preview / xlsx / pptx-preview）
+const OFFICE_TYPE_BY_EXTENSION = {
+  '.docx': 'docx',
+  '.pptx': 'pptx',
+  '.xlsx': 'xlsx'
+}
+export const OFFICE_PREVIEW_TYPES = new Set(['docx', 'xlsx', 'pptx'])
 const TEXT_EXTENSIONS = new Set([
   '.txt',
   '.text',
@@ -134,7 +141,7 @@ export const getPreviewTypeByPath = (path) => {
   if (PDF_EXTENSIONS.has(extension)) return 'pdf'
   if (MARKDOWN_EXTENSIONS.has(extension)) return 'markdown'
   if (HTML_EXTENSIONS.has(extension)) return 'html'
-  if (OFFICE_EXTENSIONS.has(extension)) return 'office'
+  if (OFFICE_EXTENSIONS.has(extension)) return OFFICE_TYPE_BY_EXTENSION[extension] || 'office'
   if (TEXT_EXTENSIONS.has(extension)) return 'text'
   return 'unsupported'
 }
@@ -147,6 +154,9 @@ export const isHtmlPreview = (path) => HTML_EXTENSIONS.has(getPreviewFileExtensi
 export const getPreviewTypeByContentType = (contentType) => {
   const normalized = String(contentType || '').toLowerCase()
   if (normalized.includes('application/pdf')) return 'pdf'
+  if (normalized.includes('wordprocessingml')) return 'docx'
+  if (normalized.includes('spreadsheetml')) return 'xlsx'
+  if (normalized.includes('presentationml')) return 'pptx'
   if (normalized.startsWith('image/')) return 'image'
   if (normalized.includes('text/markdown')) return 'markdown'
   if (normalized.includes('text/html')) return 'html'
@@ -154,6 +164,8 @@ export const getPreviewTypeByContentType = (contentType) => {
   if (normalized.includes('application/json')) return 'json'
   return 'unsupported'
 }
+
+export const isOfficePreview = (type) => OFFICE_PREVIEW_TYPES.has(type)
 
 export const normalizePreviewResponse = async (response, baseFile = {}) => {
   const contentType = response?.headers?.get?.('content-type') || ''
@@ -172,8 +184,27 @@ export const normalizePreviewResponse = async (response, baseFile = {}) => {
     }
   }
 
-  const previewType =
-    response?.headers?.get?.('x-yuxi-preview-type') || getPreviewTypeByContentType(contentType)
+  let previewType =
+    response?.headers?.get?.('x-qavor-preview-type') || getPreviewTypeByContentType(contentType)
+
+  if (['text', 'markdown', 'json', 'html'].includes(previewType)) {
+    return {
+      ...baseFile,
+      content: await response.text(),
+      previewType,
+      supported: true,
+      message: '',
+      previewUrl: ''
+    }
+  }
+
+  // Office 文件（docx/pptx/xlsx）上传后被识别为 application/zip 等通用类型，
+  // 无法仅凭 Content-Type 区分具体格式，需按文件名兜底判定。
+  if (previewType === 'unsupported') {
+    const fallbackPath = baseFile?.filename || baseFile?.path || baseFile?.name || ''
+    previewType = getPreviewTypeByPath(fallbackPath)
+  }
+
   const blob = await response.blob()
 
   return {
