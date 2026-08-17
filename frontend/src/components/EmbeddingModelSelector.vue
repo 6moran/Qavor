@@ -16,7 +16,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { getEnabledModels } from '@/apis/model_api'
 
 const props = defineProps({
@@ -58,4 +58,14 @@ const handleSelect = (value) => {
 onMounted(() => {
   if (props.value) loadModels()
 })
+
+// 配置是异步流入的（如 configStore 晚于挂载才填充），此时 onMounted 时 value 还为空、
+// 不会触发预加载，列表永远为空，a-select 会把 id 当文本直接显示。
+// 监听 value：一旦被父组件赋值即补加载模型列表，确保 id 能解析成名字。
+watch(
+  () => props.value,
+  (val) => {
+    if (val && !loaded) loadModels()
+  }
+)
 </script>
