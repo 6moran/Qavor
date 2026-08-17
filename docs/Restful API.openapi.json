@@ -56,6 +56,18 @@
     },
     {
       "name": "evaluation"
+    },
+    {
+      "name": "conversations"
+    },
+    {
+      "name": "messages"
+    },
+    {
+      "name": "trace"
+    },
+    {
+      "name": "models"
     }
   ],
   "paths": {
@@ -14770,6 +14782,1689 @@
               }
             },
             "headers": {}
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/chat": {
+      "post": {
+        "summary": "普通聊天（非流式）",
+        "deprecated": false,
+        "description": "同步聊天接口，等待 AI 完整回复后返回结果",
+        "operationId": "chat_api_chat_post",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent_slug": {
+                    "type": "string",
+                    "title": "Agent Slug",
+                    "description": "智能体 slug"
+                  },
+                  "conversation_id": {
+                    "title": "Conversation Id",
+                    "description": "会话 ID（可选，支持数字或字符串）"
+                  },
+                  "message": {
+                    "type": "string",
+                    "title": "Message",
+                    "description": "用户消息"
+                  }
+                },
+                "required": ["message"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message_id": { "type": "integer" },
+                    "conversation_id": { "type": "integer" },
+                    "content": { "type": "string" },
+                    "delivery_status": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/chat/stream": {
+      "post": {
+        "summary": "流式聊天（SSE）",
+        "deprecated": false,
+        "description": "流式聊天接口，通过 SSE 逐块返回 AI 回复",
+        "operationId": "chat_stream_api_chat_stream_post",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent_slug": {
+                    "type": "string",
+                    "title": "Agent Slug",
+                    "description": "智能体 slug"
+                  },
+                  "conversation_id": {
+                    "title": "Conversation Id",
+                    "description": "会话 ID"
+                  },
+                  "message": {
+                    "type": "string",
+                    "title": "Message",
+                    "description": "用户消息"
+                  }
+                },
+                "required": ["message"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "SSE 事件流",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/conversations": {
+      "get": {
+        "summary": "获取会话列表",
+        "deprecated": false,
+        "description": "获取当前用户的会话列表，支持分页和搜索",
+        "operationId": "list_conversations_api_conversations_get",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 20 }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "会话状态筛选",
+            "schema": { "type": "string", "enum": ["active", "archived", "deleted"] }
+          },
+          {
+            "name": "agent_id",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "搜索关键词",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": { "type": "integer" },
+                    "items": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ConversationResponse" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "post": {
+        "summary": "创建会话",
+        "deprecated": false,
+        "description": "创建一个新的对话会话",
+        "operationId": "create_conversation_api_conversations_post",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "agent_id": {
+                    "type": "string",
+                    "title": "Agent Id",
+                    "description": "智能体 slug"
+                  },
+                  "title": {
+                    "type": "string",
+                    "title": "Title",
+                    "description": "会话标题"
+                  }
+                },
+                "required": ["agent_id"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ConversationResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/conversations/{id}": {
+      "get": {
+        "summary": "获取会话详情",
+        "deprecated": false,
+        "description": "根据 ID 获取会话的详细信息",
+        "operationId": "get_conversation_api_conversations__id__get",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ConversationResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "put": {
+        "summary": "更新会话",
+        "deprecated": false,
+        "description": "更新会话的标题、置顶状态等信息",
+        "operationId": "update_conversation_api_conversations__id__put",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string", "description": "会话标题" },
+                  "is_pinned": { "type": "boolean", "description": "是否置顶" },
+                  "tool_approval_mode": { "type": "string", "description": "工具审批模式", "enum": ["default", "always_trust"] }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ConversationResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "delete": {
+        "summary": "删除会话",
+        "deprecated": false,
+        "description": "根据 ID 删除会话",
+        "operationId": "delete_conversation_api_conversations__id__delete",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/conversations/{id}/close": {
+      "put": {
+        "summary": "关闭会话",
+        "deprecated": false,
+        "description": "关闭指定的会话",
+        "operationId": "close_conversation_api_conversations__id__close_put",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ConversationResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/conversations/{id}/archive": {
+      "put": {
+        "summary": "归档会话",
+        "deprecated": false,
+        "description": "归档指定的会话",
+        "operationId": "archive_conversation_api_conversations__id__archive_put",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ConversationResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/conversations/{id}/clear-context": {
+      "post": {
+        "summary": "清空会话上下文",
+        "deprecated": false,
+        "description": "清空会话的上下文历史（轻量重置）",
+        "operationId": "clear_context_api_conversations__id__clear_context_post",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/conversations/{id}/messages": {
+      "get": {
+        "summary": "获取消息列表",
+        "deprecated": false,
+        "description": "获取指定会话的消息列表",
+        "operationId": "list_messages_api_conversations__id__messages_get",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 20 }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": false,
+            "description": "按角色过滤",
+            "schema": { "type": "string", "enum": ["user", "assistant", "system", "tool"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": { "type": "integer" },
+                    "items": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/MessageResponse" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "post": {
+        "summary": "创建消息",
+        "deprecated": false,
+        "description": "在指定会话中创建一条新消息",
+        "operationId": "create_message_api_conversations__id__messages_post",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": ["user", "assistant", "system", "tool"],
+                    "description": "消息角色"
+                  },
+                  "content": {
+                    "type": "string",
+                    "description": "消息内容"
+                  },
+                  "message_type": {
+                    "type": "string",
+                    "enum": ["text", "tool_call", "tool_result"],
+                    "description": "消息类型"
+                  },
+                  "image_content": {
+                    "type": "string",
+                    "description": "图片内容"
+                  }
+                },
+                "required": ["role", "content"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/MessageResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/conversations/{id}/messages/latest": {
+      "get": {
+        "summary": "获取最新消息",
+        "deprecated": false,
+        "description": "获取指定会话的最新一条消息",
+        "operationId": "get_latest_message_api_conversations__id__messages_latest_get",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/MessageResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/conversations/{id}/messages/{msg_id}": {
+      "get": {
+        "summary": "获取消息详情",
+        "deprecated": false,
+        "description": "根据消息 ID 获取消息的详细信息",
+        "operationId": "get_message_api_conversations__id__messages__msg_id__get",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "msg_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/MessageResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "put": {
+        "summary": "更新消息",
+        "deprecated": false,
+        "description": "更新指定消息的内容",
+        "operationId": "update_message_api_conversations__id__messages__msg_id__put",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "msg_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": { "type": "string", "description": "消息内容" }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/MessageResponse" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "delete": {
+        "summary": "删除消息",
+        "deprecated": false,
+        "description": "删除指定消息",
+        "operationId": "delete_message_api_conversations__id__messages__msg_id__delete",
+        "tags": [
+          "chat"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "msg_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/models": {
+      "get": {
+        "summary": "获取模型列表",
+        "deprecated": false,
+        "description": "获取所有模型的列表，支持分页和关键词搜索",
+        "operationId": "list_models_api_models_get",
+        "tags": [
+          "model-providers"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 20 }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "model_type",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["chat", "embedding", "rerank"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total": { "type": "integer" },
+                    "items": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ModelResponse" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "创建模型",
+        "deprecated": false,
+        "description": "创建一个新的模型配置",
+        "operationId": "create_model_api_models_post",
+        "tags": [
+          "model-providers"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateModelRequest" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ModelResponse" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/providers": {
+      "get": {
+        "summary": "获取模型供应商列表",
+        "deprecated": false,
+        "description": "获取所有模型供应商的列表",
+        "operationId": "get_providers_api_models_providers_get",
+        "tags": [
+          "model-providers"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/providers/{name}": {
+      "get": {
+        "summary": "获取模型供应商详情",
+        "deprecated": false,
+        "description": "根据名称获取模型供应商的详细信息",
+        "operationId": "get_provider_by_name_api_models_providers__name__get",
+        "tags": [
+          "model-providers"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/remote-models": {
+      "post": {
+        "summary": "远程拉取模型列表",
+        "deprecated": false,
+        "description": "从远程服务拉取可用模型列表，不落库",
+        "operationId": "fetch_remote_models_api_models_remote_models_post",
+        "tags": [
+          "model-providers"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "base_url": { "type": "string", "description": "服务地址" },
+                  "api_key": { "type": "string", "description": "API Key" },
+                  "protocol": { "type": "string", "enum": ["openai", "ollama"], "description": "协议类型" }
+                },
+                "required": ["base_url"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/test": {
+      "post": {
+        "summary": "测试模型连接",
+        "deprecated": false,
+        "description": "测试模型连接是否正常",
+        "operationId": "test_model_connection_api_models_test_post",
+        "tags": [
+          "model-providers"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "model_id": { "type": "integer", "description": "模型 ID" },
+                  "name": { "type": "string", "description": "模型名称" },
+                  "protocol": { "type": "string", "description": "协议类型" },
+                  "base_url": { "type": "string", "description": "服务地址" },
+                  "api_key": { "type": "string", "description": "API Key" },
+                  "model_type": { "type": "string", "enum": ["chat", "embedding", "rerank"], "description": "模型类型" }
+                },
+                "required": ["name", "protocol", "base_url", "model_type"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connected": { "type": "boolean" },
+                    "latency_ms": { "type": "integer" },
+                    "model_type": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/models/{id}": {
+      "get": {
+        "summary": "获取模型详情",
+        "deprecated": false,
+        "description": "根据 ID 获取模型的详细信息",
+        "operationId": "get_model_api_models__id__get",
+        "tags": [
+          "model-providers"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ModelResponse" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "更新模型",
+        "deprecated": false,
+        "description": "根据 ID 更新模型的配置信息",
+        "operationId": "update_model_api_models__id__put",
+        "tags": [
+          "model-providers"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateModelRequest" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/ModelResponse" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "删除模型",
+        "deprecated": false,
+        "description": "根据 ID 删除模型",
+        "operationId": "delete_model_api_models__id__delete",
+        "tags": [
+          "model-providers"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rag/answer": {
+      "post": {
+        "summary": "RAG 问答",
+        "deprecated": false,
+        "description": "基于知识库的 RAG 问答接口",
+        "operationId": "rag_answer_api_rag_answer_post",
+        "tags": [
+          "knowledge"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "knowledge_base_ids": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "知识库 ID 列表"
+                  },
+                  "query": {
+                    "type": "string",
+                    "description": "查询内容"
+                  }
+                },
+                "required": ["knowledge_base_ids", "query"]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/sse/connect": {
+      "get": {
+        "summary": "建立 SSE 连接",
+        "deprecated": false,
+        "description": "建立 Server-Sent Events 长连接，用于接收实时事件推送",
+        "operationId": "sse_connect_api_sse_connect_get",
+        "tags": [
+          "system"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "X-Device-ID",
+            "in": "header",
+            "required": false,
+            "description": "设备 ID，不传则自动生成",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SSE 事件流",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/sse/info": {
+      "get": {
+        "summary": "获取 SSE 连接信息",
+        "deprecated": false,
+        "description": "获取当前 SSE 连接状态",
+        "operationId": "sse_info_api_sse_info_get",
+        "tags": [
+          "system"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "connection_count": { "type": "integer" },
+                    "is_connected": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/traces": {
+      "get": {
+        "summary": "获取 Trace 列表",
+        "deprecated": false,
+        "description": "获取链路追踪列表，支持多种筛选条件",
+        "operationId": "list_traces_api_traces_get",
+        "tags": [
+          "system"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "agent_slug",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "conversation_id",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "enum": ["running", "ok", "error", "cancelled", "interrupted", "timeout"] }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "tool",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "error_only",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "mismatch_only",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean" }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "起始时间 (RFC3339)",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "结束时间 (RFC3339)",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 1 }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 20 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": { "type": "object" }
+                    },
+                    "total": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/traces/{trace_id}": {
+      "get": {
+        "summary": "获取 Trace 详情",
+        "deprecated": false,
+        "description": "获取指定 Trace 的详细信息（头部 + spans 平铺 + diagnostics）",
+        "operationId": "get_trace_api_traces__trace_id__get",
+        "tags": [
+          "system"
+        ],
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/traces/{trace_id}/spans/{span_id}": {
+      "get": {
+        "summary": "获取 Span 详情",
+        "deprecated": false,
+        "description": "获取指定 Span 的详细信息",
+        "operationId": "get_span_api_traces__trace_id__spans__span_id__get",
+        "tags": [
+          "system"
+        ],
+        "parameters": [
+          {
+            "name": "trace_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "span_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/runs/{run_id}/trace": {
+      "get": {
+        "summary": "通过 run_id 查询关联 trace",
+        "deprecated": false,
+        "description": "通过 Run ID 反向查询关联的 Trace ID",
+        "operationId": "get_trace_by_run_id_api_runs__run_id__trace_get",
+        "tags": [
+          "agent"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/knowledge/processing-jobs": {
+      "get": {
+        "summary": "获取处理任务列表",
+        "deprecated": false,
+        "description": "获取文档处理任务列表",
+        "operationId": "list_processing_jobs_api_knowledge_processing_jobs_get",
+        "tags": [
+          "knowledge"
+        ],
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/knowledge/processing-jobs/{job_id}": {
+      "get": {
+        "summary": "获取处理任务详情",
+        "deprecated": false,
+        "description": "获取指定处理任务的详细信息",
+        "operationId": "get_processing_job_api_knowledge_processing_jobs__job_id__get",
+        "tags": [
+          "knowledge"
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/knowledge/processing-jobs/{job_id}/retry": {
+      "post": {
+        "summary": "重试处理任务",
+        "deprecated": false,
+        "description": "重试失败的文档处理任务",
+        "operationId": "retry_processing_job_api_knowledge_processing_jobs__job_id__retry_post",
+        "tags": [
+          "knowledge"
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/knowledge/databases/{kb_id}/documents/{doc_id}/index": {
+      "post": {
+        "summary": "索引单个文档",
+        "deprecated": false,
+        "description": "对单个文档执行向量索引",
+        "operationId": "index_one_document_api_knowledge_databases__kb_id__documents__doc_id__index_post",
+        "tags": [
+          "knowledge"
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/knowledge/databases/{kb_id}/documents/{doc_id}/parse": {
+      "post": {
+        "summary": "重试文档解析",
+        "deprecated": false,
+        "description": "重试失败的文档解析任务",
+        "operationId": "retry_parse_document_api_knowledge_databases__kb_id__documents__doc_id__parse_post",
+        "tags": [
+          "knowledge"
+        ],
+        "parameters": [
+          {
+            "name": "kb_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "doc_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object" }
+              }
+            }
           }
         },
         "security": []

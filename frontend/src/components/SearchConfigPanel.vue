@@ -203,16 +203,15 @@ const save = async () => {
   meta.include_distances = true
 
   try {
-    const response = await queryApi.updateKnowledgeBaseQueryParams(props.kbId, { ...meta })
-    if (response.message === 'success') {
-      localStorage.setItem(`search-config-${props.kbId}`, JSON.stringify(meta))
-      Object.assign(store.meta, meta)
-      message.success('配置已保存')
-      emit('save', { ...meta })
-      return true
-    } else {
-      throw new Error(response.message || '保存失败')
-    }
+    // unwrapKnowledgeResponse 成功时直接返回 response.data（该接口 data 为 null），
+    // 不抛错即代表后端保存成功；不能按 response.message === 'success' 判断，
+    // 否则会对 null 取值抛 TypeError，导致保存永远失败
+    await queryApi.updateKnowledgeBaseQueryParams(props.kbId, { ...meta })
+    localStorage.setItem(`search-config-${props.kbId}`, JSON.stringify(meta))
+    Object.assign(store.meta, meta)
+    message.success('配置已保存')
+    emit('save', { ...meta })
+    return true
   } catch (err) {
     console.error('保存配置到知识库失败:', err)
     message.error('保存配置失败：' + (err.message || '未知错误'))

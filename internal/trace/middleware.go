@@ -9,11 +9,12 @@ import (
 	"github.com/google/uuid"
 )
 
-// Middleware 创建并管理完整 HTTP Span 生命周期。
-// 只追踪 TracedRoutes 中配置的路由（method + path 精确匹配）。
-// tracer 为 nil 或未启用时透传不做任何事。
+// Middleware 创建并管理完整 HTTP Span 生命周期
+// 只追踪 TracedRoutes 中配置的路由（method + path 精确匹配）
+// tracer 为 nil 或未启用时透传不做任何事
 func Middleware(tracer *Tracer) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// 检查路由白名单
 		if !tracer.ShouldTrace(c.Request.Method, c.Request.URL.Path) {
 			c.Next()
 			return

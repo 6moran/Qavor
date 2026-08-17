@@ -2,14 +2,12 @@ import { defineStore } from 'pinia'
 import { ref, reactive } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { databaseApi, documentApi, queryApi } from '@/apis/knowledge_api'
-import { useUserStore } from '@/stores/user'
 import { useRouter } from 'vue-router'
 import { parseToShanghai } from '@/utils/time'
 import { canSelectFile, isProcessingFile } from '@/utils/knowledge_file_policy'
 
 export const useDatabaseStore = defineStore('database', () => {
   const router = useRouter()
-  const userStore = useUserStore()
 
   // 状态
   const databases = ref([])

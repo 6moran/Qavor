@@ -53,7 +53,7 @@ import { ref } from 'vue'
 import { FileText } from 'lucide-vue-next'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 
-const props = defineProps({
+defineProps({
   treeData: {
     type: Array,
     required: true,
@@ -101,29 +101,7 @@ const emit = defineEmits([
 
 const loadingKeys = ref(new Set())
 
-const setNodeLoading = (key, isLoading) => {
-  const nextLoadingKeys = new Set(loadingKeys.value)
-  if (isLoading) {
-    nextLoadingKeys.add(key)
-  } else {
-    nextLoadingKeys.delete(key)
-  }
-  loadingKeys.value = nextLoadingKeys
-}
-
 const isNodeLoading = (key) => loadingKeys.value.has(key)
-
-// 手动触发子目录加载（本项目隐藏了 switcher，只能靠点击标题展开，
-// 因此不走 a-tree 原生的 :load-data 机制，改由这里显式调用并驱动 loading 图标）。
-const triggerFolderLoad = async (key, data) => {
-  if (!props.loadData) return
-  setNodeLoading(key, true)
-  try {
-    await props.loadData({ key, ...data })
-  } finally {
-    setNodeLoading(key, false)
-  }
-}
 
 const handleSelectedUpdate = (keys) => {
   emit('update:selectedKeys', keys)
@@ -133,37 +111,8 @@ const handleExpandedUpdate = (keys) => {
   emit('update:expandedKeys', keys)
 }
 
-const handleSelect = (selectedKeys, info) => {
-  emit('select', selectedKeys, info)
-}
-
-const handleNodeClick = (data) => {
-  const isFolder = data.isLeaf === false || (data.children && Array.isArray(data.children))
-  if (!isFolder) return
-
-  const key = data.key
-  const newExpandedKeys = [...props.expandedKeys]
-  const index = newExpandedKeys.indexOf(key)
-
-  if (index > -1) {
-    newExpandedKeys.splice(index, 1)
-  } else {
-    newExpandedKeys.push(key)
-  }
-
-  emit('update:expandedKeys', newExpandedKeys)
-
-  // 展开且子节点尚未加载时，主动拉取子目录。手动切换 expandedKeys 走受控 watch
-  // 路径、不会触发 a-tree 内部 onNodeLoad，必须显式调用；已加载过的文件夹复用
-  // 缓存，不再重复请求。
-  if (index === -1) {
-    const children = data.children
-    const notLoaded = !children || (Array.isArray(children) && children.length === 0)
-    if (props.loadData && notLoaded) {
-      triggerFolderLoad(key, data)
-    }
-  }
-  emit('select', selectedKeys, info)
+const handleSelect = (...args) => {
+  emit('select', ...args)
 }
 </script>
 

@@ -187,7 +187,6 @@ import { useUserStore } from '@/stores/user'
 import { healthApi } from '@/apis/system_api'
 import UserInfoComponent from '@/components/UserInfoComponent.vue'
 import {
-  BookText,
   Star,
   GitFork,
   CircleDot,

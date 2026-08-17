@@ -582,6 +582,7 @@ const startPreviewResize = (event) => {
   window.addEventListener('pointercancel', stopPreviewResize)
 }
 
+let resizePointerId = null
 let workspaceResizeObserver = null
 
 onMounted(async () => {
