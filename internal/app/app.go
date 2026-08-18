@@ -546,27 +546,6 @@ func (a *App) initDependencies() error {
 		CheckPointStore:     checkPointStore,
 	}
 
-	// 创建 AgentManager（modelSvc 实现 SubagentLLMResolver，用于子智能体 LLM 解析）
-	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, agentSvc, agentRuntime, modelSvc)
-
-	// 工作区 API：root = data/workspaces（已归一化为绝对路径），复用共享安全策略
-	workspaceBackend := localfs.NewLocalBackend(a.cfg.Agent.WorkspaceRoot, sharedPolicies)
-	workspaceSvc := service.NewWorkspaceService(workspaceBackend)
-	workspaceCtrl := workspaceapi.NewController(workspaceSvc)
-
-	// 创建短期记忆模块（需在 ConversationService 之前初始化，供 DeleteConversation 清理 Redis）
-	shortTermStore := shortterm.NewRedisStore(a.redis, logger.GetLogger(), 24*time.Hour)
-	shortTermBuffer := shortterm.NewMessageBufferManager(logger.GetLogger(), 20)
-	shortTermState := shortterm.NewSessionStateManager(logger.GetLogger(), &modelResolverAdapter{modelSvc: modelSvc})
-	// 摘要生成器：注入 ModelService 适配器，modelID 运行时动态解析为当前 Agent 使用的模型
-	// modelID=0 时降级为规则式摘要（在 Worker 执行时可通过 Run 的 Agent 配置动态指定）
-	shortTermSummary := shortterm.NewSummaryGenerator(logger.GetLogger(), nil, &modelResolverAdapter{modelSvc: modelSvc}, 0)
-	shortTermMgr := shortterm.NewManager(shortTermStore, shortTermBuffer, shortTermState, shortTermSummary, logger.GetLogger())
-
-	// 创建 Service
-	conversationSvc := service.NewConversationService(conversationRepo, shortTermMgr, logger.GetLogger())
-	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
-
 	// 创建长期记忆模块（用户画像/偏好/决策/项目事实，跨会话持久化）
 	// P0 阶段：全量注入 → P2 阶段：pgvector 语义检索 top-K
 	ltmRepo := repository.NewLongTermMemoryRepository(a.postgresDB)
@@ -576,6 +555,30 @@ func (a *App) initDependencies() error {
 			MaxTokens:     a.cfg.Memory.LongTerm.MaxTokens,     // 注入 System Prompt 的最大 Token（memory.long_term.max_tokens）
 			DefaultUserID: a.cfg.Memory.LongTerm.DefaultUserID, // JWT 未携带 UserID 时的降级用户（0 = 全局匿名共享池）
 		})
+
+	// 创建 AgentManager（modelSvc 实现 SubagentLLMResolver，用于子智能体 LLM 解析）
+	// longTermMgr 作为 MemoryProvider 注入 Agent 系统提示词；记忆变更时清空 Agent 缓存以刷新指令
+	agentMgr := agentpkg.NewAgentManager(mcpManager, vectorizer, toolRegistry, skillsMiddleware, agentSvc, agentRuntime, modelSvc, longTermMgr)
+	longTermMgr.SetMemoryChangeCallback(func() {
+		agentMgr.ClearAllAgentCaches()
+	})
+
+	// 工作区 API：root = data/workspaces（已归一化为绝对路径），复用共享安全策略
+	workspaceBackend := localfs.NewLocalBackend(a.cfg.Agent.WorkspaceRoot, sharedPolicies)
+	workspaceSvc := service.NewWorkspaceService(workspaceBackend)
+	workspaceCtrl := workspaceapi.NewController(workspaceSvc)
+
+	// 创建短期记忆模块（需在 ConversationService 之前初始化，供 DeleteConversation 清理 Redis）
+	// TTL 168h（7天）为兜底清理，正常生命周期由会话关闭/归档控制
+	shortTermStore := shortterm.NewRedisStore(a.redis, logger.GetLogger(), 168*time.Hour)
+	shortTermRecentMsgs := shortterm.NewRecentMessagesManager(logger.GetLogger(), 20)
+	shortTermTaskState := shortterm.NewTaskStateManager(logger.GetLogger(), &modelResolverAdapter{modelSvc: modelSvc})
+	shortTermSummary := shortterm.NewSummaryGenerator(logger.GetLogger(), nil, &modelResolverAdapter{modelSvc: modelSvc}, 0)
+	shortTermMgr := shortterm.NewManager(shortTermStore, shortTermRecentMsgs, shortTermTaskState, shortTermSummary, logger.GetLogger())
+
+	// 创建 Service
+	conversationSvc := service.NewConversationService(conversationRepo, shortTermMgr, logger.GetLogger())
+	messageSvc := service.NewMessageService(messageRepo, conversationRepo, a.redis)
 
 	// 创建上下文管理器（集成 Short Memory + Long Term Memory）
 	contextConfig := &contextmgr.ContextConfig{

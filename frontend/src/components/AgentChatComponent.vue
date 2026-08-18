@@ -1418,6 +1418,9 @@ function mergeOngoingUserMessageIntoHistory(historyConvs, ongoingMessages) {
   const historyHuman = historyMessages[historyHumanIndex]
   const historyRequestId = getMessageRequestId(historyHuman)
   const ongoingRequestId = getMessageRequestId(firstOngoingMessage)
+
+  // 如果没有 request_id 或者 request_id 不同，说明是不同的消息
+  // 不合并，让它们作为独立的消息显示
   if (!historyRequestId || !ongoingRequestId || historyRequestId !== ongoingRequestId) {
     return { historyConvs, ongoingMessages }
   }
@@ -2419,6 +2422,7 @@ const handleSendMessage = async ({ image, queuePolicy = 'enqueue' } = {}) => {
   }
 
   const requestId = createClientRequestId()
+  console.log('[handleSendMessage] requestId:', requestId)
   const previousAttachments = markAttachmentsRequestId(threadId, pendingAttachments, requestId)
   if (!hadActiveRun) {
     resetOnGoingConv(threadId)

@@ -250,6 +250,7 @@ export function useAgentRunStream({
     ts.lastRetryableJobTry = null
     ts.replyLoadingVisible = false
     ts.pendingRequestId = null
+    ts.originalClientId = null
     fetchThreadMessages({ agentId: unref(currentAgentId), threadId, delay }).finally(() => {
       const shouldPreserveMessages = status === 'failed' || status === 'cancelled'
       if (shouldPreserveMessages) {
@@ -380,6 +381,11 @@ export function useAgentRunStream({
           // 显示加载指示器（旧 chatStream 的 init 事件已废弃，这里由 metadata 驱动）
           ts.replyLoadingVisible = true
           if (data.request_id) {
+            console.log('[metadata] request_id:', data.request_id, 'pendingRequestId:', ts.pendingRequestId)
+            // 保存原始的 clientRequestId，用于后续检测 request_id 变化
+            if (!ts.originalClientId) {
+              ts.originalClientId = ts.pendingRequestId
+            }
             ts.pendingRequestId = data.request_id
           }
         }
