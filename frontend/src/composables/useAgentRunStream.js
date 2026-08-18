@@ -180,7 +180,7 @@ export function useAgentRunStream({
           // 还在运行，继续轮询
           setTimeout(poll, 3000)
         }
-      } catch (e) {
+      } catch {
         // 查询失败，继续重试
         setTimeout(poll, 3000)
       }

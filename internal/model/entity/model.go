@@ -16,9 +16,9 @@ type Model struct {
 	Timeout         int               `gorm:"not null;default:60000;comment:超时时间(ms)" json:"timeout"`
 	Enabled         bool              `gorm:"not null;default:true;index;comment:是否启用" json:"enabled"`
 	ModelType       string            `gorm:"type:varchar(32);not null;default:chat;comment:模型类型(chat/embedding/rerank)" json:"model_type"`
-	ContextWindow   int               `gorm:"not null;default:0;comment:上下文窗口大小(token)" json:"context_window"`
-	MaxOutputTokens int               `gorm:"not null;default:0;comment:单次最大输出token数" json:"max_output_tokens"`
 	Params          types.ModelParams `gorm:"type:json;default:'{}';comment:模型推理参数" json:"params"`
+	ContextWindow   int               `gorm:"not null;default:0;comment:上下文窗口大小(token数，0表示使用默认值)" json:"context_window"`
+	MaxOutputTokens int               `gorm:"not null;default:0;comment:最大输出token数(0表示使用默认值)" json:"max_output_tokens"`
 }
 
 // TableName 指定表名

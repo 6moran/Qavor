@@ -245,22 +245,3 @@ func (ctrl *Controller) RefreshTools(c *gin.Context) {
 
 	response.Success(c, gin.H{"tools": tools})
 }
-
-// ToggleTool 切换单个工具的启用状态
-func (ctrl *Controller) ToggleTool(c *gin.Context) {
-	serverName := c.Param("name")
-	toolName := c.Param("toolName")
-
-	if err := ctrl.mcpServerService.ToggleMCPServerTool(serverName, toolName); err != nil {
-		if errors.IsBizError(err) {
-			logger.Warn("业务错误，切换工具状态失败", zap.String("server", serverName), zap.String("tool", toolName), zap.Error(err))
-			response.BizError(c, err)
-		} else {
-			logger.Error("切换工具状态失败", zap.String("server", serverName), zap.String("tool", toolName), zap.Error(err))
-			response.InternalServerError(c)
-		}
-		return
-	}
-
-	response.Success(c, nil)
-}

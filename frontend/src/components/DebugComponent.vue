@@ -35,9 +35,9 @@
             <template #icon><RobotOutlined /></template>
             智能体配置
           </a-button>
-          <a-button @click="toggleDebugMode" :type="infoStore.debugMode ? 'primary' : 'default'">
+          <a-button @click="toggleDebugMode" :type="debugMode ? 'primary' : 'default'">
             <template #icon><BugOutlined /></template>
-            Debug 模式: {{ infoStore.debugMode ? '开启' : '关闭' }}
+            Debug 模式: {{ debugMode ? '开启' : '关闭' }}
           </a-button>
           <a-button @click="toggleFullscreen">
             <template #icon>
@@ -162,7 +162,7 @@ import { useConfigStore } from '@/stores/config'
 import { useUserStore } from '@/stores/user'
 import { useDatabaseStore } from '@/stores/database'
 import { isBuiltinAgent, useAgentStore } from '@/stores/agent'
-import { useInfoStore } from '@/stores/info'
+import { useDebugMode } from '@/composables/useDebugMode'
 import { useThrottleFn } from '@vueuse/core'
 import {
   message,
@@ -195,7 +195,7 @@ const configStore = useConfigStore()
 const userStore = useUserStore()
 const databaseStore = useDatabaseStore()
 const agentStore = useAgentStore()
-const infoStore = useInfoStore()
+const { debugMode, toggleDebugMode } = useDebugMode()
 const config = configStore.config
 
 // 定义日志级别
@@ -457,10 +457,7 @@ const printDatabaseInfo = async () => {
   }
 }
 
-// 切换Debug模式
-const toggleDebugMode = () => {
-  infoStore.toggleDebugMode()
-}
+// 切换Debug模式（useDebugMode 已暴露 toggleDebugMode）
 
 // 打印智能体配置
 const printAgentConfig = async () => {

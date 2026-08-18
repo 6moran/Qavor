@@ -49,7 +49,7 @@ export function useAgentRequestQueue({
     }
   }
 
-  const syncQueuedRequests = async (threadId, agentSlug) => {
+  const syncQueuedRequests = async (threadId) => {
     const ts = getThreadState(threadId)
     if (!ts) return
     try {

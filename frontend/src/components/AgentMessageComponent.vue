@@ -118,7 +118,7 @@
     </div>
 
     <!-- DEBUG: 显示 AI 消息的推理内容和工具调用原始数据 -->
-    <div v-if="infoStore.debugMode" class="status-info">{{ message }}</div>
+    <div v-if="debugMode" class="status-info">{{ message }}</div>
 
     <!-- 自定义内容 -->
     <slot></slot>
@@ -163,12 +163,12 @@
 import { computed, ref, onUnmounted } from 'vue'
 import { CaretRightOutlined } from '@ant-design/icons-vue'
 import RefsComponent from '@/components/RefsComponent.vue'
-import { Copy, Check, X, Pencil, RotateCcw, Trash2, Share2, MoreHorizontal } from 'lucide-vue-next'
+import { Copy, X, Pencil, RotateCcw, Trash2, Share2, MoreHorizontal } from 'lucide-vue-next'
 import ToolCallsGroupComponent from '@/components/ToolCallsGroupComponent.vue'
 import MarkdownPreview from '@/components/common/MarkdownPreview.vue'
 import MentionTextRenderer from '@/components/common/MentionTextRenderer.vue'
 import { useAgentStore } from '@/stores/agent'
-import { useInfoStore } from '@/stores/info'
+import { useDebugMode } from '@/composables/useDebugMode'
 import { storeToRefs } from 'pinia'
 import { MessageProcessor } from '@/utils/messageProcessor'
 import { inferImageMimeTypeFromBase64, normalizeAttachmentPreviews } from '@/utils/file_utils'
@@ -214,7 +214,7 @@ const props = defineProps({
     type: Object,
     default: () => null
   },
-  // 是否显示调试信息 (已废弃，使用 infoStore.debugMode)
+  // 是否显示调试信息 (已废弃，使用 useDebugMode)
   debugMode: {
     type: Boolean,
     default: false
@@ -315,7 +315,7 @@ const getErrorMessage = computed(() => {
 // 引入智能体 store
 const agentStore = useAgentStore()
 const { availableKnowledgeBases } = storeToRefs(agentStore)
-const infoStore = useInfoStore()
+const { debugMode } = useDebugMode()
 const messageAttachments = computed(() =>
   normalizeAttachmentPreviews(props.message.extra_metadata?.attachments)
 )

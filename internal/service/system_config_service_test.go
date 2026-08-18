@@ -76,6 +76,48 @@ func TestSystemConfigService_UpdateBatch(t *testing.T) {
 	}
 }
 
+func TestSystemConfigService_MCPRetrievalEmbedModel(t *testing.T) {
+	t.Run("读取", func(t *testing.T) {
+		svc := newSystemConfigTestService(map[string]string{
+			SettingKeyMCPRetrievalEmbedModel: "2",
+		}, nil)
+		cfg, err := svc.Get(context.Background())
+		if err != nil {
+			t.Fatalf("读取系统配置: %v", err)
+		}
+		if cfg.MCPRetrievalEmbedModel != "2" {
+			t.Fatalf("向量检索模型=%q", cfg.MCPRetrievalEmbedModel)
+		}
+		if cfg.ConfigItems[SettingKeyMCPRetrievalEmbedModel].Des == "" {
+			t.Fatalf("向量检索配置项描述缺失: %v", cfg.ConfigItems)
+		}
+	})
+
+	t.Run("更新 embedding 模型", func(t *testing.T) {
+		svc := newSystemConfigTestService(map[string]string{}, map[uint]*entity.Model{
+			2: testEmbeddingModel(2),
+		})
+		cfg, err := svc.Update(context.Background(), SettingKeyMCPRetrievalEmbedModel, "2")
+		if err != nil {
+			t.Fatalf("更新向量检索模型: %v", err)
+		}
+		if cfg.MCPRetrievalEmbedModel != "2" {
+			t.Fatalf("更新后向量检索模型=%q", cfg.MCPRetrievalEmbedModel)
+		}
+	})
+
+	t.Run("清空", func(t *testing.T) {
+		svc := newSystemConfigTestService(map[string]string{SettingKeyMCPRetrievalEmbedModel: "2"}, map[uint]*entity.Model{})
+		cfg, err := svc.Update(context.Background(), SettingKeyMCPRetrievalEmbedModel, "")
+		if err != nil {
+			t.Fatalf("清空向量检索模型: %v", err)
+		}
+		if cfg.MCPRetrievalEmbedModel != "" {
+			t.Fatalf("清空后向量检索模型=%q", cfg.MCPRetrievalEmbedModel)
+		}
+	})
+}
+
 func TestSystemConfigService_UpdateSingle(t *testing.T) {
 	svc := newSystemConfigTestService(map[string]string{}, map[uint]*entity.Model{
 		3: testChatModel(3),
@@ -111,6 +153,7 @@ func TestSystemConfigService_UpdateRejectsInvalidValue(t *testing.T) {
 		{name: "模型不存在", key: SettingKeyDefaultModel, value: "99", models: map[uint]*entity.Model{}},
 		{name: "模型未启用", key: SettingKeyDefaultModel, value: "3", models: map[uint]*entity.Model{3: {BaseEntity: entity.BaseEntity{ID: 3}, Enabled: false, ModelType: "chat"}}},
 		{name: "类型不匹配", key: SettingKeyEmbedModel, value: "3", models: map[uint]*entity.Model{3: testChatModel(3)}},
+		{name: "向量检索拒绝 chat 模型", key: SettingKeyMCPRetrievalEmbedModel, value: "3", models: map[uint]*entity.Model{3: testChatModel(3)}},
 		{name: "模型 ID 格式错误", key: SettingKeyDefaultModel, value: "openai/gpt-4", models: map[uint]*entity.Model{}},
 		{name: "布尔值非法", key: SettingKeyEnableContentGuard, value: "not-a-bool", models: map[uint]*entity.Model{}},
 	}

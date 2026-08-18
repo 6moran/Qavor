@@ -13,6 +13,12 @@
   <a href="https://github.com/6moran/Qavor"><img src="https://img.shields.io/github/stars/6moran/Qavor?style=flat&logo=github" alt="GitHub stars"></a>
 </p>
 
+<p align="center">
+  <img src="screenshot/login.png" alt="Qavor 登录页" width="82%">
+  <br>
+  <b>登录页</b>
+</p>
+
 > 面向开发者的 AI Agent 构建、扩展、运行与观测平台。
 
 Qavor 将模型接入、Agent 编排、知识库检索、工具扩展、异步执行和链路追踪整合在同一个全栈项目中。后端使用 Go、Gin 与 CloudWeGo Eino，前端使用 Vue 3 与 Vite，数据层由 PostgreSQL/pgvector、Redis 和 MinIO 组成。
@@ -51,6 +57,23 @@ Qavor 不是单纯的聊天界面，也不是通用后端脚手架。它提供�
 | SSE 流式服务 | 提供对话事件、心跳、任务状态和工具调用过程的实时传输 |
 | 链路追踪 | 采集 Agent、LLM、Retriever 和 Tool 调用，提供 Trace 列表与详情视图 |
 | 数据总览 | 汇总 Agent、知识库、工具调用和活跃情况，便于观察系统运行状态 |
+
+## 产品预览
+
+<table align="center">
+  <tr>
+    <td align="center"><img src="screenshot/agent-chat.png" alt="Agent 对话页"><br><b>Agent 对话页</b></td>
+    <td align="center"><img src="screenshot/trace-detail.png" alt="链路追踪详情"><br><b>链路追踪详情</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshot/dashboard.png" alt="数据总览"><br><b>数据总览</b></td>
+    <td align="center"><img src="screenshot/model.png" alt="模型管理"><br><b>模型管理</b></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="screenshot/kb_files.png" alt="知识库文档管理"><br><b>知识库文档管理</b></td>
+    <td align="center"><img src="screenshot/extensions.png" alt="工具与扩展"><br><b>工具与扩展</b></td>
+  </tr>
+</table>
 
 ## 系统架构
 
