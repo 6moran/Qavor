@@ -23,6 +23,7 @@ export function useAgentThreadState({
     if (!threadState) return
     threadState.replyLoadingVisible = false
     threadState.pendingRequestId = null
+    threadState.originalClientId = null
   }
 
   const getThreadState = (threadId) => {
@@ -44,7 +45,8 @@ export function useAgentThreadState({
         queuedRequests: [],
         queueSnapshot: { ...IDLE_QUEUE_SNAPSHOT },
         continueQueueInFlight: false,
-        requestStreams: {}
+        requestStreams: {},
+        originalClientId: null
       }
     }
     return chatState.threadStates[threadId]

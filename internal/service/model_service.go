@@ -444,13 +444,3 @@ func toModelParams(req *request.ModelParams) types.ModelParams {
 	}
 	return params
 }
-
-// GetModelInfo 获取模型基本信息，用于动态调整上下文窗口
-// 返回 provider、name、context_window 和是否成功
-func (s *modelService) GetModelInfo(modelID uint) (provider, name string, contextWindow int, ok bool) {
-	model, err := s.modelRepo.FindByID(modelID)
-	if err != nil || model == nil {
-		return "", "", 0, false
-	}
-	return model.Protocol, model.Name, model.ContextWindow, true
-}
