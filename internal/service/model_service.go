@@ -373,6 +373,15 @@ func (s *modelService) ResolveChatModelWithTimeout(ctx context.Context, modelID 
 	return chatModel, nil
 }
 
+// GetModelInfo 获取模型基本信息，用于动态调整上下文窗口
+func (s *modelService) GetModelInfo(modelID uint) (provider, name string, contextWindow int, ok bool) {
+	model, err := s.modelRepo.FindByID(modelID)
+	if err != nil || model == nil {
+		return "", "", 0, false
+	}
+	return model.Protocol, model.Name, model.ContextWindow, true
+}
+
 // ResolveReranker 根据模型管理中的配置创建重排客户端。
 func (s *modelService) ResolveReranker(_ context.Context, modelID uint) (rag.Reranker, error) {
 	model, err := s.GetModelWithDecryptedKey(modelID)
