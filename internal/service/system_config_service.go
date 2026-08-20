@@ -20,10 +20,11 @@ type systemConfigModelRepository interface {
 
 // modelTypeByConfigKey 模型类配置项要求的模型类型，空串表示不限制。
 var modelTypeByConfigKey = map[string]string{
-	SettingKeyDefaultModel:         "chat",
-	SettingKeyFastModel:            "chat",
-	SettingKeyContentGuardLLMModel: "chat",
-	SettingKeyEmbedModel:           "embedding",
+	SettingKeyDefaultModel:           "chat",
+	SettingKeyFastModel:              "chat",
+	SettingKeyContentGuardLLMModel:   "chat",
+	SettingKeyEmbedModel:             "embedding",
+	SettingKeyMCPRetrievalEmbedModel: "embedding",
 }
 
 // boolConfigKeys 布尔类配置项白名单。
@@ -34,10 +35,11 @@ var boolConfigKeys = map[string]bool{
 
 // modelConfigKeys 模型类配置项白名单。
 var modelConfigKeys = map[string]bool{
-	SettingKeyDefaultModel:         true,
-	SettingKeyFastModel:            true,
-	SettingKeyEmbedModel:           true,
-	SettingKeyContentGuardLLMModel: true,
+	SettingKeyDefaultModel:           true,
+	SettingKeyFastModel:              true,
+	SettingKeyEmbedModel:             true,
+	SettingKeyContentGuardLLMModel:   true,
+	SettingKeyMCPRetrievalEmbedModel: true,
 }
 
 // plainStringConfigKeys 普通字符串配置项白名单（不校验模型/布尔，直接存储）。
@@ -99,11 +101,18 @@ func buildConfigOptions() []ConfigOption {
 type systemConfigService struct {
 	settingsRepo repository.SystemSettingRepository
 	modelRepo    systemConfigModelRepository
+	// onMCPRetrievalModelChange MCP 工具向量检索模型变更回调（换模型后清空索引）。
+	onMCPRetrievalModelChange func()
 }
 
 // NewSystemConfigService 创建系统配置服务。
 func NewSystemConfigService(settingsRepo repository.SystemSettingRepository, modelRepo systemConfigModelRepository) SystemConfigService {
 	return &systemConfigService{settingsRepo: settingsRepo, modelRepo: modelRepo}
+}
+
+// SetMCPRetrievalModelChangeCallback 设置 MCP 工具向量检索模型变更回调。
+func (s *systemConfigService) SetMCPRetrievalModelChangeCallback(cb func()) {
+	s.onMCPRetrievalModelChange = cb
 }
 
 // Get 读取全部系统配置。
@@ -121,6 +130,9 @@ func (s *systemConfigService) Get(ctx context.Context) (*SystemConfig, error) {
 		return nil, wrapSettingReadError(err)
 	}
 	if cfg.ContentGuardLLMModel, _, err = s.settingsRepo.Get(ctx, SettingKeyContentGuardLLMModel); err != nil {
+		return nil, wrapSettingReadError(err)
+	}
+	if cfg.MCPRetrievalEmbedModel, _, err = s.settingsRepo.Get(ctx, SettingKeyMCPRetrievalEmbedModel); err != nil {
 		return nil, wrapSettingReadError(err)
 	}
 
@@ -162,6 +174,10 @@ func (s *systemConfigService) UpdateBatch(ctx context.Context, values map[string
 		if err := s.settingsRepo.Upsert(ctx, key, normalized); err != nil {
 			return nil, fmt.Errorf("更新系统配置 %s: %w", key, err)
 		}
+	}
+	// MCP 工具向量检索模型变更：通知外部清空索引（热重载）
+	if _, ok := values[SettingKeyMCPRetrievalEmbedModel]; ok && s.onMCPRetrievalModelChange != nil {
+		s.onMCPRetrievalModelChange()
 	}
 	return s.Get(ctx)
 }
@@ -369,13 +385,14 @@ func normalizeBoolValue(key string, value any) (string, error) {
 // buildSystemConfigItems 返回各配置项的描述信息（前端设置页渲染用）。
 func buildSystemConfigItems() map[string]SystemConfigItem {
 	return map[string]SystemConfigItem{
-		SettingKeyDefaultModel:          {Des: "默认对话模型"},
-		SettingKeyFastModel:             {Des: "快速对话模型"},
-		SettingKeyEmbedModel:            {Des: "嵌入模型"},
-		SettingKeyEnableContentGuard:    {Des: "内容审查"},
-		SettingKeyEnableContentGuardLLM: {Des: "内容审查 LLM"},
-		SettingKeyContentGuardLLMModel:  {Des: "内容审查模型"},
-		SettingKeyDefaultOCREngine:      {Des: "默认 OCR 方法"},
+		SettingKeyDefaultModel:           {Des: "默认对话模型"},
+		SettingKeyFastModel:              {Des: "快速对话模型"},
+		SettingKeyEmbedModel:             {Des: "嵌入模型"},
+		SettingKeyMCPRetrievalEmbedModel: {Des: "MCP 工具向量检索模型"},
+		SettingKeyEnableContentGuard:     {Des: "内容审查"},
+		SettingKeyEnableContentGuardLLM:  {Des: "内容审查 LLM"},
+		SettingKeyContentGuardLLMModel:   {Des: "内容审查模型"},
+		SettingKeyDefaultOCREngine:       {Des: "默认 OCR 方法"},
 	}
 }
 

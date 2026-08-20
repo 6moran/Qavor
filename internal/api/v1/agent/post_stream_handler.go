@@ -192,7 +192,19 @@ func (h *PostStreamHandler) CreateRunAndStream(c *gin.Context) {
 // createAndEnqueue 创建 AgentRun 记录并入队
 func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRunRequest) (*entity.AgentRun, error) {
 	runID := uuid.New().String()
-	requestID := uuid.New().String()
+	// 使用前端传来的 request_id，如果没有则生成新的
+	requestID := ""
+	if req.Meta != nil {
+		var metaMap map[string]any
+		if err := json.Unmarshal(req.Meta, &metaMap); err == nil {
+			if rid, ok := metaMap["request_id"].(string); ok && rid != "" {
+				requestID = rid
+			}
+		}
+	}
+	if requestID == "" {
+		requestID = uuid.New().String()
+	}
 
 	inputPayload := entity.JSON{}
 	if req.Meta != nil {

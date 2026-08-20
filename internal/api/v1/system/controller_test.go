@@ -98,6 +98,8 @@ func (s *fakeSystemConfigService) GetOCRAPIConfig(context.Context) (service.OCRA
 	return s.ocrCfg, s.err
 }
 
+func (s *fakeSystemConfigService) SetMCPRetrievalModelChangeCallback(func()) {}
+
 func testSystemRouter(svc service.RAGSettingsService, configSvc service.SystemConfigService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

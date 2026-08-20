@@ -22,6 +22,12 @@ type ConfigFetcher interface {
 	GetDefaultAgentConfig() (*AgentConfig, string, error) // 返回 config 和 slug
 }
 
+// MemoryProvider 提供长期记忆文本，用于注入 Agent 系统提示词（用户画像/偏好/决策等）。
+// longterm.Manager 已实现该接口（RetrieveForPrompt）。
+type MemoryProvider interface {
+	RetrieveForPrompt(ctx context.Context, userID uint) (string, error)
+}
+
 // AgentManager 管理 Agent 实例创建与缓存
 type AgentManager struct {
 	mcpManager       *mcp.MCPManager
@@ -33,10 +39,11 @@ type AgentManager struct {
 	subagentResolver SubagentLLMResolver // 解析子智能体 LLM
 	reverseIndex     *ReverseIndex       // 子→主 反向依赖
 	agents           sync.Map
+	memoryProvider   MemoryProvider // 长期记忆提供者（可为 nil）
 }
 
 // NewAgentManager 创建 AgentManager
-func NewAgentManager(mcpManager *mcp.MCPManager, vectorizer *mcp.ToolVectorizer, toolRegistry *tool.Registry, skillsMiddleware *skill.SkillsMiddleware, configFetcher ConfigFetcher, runtime *AgentRuntime, subagentResolver SubagentLLMResolver) *AgentManager {
+func NewAgentManager(mcpManager *mcp.MCPManager, vectorizer *mcp.ToolVectorizer, toolRegistry *tool.Registry, skillsMiddleware *skill.SkillsMiddleware, configFetcher ConfigFetcher, runtime *AgentRuntime, subagentResolver SubagentLLMResolver, memoryProvider MemoryProvider) *AgentManager {
 	return &AgentManager{
 		mcpManager:       mcpManager,
 		vectorizer:       vectorizer,
@@ -45,6 +52,7 @@ func NewAgentManager(mcpManager *mcp.MCPManager, vectorizer *mcp.ToolVectorizer,
 		configFetcher:    configFetcher,
 		runtime:          runtime,
 		subagentResolver: subagentResolver,
+		memoryProvider:   memoryProvider,
 		reverseIndex:     NewReverseIndex(),
 		agents:           sync.Map{},
 	}
@@ -88,6 +96,17 @@ func (m *AgentManager) GetOrCreate(ctx context.Context, slug string, llm model.T
 		cfg.Instruction, _ = m.skillsMiddleware.BuildPrompt(ctx, cfg.Instruction, skills)
 	}
 
+	// 4. 注入长期记忆到系统提示词：用户画像/偏好/决策/项目事实等跨会话背景。
+	// 说明：Qavor 使用 Eino Deep Agent，其系统提示词仅来自 Instruction（默认 GenModelInput
+	// 会剥离历史首条 system 消息并以 Instruction 前置），因此长期记忆必须并入 Instruction
+	// 才能被 LLM 看到；若仅放在历史消息里会被 Eino 丢弃，导致「记录了用户是 Go 工程师却答不出
+	// 主要编程语言」这类问题。记忆为全局池（userID=0），并入全局缓存的 Agent Instruction。
+	if m.memoryProvider != nil {
+		if memText, memErr := m.memoryProvider.RetrieveForPrompt(ctx, 0); memErr == nil && memText != "" {
+			cfg.Instruction += "\n\n以下是关于当前用户的长期记忆，回答涉及用户背景时请优先参考：\n" + memText
+		}
+	}
+
 	// 4. 按需连接 MCP 服务器
 	if len(cfg.MCPServers) > 0 {
 		m.mcpManager.EnsureConnected(cfg.MCPServers)
@@ -124,6 +143,18 @@ func (m *AgentManager) buildSubagentSpecs(ctx context.Context, parentCfg *AgentC
 		if err != nil {
 			logger.Warn("获取子智能体配置失败，跳过", zap.String("sub_slug", subSlug), zap.Error(err))
 			continue
+		}
+		// 子智能体的 Skill L1 渐进式披露（与主智能体 GetOrCreate 中逻辑一致）
+		if len(subCfg.Skills) > 0 && m.skillsMiddleware != nil {
+			var skills []*skill.SkillMeta
+			for _, slug := range subCfg.Skills {
+				meta, err := m.skillsMiddleware.GetLoader().LoadMeta(slug)
+				if err != nil {
+					continue
+				}
+				skills = append(skills, meta)
+			}
+			subCfg.Instruction, _ = m.skillsMiddleware.BuildPrompt(ctx, subCfg.Instruction, skills)
 		}
 		subLLM, err := m.resolveSubagentLLM(ctx, subCfg)
 		if err != nil {

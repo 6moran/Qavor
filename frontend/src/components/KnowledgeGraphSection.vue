@@ -336,6 +336,7 @@
           <ModelSelectorComponent
             :model_spec="graphConfigForm.model_spec"
             placeholder="选择抽取模型"
+            style="width: 100%"
             @select-model="(spec) => (graphConfigForm.model_spec = spec)"
           />
         </a-form-item>
