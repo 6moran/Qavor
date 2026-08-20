@@ -147,7 +147,7 @@ func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistory
 		TotalTokens: m.tokenizer.CountAllTokens(messages),
 	}
 
-	// 加载短期记忆摘要与状态
+	// 加载短期记忆摘要与任务状态
 	if m.shortTermMgr != nil {
 		memory, err := m.shortTermMgr.GetMemory(spanCtx, query.ConversationID)
 		if err != nil {
@@ -156,7 +156,7 @@ func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistory
 			if memory.Summary != "" {
 				window.ShortTermSummary = memory.Summary
 			}
-			window.ShortTermState = renderShortTermState(memory.State)
+			window.ShortTermState = renderTaskState(memory.TaskState)
 		}
 	}
 
@@ -342,20 +342,23 @@ func (m *contextManager) GetShortMemoryContext(ctx context.Context, conversation
 	return m.shortTermMgr.GetContext(ctx, conversationID, maxTokens)
 }
 
-// renderShortTermState 将会话状态渲染为可注入 Prompt 的文本
-func renderShortTermState(state *shortterm.SessionState) string {
+// renderTaskState 将任务状态渲染为可注入 Prompt 的文本
+func renderTaskState(state *shortterm.TaskState) string {
 	if state == nil {
 		return ""
 	}
 	var parts []string
-	if state.Topic != "" {
-		parts = append(parts, "主题: "+state.Topic)
+	if state.Goal != "" {
+		parts = append(parts, "目标: "+state.Goal)
 	}
-	if state.UserIntent != "" {
-		parts = append(parts, "用户意图: "+state.UserIntent)
+	if len(state.CompletedSteps) > 0 {
+		parts = append(parts, "已完成: "+strings.Join(state.CompletedSteps, "; "))
 	}
-	if len(state.KeyEntities) > 0 {
-		parts = append(parts, "关键实体: "+strings.Join(state.KeyEntities, ", "))
+	if len(state.PendingSteps) > 0 {
+		parts = append(parts, "待完成: "+strings.Join(state.PendingSteps, "; "))
+	}
+	if len(state.TechContext) > 0 {
+		parts = append(parts, "技术上下文: "+strings.Join(state.TechContext, ", "))
 	}
 	if len(parts) == 0 {
 		return ""
