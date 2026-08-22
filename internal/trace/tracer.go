@@ -51,11 +51,14 @@ func (t *Tracer) StartSpan(ctx context.Context, spec SpanSpec) (context.Context,
 		return ctx, noopSpan()
 	}
 	spec.InputSummary = t.sanitizeText(spec.InputSummary)
+	// 构建span记录实体
 	record := buildSpanRecord(spec, parent, hasParent)
 	if record.TraceID == "" {
 		// 无 TraceID 且无父 Span：生成新 TraceID 并标记采样
 		record.TraceID = uuid.New().String()
 	}
+
+	// 保留原context中的value，但是不继承取消信号和deadline;避免用户取消请求后，Trace来不及记录取消状态
 	writeCtx := context.WithoutCancel(ctx)
 	if err := t.writer.StartSpan(writeCtx, &record); err != nil {
 		logger.Warn("trace: 创建 span 失败",
@@ -93,7 +96,7 @@ func (t *Tracer) StartRequest(ctx context.Context, meta RequestMeta) (context.Co
 		QuerySummary:   t.sanitizeText(meta.QuerySummary),
 		EntryType:      meta.EntryType,
 		CreatedAt:      now,
-		ExpiresAt:      now.Add(t.cfg.Retention),
+		ExpiresAt:      now.Add(t.cfg.Retention), // 过期时间：当前时间+保留时间
 	}
 	if record.EntryType == "" {
 		record.EntryType = entity.EntryTypeHTTP
@@ -148,6 +151,7 @@ func (t *Tracer) UpdateRequestMetadata(ctx context.Context, conversationID uint,
 	if !ok || !spanContext.Sampled || spanContext.TraceID == "" {
 		return
 	}
+	// HTTP 中间件不能提前读请求体，刚创建TraceRecord的时候不知道对话ID，用户摘要等内容；这里做回填
 	if err := t.writer.UpdateTraceMetadata(context.WithoutCancel(ctx), spanContext.TraceID, TraceMetadata{
 		ConversationID: conversationID,
 		QuerySummary:   t.sanitizeText(query),

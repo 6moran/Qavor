@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as traceViewModel from '../../src/utils/traceViewModel.js'
 
 import {
   buildDefaultExpandedSpanIds,
@@ -109,6 +110,13 @@ test('buildTimelineRows handles missing ended_at', () => {
   const rows = buildTimelineRows(spans)
   assert.equal(rows.length, 1)
   assert.ok(rows[0].widthPct >= 0.4)
+})
+
+test('timelineBarColor returns visible colors for context, embedding and rerank spans', () => {
+  assert.equal(traceViewModel.timelineBarColor?.('context', 'ok'), '#722ed1')
+  assert.equal(traceViewModel.timelineBarColor?.('embedding', 'ok'), '#08979c')
+  assert.equal(traceViewModel.timelineBarColor?.('rerank', 'ok'), '#d4380d')
+  assert.equal(traceViewModel.timelineBarColor?.('embedding', 'error'), '#cf1322')
 })
 
 test('collectDiagnostics reports orphan and running span', () => {

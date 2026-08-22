@@ -33,6 +33,28 @@ type arkEndpointClient struct {
 	useMulti   bool
 }
 
+type arkFallbackProbeKey struct{}
+
+// MarkArkFallbackProbe marks the standard Ark endpoint attempt that may be
+// recovered by the multimodal endpoint. Trace handlers use this marker to
+// distinguish a compatibility probe from a final embedding failure.
+func MarkArkFallbackProbe(ctx context.Context) context.Context {
+	return context.WithValue(ctx, arkFallbackProbeKey{}, true)
+}
+
+// IsArkFallbackProbe reports whether the embedding call is an internal
+// standard-endpoint compatibility probe.
+func IsArkFallbackProbe(ctx context.Context) bool {
+	marked, _ := ctx.Value(arkFallbackProbeKey{}).(bool)
+	return marked
+}
+
+// IsArkMultimodalFallbackError reports whether an Ark standard-endpoint error
+// is eligible for the existing multimodal fallback.
+func IsArkMultimodalFallbackError(err error) bool {
+	return shouldTryArkMultimodal(err)
+}
+
 func newArkEndpointClient(standard, multimodal Client) Client {
 	return &arkEndpointClient{standard: standard, multimodal: multimodal}
 }
@@ -54,7 +76,7 @@ func (c *arkEndpointClient) EmbedStrings(ctx context.Context, input []string) ([
 	if c.useMulti {
 		return c.multimodal.EmbedStrings(ctx, input)
 	}
-	vectors, err := c.standard.EmbedStrings(ctx, input)
+	vectors, err := c.standard.EmbedStrings(MarkArkFallbackProbe(ctx), input)
 	if !shouldTryArkMultimodal(err) {
 		return vectors, err
 	}

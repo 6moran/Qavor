@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	qembedding "Qavor/internal/embedding"
 	"Qavor/internal/model/entity"
 
 	"github.com/cloudwego/eino/callbacks"
@@ -282,6 +283,25 @@ func TestHandlerEmbeddingError(t *testing.T) {
 	end := repo.ends[0].end
 	if end.Status != SpanStatusError || end.ErrorMessage == "" {
 		t.Fatalf("error end = %+v", end)
+	}
+}
+
+func TestHandlerEmbeddingArkFallbackProbeIsNotReportedAsError(t *testing.T) {
+	repo := newFakeRepository()
+	tracer := NewTracer(repo, Config{Enabled: true})
+	h := NewHandler(tracer)
+	ctx := WithSpanContext(context.Background(), SpanContext{TraceID: "t-emb-fallback", SpanID: "retriever-span", Sampled: true})
+	ctx = qembedding.MarkArkFallbackProbe(ctx)
+	info := &callbacks.RunInfo{Name: "OpenAI", Component: components.ComponentOfEmbedding}
+	ctx = h.OnStart(ctx, info, &embedding.CallbackInput{Texts: []string{"x"}})
+	h.OnError(ctx, info, fmt.Errorf("The requested model does not support this api"))
+
+	if len(repo.ends) != 1 {
+		t.Fatalf("expected 1 end, got %d", len(repo.ends))
+	}
+	end := repo.ends[0].end
+	if end.Status != SpanStatusOK || end.ErrorMessage != "" {
+		t.Fatalf("fallback probe end = %+v, want successful span without error", end)
 	}
 }
 

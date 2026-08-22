@@ -64,7 +64,7 @@
                 <span class="wf-kind-badge" :class="`wf-kind-${row.kind}`">{{ kindLabel(row.kind) }}</span>
                 <span class="timeline-name-text">{{ spanName(row) }}</span>
               </span>
-              <span class="timeline-track"><span class="wf-bar" :class="[`wf-bar-${row.kind}`, { 'wf-bar-error': row.status === 'error' }]" :style="{ left: row.leftPct + '%', width: row.widthPct + '%' }"></span></span>
+              <span class="timeline-track"><span class="wf-bar" :class="[`wf-bar-${row.kind}`, { 'wf-bar-error': row.status === 'error' }]" :style="{ left: row.leftPct + '%', width: row.widthPct + '%', backgroundColor: timelineBarColor(row.kind, row.status) }"></span></span>
               <span class="timeline-duration">{{ formatDuration(row.actualDurationMs) }}</span>
             </button>
           </div>
@@ -125,7 +125,8 @@ import {
   collectDiagnostics,
   collectTreeSpanIds,
   compressedIndent,
-  normalizeDiagnostics
+  normalizeDiagnostics,
+  timelineBarColor
 } from '@/utils/traceViewModel.js'
 
 const props = defineProps({ traceId: { type: String, required: true } })
