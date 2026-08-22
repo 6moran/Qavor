@@ -57,7 +57,7 @@ type SpanSpec struct {
 	Attributes   entity.JSON // 自定义属性（jsonb，如 temperature / model / http.method）
 }
 
-// RequestMeta HTTP 请求元信息（Middleware 创建 HTTP Span 时使用）
+// RequestMeta HTTP 请求元信息（Middleware 创建 HTTP Span 时使用，即创建根Span使用）
 // 由 gin 中间件从请求头和路由信息中提取，用于构建 http.server span 和 TraceRecord
 type RequestMeta struct {
 	TraceID        string // 外部传入的 TraceID（X-Trace-Id 头，必须是合法 UUID），为空时自动生成
@@ -104,7 +104,7 @@ type TraceFilter struct {
 	PageSize       int       // 每页数量（默认 20，最大 100）
 }
 
-// TraceSummary 列表项聚合摘要（对应 TraceListView 的一行数据）
+// TraceSummary 列表项聚合摘要（对应 TraceListView 的响应参数）
 // 由 TraceRepository.ListTraces() 聚合计算，消除了 N+1 查询问题
 // 只为含 agent.run span 的 trace 生成列表项（过滤掉没有根的零碎 span）
 type TraceSummary struct {
