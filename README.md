@@ -357,7 +357,7 @@ make vet
 - [数据库设计](docs/数据库设计.md)
 - [用户认证模块](docs/用户认证模块.md)
 - [模型接入指南](docs/model_integration_guide.md)
-- [Agent 对话链路追踪设计](docs/Agent对话链路追踪设计文档.md)
+- [Agent 对话链路追踪设计](docs/学习/我的其他文档/Agent对话链路追踪设计文档.md)
 - [模型供应商测试说明](testdata/README.md)
 
 README 只维护项目入口、依赖边界和本地启动流程；完整接口字段和专项模块设计以对应文档及当前代码为准。
