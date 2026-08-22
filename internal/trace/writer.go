@@ -13,7 +13,7 @@ import (
 )
 
 // WriterConfig Writer 异步写入队列配置
-// 控制 channel 缓冲区大小，影响背压策略的触发频率
+// 同步写会拖慢agent业务
 type WriterConfig struct {
 	BufferSize int // channel 缓冲区大小（默认 2048），队列满时 Start 事件丢弃，End 事件等待 100ms
 }
@@ -22,10 +22,10 @@ type WriterConfig struct {
 type writeEventKind int
 
 const (
-	kindCreateTrace writeEventKind = iota
-	kindUpdateTrace
-	kindStartSpan
-	kindEndSpan
+	kindCreateTrace writeEventKind = iota // 创建整条Trace总记录
+	kindUpdateTrace                       // 补充trace的业务元数据
+	kindStartSpan                         // 创建一个span
+	kindEndSpan                           // 结束一个span
 )
 
 // writeEvent 写入队列中的单个事件（值拷贝，避免外部指针被修改）
@@ -89,11 +89,11 @@ func (w *Writer) run() {
 			}()
 			select {
 			case <-w.stopCh:
-				w.drain()
-				w.ackPendingFlushes()
+				w.drain()             // 处理队列中已经存在的所有事件
+				w.ackPendingFlushes() // 关闭所有等待中的flush，避免调用方一直等待
 				return true
 			case event := <-w.events:
-				w.process(event)
+				w.process(event) // 根据不同的时间类型调用
 			case ack := <-w.flushCh:
 				w.drain()
 				close(ack)
