@@ -7,8 +7,6 @@ import (
 	"Qavor/internal/model/entity"
 )
 
-// —— 新架构类型（Task 2 引入）——
-
 // Span 终态常量（新表 trace_spans 使用）
 const (
 	SpanStatusRunning     = "running"
@@ -53,7 +51,7 @@ type SpanSpec struct {
 	RunID        string      // 业务 Run ID（agent_runs 表主键，异步任务必填）
 	RequestID    string      // 请求 ID（X-Request-Id 头或生成）
 	Kind         string      // 组件类型：llm / tool / retriever / embedding / agent / http / context
-	Operation    string      // 操作名（语义化，如 llm.generate / tool.execute / http.server）
+	Operation    string      // 操作名（面向机器，如 llm.generate / tool.execute / http.server）
 	DisplayName  string      // 展示名（面向人，如模型名 / 工具名 / Agent slug）
 	InputSummary string      // 输入摘要（脱敏截断后，如 prompt 摘要 / 工具参数 / 检索 query）
 	Attributes   entity.JSON // 自定义属性（jsonb，如 temperature / model / http.method）
