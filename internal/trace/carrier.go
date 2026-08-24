@@ -12,11 +12,10 @@ type TraceCarrier struct {
 	TraceID      string `json:"trace_id"`
 	ParentSpanID string `json:"parent_span_id,omitempty"`
 	RequestID    string `json:"request_id,omitempty"`
-	Sampled      bool   `json:"sampled"`
+	Sampled      bool   `json:"sampled"` // 是否被采集
 }
 
-// CarrierFromContext 从当前 context 提取 TraceCarrier（基于当前 SpanContext）
-// 没有 SpanContext 时返回零值和 false
+// CarrierFromContext 将当前SpanContext转成可序列化载体
 func CarrierFromContext(ctx context.Context) (TraceCarrier, bool) {
 	sc, ok := SpanContextFromContext(ctx)
 	if !ok {

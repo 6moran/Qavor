@@ -1,26 +1,31 @@
 # API 文档
 
+> 本文档基于代码库 `internal/api/v1/` 下的实际路由编写，与实现保持同步。
+> 最后核对日期：2026-08-20
+
 ## 基础信息
 
-- **Base URL**: `http://localhost:8080`
-- **API 版本**: v1
+- **Base URL**: `http://localhost:8080`（端口由 `configs/config.yaml` 的 `app.port` 决定）
+- **API 版本**: v1（统一前缀 `/api/v1`）
 - **Content-Type**: `application/json`
+
+> 前端注意：`frontend/src/apis/base.js` 的 `normalizeApiUrl` 会把 `/api/xxx` 自动重写为 `/api/v1/xxx`，已是 `/api/v1` 或非 `/api` 开头则原样返回。
 
 ## 统一响应格式
 
-所有 API 返回统一的响应格式：
+所有 API 返回统一格式：
 
 ```json
 {
   "code": 0,
-  "message": "success",
+  "message": "成功",
   "data": {}
 }
 ```
 
-- `code`: 状态码，0 表示成功
+- `code`: 错误码，0 表示成功
 - `message`: 响应消息
-- `data`: 响应数据
+- `data`: 响应数据（可为 null）
 
 ## 错误码
 
@@ -28,30 +33,54 @@
 |--------|------|
 | 0 | 成功 |
 | 400 | 请求参数错误 |
-| 401 | 未授权 |
+| 401 | 未授权（未登录 / Token 无效 / 已登出） |
 | 403 | 禁止访问 |
 | 404 | 资源不存在 |
+| 405 | 方法不允许 |
+| 408 | 请求超时 |
+| 409 | 资源冲突 |
 | 500 | 服务器内部错误 |
-| 1001 | 用户不存在 |
-| 1002 | 用户已存在 |
-| 1003 | 邮箱或密码错误 |
-| 1004 | 用户已被禁用 |
-| 1005 | 无效的令牌 |
-| 1006 | 令牌已过期 |
+| 501 | 功能未实现 |
+| 503 | 服务不可用 |
+| 1001-1006 | 用户/凭据相关业务错误（保留） |
+| 2001-2003 | 参数错误：参数错误 / 缺少必要参数 / 参数格式错误 |
+| 3001-3003 | 资源错误：资源不存在 / 已存在 / 已锁定 |
+| 4001-4006 | LLM 错误：内部错误 / 配置错误 / 请求失败 / 响应无效 / 超时 / 超出 token 限制 |
+| 5001-5004 | 模型提供商错误：不存在 / 已存在 / 已禁用 / API Key 未配置 |
+| 40001-40003 | 会话错误：不存在 / 无权访问 / 状态无效 |
+| 40011-40013 | 消息错误：不存在 / 无权访问 / 角色无效 |
+| 6001-6014 | SSE 流式服务错误（见 `pkg/errors/code.go`） |
 
 ## 认证方式
 
-使用 JWT Bearer Token 认证：
+单实例管理员登录（单用户模式），JWT Bearer Token：
 
 ```
 Authorization: Bearer {token}
 ```
 
-## API 接口
+**登录**：`POST /api/v1/auth/login`，使用 `configs/config.yaml` 中的 `auth.admin_username` / `auth.admin_password`。
 
-### 健康检查
+> 说明：当前为单 Token 机制（区别于旧文档的双 Token）。Token 默认有效期 2 小时（`config.yaml` → `jwt.expire_hours`），登出后加入 Redis 黑名单立即失效。
 
-#### 检查服务状态
+### 认证矩阵（路由级中间件，与代码一致）
+
+| 模块路由 | 是否挂 `Auth()` 中间件 |
+| --- | --- |
+| `/auth/login`、`/health` | 否（公开） |
+| `/models`（含 providers / remote-models / `/:id`） | 否 |
+| `/system/ocr/*`、`/system/tools` | 否 |
+| `/auth/logout` | 否（控制器内部自行校验 Token） |
+| `/models/test` | 是 |
+| 其余全部（knowledge / agent / chat / conversations / rag / system/config / skills / mcp / sse / workspace / traces / dashboard / evaluation 等） | 是 |
+
+> 即使路由未强制认证，前端所有业务请求也会携带 Token；未认证仅影响服务端校验强度。
+
+---
+
+## 健康检查
+
+### 检查服务状态
 
 ```http
 GET /api/v1/health
@@ -67,43 +96,9 @@ GET /api/v1/health
 
 ---
 
-### 用户认证
+## 认证
 
-#### 用户注册
-
-```http
-POST /api/v1/auth/register
-```
-
-**请求参数**:
-```json
-{
-  "nickname": "测试用户",
-  "password": "123456",
-  "confirm_password": "123456",
-  "email": "test@example.com"
-}
-```
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| nickname | string | 是 | 昵称（2-50字符，用于显示） |
-| password | string | 是 | 密码（6-50字符） |
-| confirm_password | string | 是 | 确认密码，必须与密码一致 |
-| email | string | 是 | 邮箱地址（用于登录） |
-
-**说明**: 系统自动生成 UID（格式：`usr_<UUID>`）
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "message": "成功",
-  "data": null
-}
-```
-
-#### 用户登录
+### 管理员登录
 
 ```http
 POST /api/v1/auth/login
@@ -112,15 +107,15 @@ POST /api/v1/auth/login
 **请求参数**:
 ```json
 {
-  "email": "test@example.com",
-  "password": "123456"
+  "username": "12345678",
+  "password": "12345678"
 }
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| email | string | 是 | 邮箱地址 |
-| password | string | 是 | 密码 |
+| username | string | 是 | 管理员用户名（config.yaml `auth.admin_username`） |
+| password | string | 是 | 管理员密码（config.yaml `auth.admin_password`） |
 
 **响应示例**:
 ```json
@@ -128,124 +123,19 @@ POST /api/v1/auth/login
   "code": 0,
   "message": "成功",
   "data": {
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "access_expires_in": 7200,
-    "refresh_expires_in": 604800,
-    "user": {
-      "id": 1,
-      "nickname": "测试用户",
-      "uid": "usr_550e8400-e29b-41d4-a716-446655440000",
-      "email": "test@example.com",
-      "avatar": "",
-      "status": 1,
-      "created_at": "2024-01-01T00:00:00Z",
-      "updated_at": "2024-01-01T00:00:00Z"
-    }
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
   }
 }
 ```
 
-#### 用户登出
+### 管理员登出
 
 ```http
 POST /api/v1/auth/logout
-Authorization: Bearer {access_token}
+Authorization: Bearer {token}
 ```
 
-**请求参数**:
-```json
-{
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "message": "成功",
-  "data": null
-}
-```
-
-#### 刷新 Token
-
-```http
-POST /api/v1/auth/refresh
-```
-
-**请求参数**:
-```json
-{
-  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "message": "成功",
-  "data": {
-    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "access_expires_in": 7200,
-    "refresh_expires_in": 604800
-  }
-}
-```
-
----
-
-### 密码重置
-
-#### 发送重置验证码
-
-```http
-POST /api/v1/auth/reset-code/send
-```
-
-**请求参数**:
-```json
-{
-  "email": "user@example.com"
-}
-```
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "message": "成功",
-  "data": {
-    "expires_in": 600
-  }
-}
-```
-
-#### 重置密码
-
-```http
-POST /api/v1/auth/password/reset
-```
-
-**请求参数**:
-```json
-{
-  "email": "user@example.com",
-  "code": "123456",
-  "new_password": "newpassword123",
-  "confirm_password": "newpassword123"
-}
-```
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| email | string | 是 | 邮箱地址 |
-| code | string | 是 | 6 位数字验证码 |
-| new_password | string | 是 | 新密码（6-50字符） |
-| confirm_password | string | 是 | 确认密码，必须与新密码一致 |
+将当前 Token 加入 Redis 黑名单，立即失效。
 
 **响应示例**:
 ```json
@@ -258,104 +148,37 @@ POST /api/v1/auth/password/reset
 
 ---
 
-### 用户管理
+## 模型管理
 
-以下接口需要认证，请在请求头中携带 Token。
-
-#### 获取当前用户信息
+### 创建模型
 
 ```http
-GET /api/v1/user/profile
-Authorization: Bearer {access_token}
+POST /api/v1/models
+```
+
+**请求参数**（示意）:
+```json
+{
+  "name": "gpt-4o",
+  "provider": "openai",
+  "base_url": "https://api.openai.com/v1",
+  "api_key": "sk-xxx",
+  "type": "chat",
+  "capabilities": ["chat", "tools"],
+  "context_window": 128000
+}
 ```
 
 **响应示例**:
 ```json
-{
-  "code": 0,
-  "message": "成功",
-  "data": {
-    "id": 1,
-    "nickname": "测试用户",
-    "uid": "usr_550e8400-e29b-41d4-a716-446655440000",
-    "email": "test@example.com",
-    "avatar": "",
-    "status": 1,
-    "created_at": "2024-01-01T00:00:00Z",
-    "updated_at": "2024-01-01T00:00:00Z"
-  }
-}
+{ "code": 0, "message": "成功", "data": null }
 ```
 
-#### 更新用户信息
+### 模型列表
 
 ```http
-PUT /api/v1/user/profile
-Authorization: Bearer {token}
+GET /api/v1/models
 ```
-
-**请求参数**:
-```json
-{
-  "avatar": "https://example.com/avatar.jpg"
-}
-```
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| avatar | string | 否 | 头像 URL |
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "message": "成功",
-  "data": null
-}
-```
-
-#### 修改密码
-
-```http
-POST /api/v1/user/password
-Authorization: Bearer {token}
-```
-
-**请求参数**:
-```json
-{
-  "old_password": "123456",
-  "new_password": "654321"
-}
-```
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| old_password | string | 是 | 旧密码 |
-| new_password | string | 是 | 新密码（6-50字符） |
-
-**响应示例**:
-```json
-{
-  "code": 0,
-  "message": "成功",
-  "data": null
-}
-```
-
-#### 获取用户列表（分页）
-
-```http
-GET /api/v1/user/list?page=1&size=10
-Authorization: Bearer {token}
-```
-
-**查询参数**:
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| page | int | 是 | 页码，从 1 开始 |
-| size | int | 是 | 每页大小，1-100 |
 
 **响应示例**:
 ```json
@@ -366,147 +189,423 @@ Authorization: Bearer {token}
     "list": [
       {
         "id": 1,
-        "nickname": "测试用户",
-        "uid": "usr_550e8400-e29b-41d4-a716-446655440000",
-        "email": "test@example.com",
-        "avatar": "",
-        "status": 1,
-        "created_at": "2024-01-01T00:00:00Z",
-        "updated_at": "2024-01-01T00:00:00Z"
+        "name": "gpt-4o",
+        "provider": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "type": "chat",
+        "capabilities": ["chat", "tools"],
+        "context_window": 128000,
+        "created_at": "2026-08-01T00:00:00Z"
       }
     ],
-    "total": 100,
-    "page": 1,
-    "size": 10,
-    "total_page": 10
+    "total": 1
   }
 }
 ```
 
-**响应字段说明**:
+### 模型供应商列表
+
+```http
+GET /api/v1/models/providers
+```
+
+返回支持的供应商选项（名称、说明、是否内置默认 Base URL 等）。
+
+### 获取单个供应商
+
+```http
+GET /api/v1/models/providers/:name
+```
+
+### 远程拉取模型列表
+
+```http
+POST /api/v1/models/remote-models
+```
+
+**请求参数**: `{ "base_url": "...", "api_key": "...", "provider": "..." }`
+
+调用供应商的 `/models`（或 `/v1/models`）接口，返回可用模型列表，供前端选择。
+
+### 测试模型连接
+
+```http
+POST /api/v1/models/test
+Authorization: Bearer {token}
+```
+
+**请求参数**: `{ "base_url": "...", "api_key": "...", "model": "..." }`
+
+通过 eino 链路发起一次真实请求校验连接。
+
+### 获取 / 更新 / 删除模型
+
+```http
+GET  /api/v1/models/:id
+PUT  /api/v1/models/:id
+DELETE /api/v1/models/:id
+```
+
+---
+
+## 系统配置
+
+### 全局 RAG 设置
+
+```http
+GET /api/v1/system/rag-settings
+PUT /api/v1/system/rag-settings
+```
+
+读取 / 更新全局 RAG 算法默认值（TopK、相似度阈值、RRF 权重、Rerank 开关等）。
+
+### 系统配置（KV）
+
+```http
+GET  /api/v1/system/config
+POST /api/v1/system/config
+POST /api/v1/system/config/update        # 批量更新
+GET  /api/v1/system/config/options       # 可配置项列表（default_model / fast_model / embed_model / rerank 等）
+PUT  /api/v1/system/config/options/:key  # 更新单个配置项
+```
+
+配置存储于 `system_settings` 表（key-value）。
+
+### OCR 引擎（公开）
+
+```http
+GET /api/v1/system/ocr/options
+GET /api/v1/system/ocr/health
+```
+
+`options` 返回可用 OCR 引擎列表与默认引擎（`rapid_ocr` 本地 / `api_ocr` 通用 API）。
+
+### 工具列表（公开）
+
+```http
+GET /api/v1/system/tools
+GET /api/v1/system/tools/options
+```
+
+返回系统内置工具（query_kb、web_search、calculator 等）注册信息。
+
+### Skill 管理
+
+```http
+GET    /api/v1/system/skills                    # 列表
+GET    /api/v1/system/skills/options
+POST   /api/v1/system/skills                    # 创建
+POST   /api/v1/system/skills/batch              # 批量创建
+POST   /api/v1/system/skills/delete-batch       # 批量删除
+POST   /api/v1/system/skills/import             # 导入（zip/文件）
+POST   /api/v1/system/skills/import/prepare     # 导入前预检
+GET    /api/v1/system/skills/builtin            # 内置 Skill 列表
+POST   /api/v1/system/skills/builtin/sync       # 同步内置 Skill
+GET    /api/v1/system/skills/:slug              # 详情
+PUT    /api/v1/system/skills/:slug              # 更新
+DELETE /api/v1/system/skills/:slug              # 删除
+GET    /api/v1/system/skills/:slug/export       # 导出
+GET    /api/v1/system/skills/:slug/tree         # 文件树
+GET    /api/v1/system/skills/:slug/file         # 读取文件
+PUT    /api/v1/system/skills/:slug/file         # 更新文件
+DELETE /api/v1/system/skills/:slug/file         # 删除文件
+PUT    /api/v1/system/skills/:slug/enabled      # 启用/停用
+```
+
+### 远程 Skill 拉取
+
+```http
+POST /api/v1/skills/remote/list        # 从远程仓库（GitHub）搜索 Skill
+POST /api/v1/skills/remote/prepare     # 拉取前预检
+```
+
+---
+
+## 知识库
+
+### 分块预设
+
+```http
+GET /api/v1/knowledge/chunk-presets
+```
+
+返回可选分块策略（普通 / 层级 / FAQ）与参数预设。
+
+### 知识库 CRUD
+
+```http
+GET    /api/v1/knowledge/databases
+POST   /api/v1/knowledge/databases
+GET    /api/v1/knowledge/databases/:kb_id
+PUT    /api/v1/knowledge/databases/:kb_id
+DELETE /api/v1/knowledge/databases/:kb_id
+```
+
+创建/更新时需绑定：名称、描述、Embedding 模型 ID、Rerank 模型 ID（可选）、分块参数。
+
+### 检索测试与查询参数
+
+```http
+POST /api/v1/knowledge/databases/:kb_id/query-test      # 检索测试
+GET  /api/v1/knowledge/databases/:kb_id/query-params    # 读取查询参数
+PUT  /api/v1/knowledge/databases/:kb_id/query-params    # 更新查询参数
+```
+
+### 示例问题
+
+```http
+GET  /api/v1/knowledge/databases/:kb_id/sample-questions
+POST /api/v1/knowledge/databases/:kb_id/sample-questions   # LLM 生成示例问题
+```
+
+### AI 生成描述
+
+```http
+POST /api/v1/knowledge/generate-description
+```
+
+根据知识库内容（或用户输入）由 LLM 生成/润色知识库描述。
+
+---
+
+## 知识文件
+
+### 上传文件
+
+```http
+POST /api/v1/knowledge/files/upload
+Content-Type: multipart/form-data
+```
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| list | array | 用户数据列表 |
-| total | int64 | 总记录数 |
-| page | int | 当前页码 |
-| size | int | 每页大小 |
-| total_page | int | 总页数 |
+| file | file | 待解析文档（PDF / Word / 图片等） |
+| kb_id | int | 目标知识库 ID |
+| mode | string | upload（上传）/ folder（从服务器目录选择，可选） |
 
----
+文件上传至 MinIO，随后进入异步解析队列（Redis Stream），处理进度通过 `/knowledge/processing-jobs` 查询。
 
-## 使用示例
+### 文件夹
 
-### cURL
-
-```bash
-# 用户注册
-curl -X POST http://localhost:8080/api/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"nickname":"测试用户","password":"123456","email":"test@example.com"}'
-
-# 用户登录
-curl -X POST http://localhost:8080/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"123456"}'
-
-# 获取用户信息
-curl http://localhost:8080/api/v1/user/profile \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
-
-# 获取用户列表（分页）
-curl "http://localhost:8080/api/v1/user/list?page=1&size=10" \
-  -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```http
+POST /api/v1/knowledge/databases/:kb_id/folders
 ```
 
-### JavaScript (Fetch)
+### 文档列表 / 搜索
 
-```javascript
-// 用户登录
-const response = await fetch('http://localhost:8080/api/v1/auth/login', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    email: 'test@example.com',
-    password: '123456',
-  }),
-});
-
-const data = await response.json();
-const accessToken = data.data.access_token;
-const refreshToken = data.data.refresh_token;
-
-// 获取用户信息
-const profile = await fetch('http://localhost:8080/api/v1/user/profile', {
-  headers: {
-    'Authorization': `Bearer ${accessToken}`,
-  },
-});
-
-const profileData = await profile.json();
-
-// 获取用户列表（分页）
-const users = await fetch('http://localhost:8080/api/v1/user/list?page=1&size=10', {
-  headers: {
-    'Authorization': `Bearer ${accessToken}`,
-  },
-});
-
-const usersData = await users.json();
-console.log(usersData.data.list); // 用户列表
-console.log(usersData.data.total); // 总记录数
-console.log(usersData.data.total_page); // 总页数
+```http
+GET /api/v1/knowledge/databases/:kb_id/documents        # 列表（分页 + 状态筛选）
+GET /api/v1/knowledge/databases/:kb_id/documents/search # 搜索
 ```
 
-### Python (requests)
+### 文档操作
 
-```python
-import requests
-
-# 用户登录
-response = requests.post('http://localhost:8080/api/v1/auth/login', json={
-    'email': 'test@example.com',
-    'password': '123456',
-})
-
-data = response.json()
-access_token = data['data']['access_token']
-refresh_token = data['data']['refresh_token']
-
-# 获取用户信息
-profile = requests.get('http://localhost:8080/api/v1/user/profile', headers={
-    'Authorization': f'Bearer {access_token}',
-})
-
-profile_data = profile.json()
-
-# 获取用户列表（分页）
-users = requests.get('http://localhost:8080/api/v1/user/list', params={
-    'page': 1,
-    'size': 10
-}, headers={
-    'Authorization': f'Bearer {access_token}',
-})
-
-users_data = users.json()
-print(users_data['data']['list'])  # 用户列表
-print(users_data['data']['total'])  # 总记录数
-print(users_data['data']['total_page'])  # 总页数
+```http
+DELETE /api/v1/knowledge/databases/:kb_id/documents/batch                 # 批量删除
+POST   /api/v1/knowledge/databases/:kb_id/documents/:doc_id/parse         # 重新解析
+POST   /api/v1/knowledge/databases/:kb_id/documents/:doc_id/index         # 单文档入库（分块+向量化）
+POST   /api/v1/knowledge/databases/:kb_id/documents/index                 # 批量入库
+POST   /api/v1/knowledge/databases/:kb_id/documents/index-pending         # 入库所有待处理文档
+GET    /api/v1/knowledge/databases/:kb_id/documents/:doc_id               # 详情
+GET    /api/v1/knowledge/databases/:kb_id/documents/:doc_id/content       # 预览（解析文本）
+GET    /api/v1/knowledge/databases/:kb_id/documents/:doc_id/download      # 下载原文件
+DELETE /api/v1/knowledge/databases/:kb_id/documents/:doc_id               # 删除
 ```
 
 ---
 
-## 链路追踪（Trace）
+## 文档处理任务
 
-Agent 对话执行链路追踪：通过 eino Callback 全局采集 LLM / Tool / Retriever / Agent 组件调用，生成 Trace 与 Span 记录，供开发者排查 Agent 执行链路。
+```http
+GET  /api/v1/knowledge/processing-jobs            # 任务列表（状态、进度）
+GET  /api/v1/knowledge/processing-jobs/:job_id    # 任务详情
+POST /api/v1/knowledge/processing-jobs/:job_id/retry  # 重试失败任务
+```
 
-### 获取 Trace 列表
+任务生命周期：`pending → processing → succeeded / failed`（见 `document_processing_job` 实体）。
 
-`GET /api/v1/traces`（需认证）
+---
 
-**Query 参数：**
+## 知识导图
+
+```http
+GET  /api/v1/knowledge/mindmap/databases                        # 有导图的知识库
+GET  /api/v1/knowledge/databases/:kb_id/mindmap/files           # 文件列表
+GET  /api/v1/knowledge/databases/:kb_id/mindmap                 # 获取导图
+GET  /api/v1/knowledge/databases/:kb_id/mindmap/diff            # 变更 diff
+POST /api/v1/knowledge/databases/:kb_id/mindmap/generate        # LLM 生成导图
+```
+
+---
+
+## RAG 问答
+
+### 快速回答
+
+```http
+POST /api/v1/rag/answer
+```
+
+**请求参数**（示意）:
+```json
+{
+  "kb_id": 1,
+  "question": "什么是退款政策？"
+}
+```
+
+走完整 RAG 链路：混合检索（向量 + 关键词 + RRF + Rerank）→ 阈值过滤 → Prompt → LLM 生成。
+
+---
+
+## Agent
+
+### Agent CRUD
+
+```http
+POST   /api/v1/agent                 # 创建
+GET    /api/v1/agent/list            # 列表
+GET    /api/v1/agent/default         # 默认 Agent
+GET    /api/v1/agent/:slug           # 详情
+PUT    /api/v1/agent/:slug           # 更新
+DELETE /api/v1/agent/:slug           # 删除
+POST   /api/v1/agent/:slug/default   # 设为默认
+```
+
+Agent 配置包含：模型绑定（model_id）、System Prompt、工具/MCP/Skill 白名单、温度等。
+
+### Run 流式执行
+
+```http
+POST /api/v1/agent/runs                       # 创建 Run，返回 SSE 流（携带 resume 参数时断线重连）
+GET  /api/v1/agent/runs/:runId                # 查询 Run 状态
+POST /api/v1/agent/runs/:runId/cancel         # 取消 Run
+```
+
+Run 通过 Redis Stream 队列交给 RunWorker 异步执行，进度经 Redis Pub/Sub → SSE 实时推送。
+
+### 请求（排队）控制
+
+```http
+GET  /api/v1/agent/requests/:requestId        # 请求详情
+POST /api/v1/agent/requests/:requestId/cancel # 取消排队请求
+POST /api/v1/agent/requests/:requestId/steer  # 引导请求（注入提示）
+```
+
+### 线程队列
+
+```http
+GET  /api/v1/agent/thread/:threadId/requests              # 线程排队请求列表
+POST /api/v1/agent/thread/:threadId/requests/continue     # 继续暂停的队列
+GET  /api/v1/agent/thread/:threadId/agent-state           # Agent 状态（断点）
+```
+
+---
+
+## 对话
+
+```http
+POST /api/v1/chat            # 普通对话（非流式，一次返回）
+POST /api/v1/chat/call       # 同 /chat（别名）
+POST /api/v1/chat/stream     # 流式对话（SSE，含工具调用过程事件）
+```
+
+**请求参数**（示意）:
+```json
+{
+  "conversation_id": 1,
+  "content": "帮我查一下退款政策",
+  "agent_slug": "assistant"
+}
+```
+
+---
+
+## 会话与消息
+
+### 会话
+
+```http
+POST   /api/v1/conversations
+GET    /api/v1/conversations
+GET    /api/v1/conversations/:id
+PUT    /api/v1/conversations/:id
+DELETE /api/v1/conversations/:id
+PUT    /api/v1/conversations/:id/close       # 关闭会话
+PUT    /api/v1/conversations/:id/archive     # 归档
+POST   /api/v1/conversations/:id/clear-context  # 清空上下文（含短期记忆）
+```
+
+### 消息
+
+```http
+POST   /api/v1/conversations/:id/messages
+GET    /api/v1/conversations/:id/messages
+GET    /api/v1/conversations/:id/messages/latest
+GET    /api/v1/conversations/:id/messages/:msg_id
+PUT    /api/v1/conversations/:id/messages/:msg_id
+DELETE /api/v1/conversations/:id/messages/:msg_id
+```
+
+> 路由说明：`:id` 为会话 ID，`:msg_id` 为消息 ID。消息路由当前未挂 `Auth()` 中间件（与代码一致）。
+
+---
+
+## SSE 服务
+
+```http
+GET /api/v1/sse/connect     # 建立 SSE 连接（EventSource）
+GET /api/v1/sse/info        # 获取当前连接信息
+```
+
+SSE 事件包含心跳（heartbeat）与业务事件（任务状态、工具调用、增量内容等）。
+
+---
+
+## MCP Server 管理
+
+```http
+POST   /api/v1/mcp                       # 创建
+POST   /api/v1/mcp/test                  # 配置测试
+GET    /api/v1/mcp/list                  # 列表
+GET    /api/v1/mcp/:name                 # 详情
+PUT    /api/v1/mcp/:name                 # 更新
+DELETE /api/v1/mcp/:name                 # 删除
+POST   /api/v1/mcp/:name/enable          # 启用
+POST   /api/v1/mcp/:name/disable         # 停用
+POST   /api/v1/mcp/:name/test            # 测试连接
+GET    /api/v1/mcp/:name/tools           # 工具列表
+POST   /api/v1/mcp/:name/tools/refresh   # 刷新工具
+PUT    /api/v1/mcp/:name/tools/:toolName/toggle  # 启停单个工具
+```
+
+---
+
+## 工作区
+
+```http
+GET    /api/v1/workspace/tree            # 目录树
+GET    /api/v1/workspace/file            # 读取文件（?path=...）
+PUT    /api/v1/workspace/file            # 保存文件
+DELETE /api/v1/workspace/file            # 删除文件
+POST   /api/v1/workspace/directory       # 创建目录
+POST   /api/v1/workspace/upload          # 上传附件
+```
+
+工作区根目录：`data/workspaces`（`config.yaml` → `agent.workspace_root`）。
+
+---
+
+## 链路追踪
+
+```http
+GET /api/v1/traces                            # Trace 列表
+GET /api/v1/traces/:trace_id                  # Trace 详情（含 spans）
+GET /api/v1/traces/:trace_id/spans/:span_id   # 单个 Span 详情
+GET /api/v1/runs/:run_id/trace                # 通过 run_id 反向定位 trace_id
+```
+
+**Trace 列表 Query 参数**:
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
@@ -515,47 +614,14 @@ Agent 对话执行链路追踪：通过 eino Callback 全局采集 LLM / Tool / 
 | conversation_id | int | 按会话 ID 筛选 |
 | status | string | running / success / failed / cancelled / timeout |
 | source | string | sync（同步）/ stream（流式）/ run（异步 Run） |
-| from | string | 开始时间（RFC3339） |
-| to | string | 结束时间（RFC3339） |
-| page | int | 页码，默认 1 |
-| page_size | int | 每页条数，默认 20，最大 100 |
+| from / to | string | 时间范围（RFC3339） |
+| page / page_size | int | 分页，默认 page=1、page_size=20（最大 100） |
 
-**响应示例：**
-
+**Trace 详情响应**（示意）:
 ```json
 {
   "code": 0,
-  "message": "success",
-  "data": {
-    "items": [
-      {
-        "trace_id": "3f0c...",
-        "source": "stream",
-        "agent_slug": "assistant",
-        "query": "什么是退款政策？",
-        "status": "success",
-        "duration_ms": 2340,
-        "model_name": "gpt-4o",
-        "total_tokens": 356,
-        "started_at": "2026-08-08T10:00:00Z",
-        "ended_at": "2026-08-08T10:00:02Z"
-      }
-    ],
-    "total": 1
-  }
-}
-```
-
-### 获取 Trace 详情
-
-`GET /api/v1/traces/:trace_id`（需认证）
-
-**响应示例：**
-
-```json
-{
-  "code": 0,
-  "message": "success",
+  "message": "成功",
   "data": {
     "trace": {
       "trace_id": "3f0c...",
@@ -589,17 +655,102 @@ Agent 对话执行链路追踪：通过 eino Callback 全局采集 LLM / Tool / 
 
 - `kind` 取值：`llm`（模型调用）/ `tool`（工具调用）/ `retriever`（知识检索）/ `agent`（Agent 节点）
 - spans 按 `started_at` 升序平铺返回，前端按 `parent_span_id` 组装层级树
-- 数据保留天数与超时标记由 `config.yaml` 的 `trace` 段配置，janitor 定期清理
+- 数据保留天数、超时标记由 `config.yaml` 的 `trace` 段配置，janitor 定期清理
+
+---
+
+## 仪表盘
+
+```http
+GET /api/v1/dashboard/stats/calls/timeseries
+```
+
+返回调用量时序统计（按时间聚合）。
+
+---
+
+## RAG 评估
+
+### 数据集（基准）管理
+
+```http
+POST   /api/v1/evaluation/databases/:kb_id/datasets/upload    # 上传数据集
+GET    /api/v1/evaluation/databases/:kb_id/datasets           # 列表
+GET    /api/v1/evaluation/databases/:kb_id/datasets/:dataset_id
+POST   /api/v1/evaluation/databases/:kb_id/datasets/generate  # LLM 生成数据集
+POST   /api/v1/evaluation/databases/:kb_id/datasets/:dataset_id/resume  # 恢复生成
+DELETE /api/v1/evaluation/datasets/:dataset_id
+GET    /api/v1/evaluation/datasets/:dataset_id/download
+```
+
+### 评估运行
+
+```http
+POST   /api/v1/evaluation/databases/:kb_id/runs          # 发起评估
+GET    /api/v1/evaluation/databases/:kb_id/runs          # 运行列表
+GET    /api/v1/evaluation/databases/:kb_id/runs/:run_id  # 运行结果
+DELETE /api/v1/evaluation/databases/:kb_id/runs/:run_id
+```
+
+评估指标：P@10、R@10、MRR、NDCG@10、MAP@10（`internal/service/evaluation_metrics.go`）。
+
+---
+
+## 使用示例
+
+### cURL
+
+```bash
+# 登录获取 Token
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin"}' | jq -r '.data.token')
+
+# 知识库列表
+curl http://localhost:8080/api/v1/knowledge/databases \
+  -H "Authorization: Bearer $TOKEN"
+
+# 模型列表
+curl http://localhost:8080/api/v1/models
+
+# 快速回答（RAG）
+curl -X POST http://localhost:8080/api/v1/rag/answer \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"kb_id":1,"question":"什么是退款政策？"}'
+
+# Trace 列表
+curl "http://localhost:8080/api/v1/traces?page=1&page_size=20" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### JavaScript (Fetch)
+
+```javascript
+// 登录
+const res = await fetch('/api/v1/auth/login', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ username: 'admin', password: 'admin' }),
+});
+const { data } = await res.json();
+const token = data.token;
+
+// 携带 Token 请求
+const kbs = await fetch('/api/v1/knowledge/databases', {
+  headers: { 'Authorization': `Bearer ${token}` },
+});
+const kbData = await kbs.json();
+console.log(kbData.data.list);
+```
 
 ---
 
 ## 注意事项
 
-1. **双 Token 机制**: 
-   - `access_token`: 访问令牌，有效期 2 小时
-   - `refresh_token`: 刷新令牌，有效期 7 天
-2. **用户标识**: 系统自动生成 UID（格式：`usr_<UUID>`），用于内部标识
-3. **密码安全**: 密码使用 bcrypt 加密存储，服务端无法查看明文密码
-4. **请求频率**: 建议客户端实现请求频率限制
-5. **错误处理**: 请根据错误码进行相应的错误处理
-6. **时区**: 所有时间使用 UTC 时区，格式为 ISO 8601
+1. **单管理员认证**：无用户表，登录凭据来自 `config.yaml` 的 `auth.admin_username` / `auth.admin_password`。
+2. **单 Token 机制**：`access token` 默认有效期 2 小时（`jwt.expire_hours`）；登出后 Token 加入 Redis 黑名单立即失效，无需 refresh token。
+3. **前端路径归一化**：`/api/xxx` 会被 `normalizeApiUrl` 重写为 `/api/v1/xxx`，调用时按 `/api/...` 书写即可。
+4. **异步处理**：文档上传后解析、入库、Agent Run 均走异步队列，通过 processing-jobs / runs 接口轮询状态，或通过 SSE 接收实时事件。
+5. **错误处理**：按 `code` 字段判断；HTTP 状态码仅反映传输层结果。
+6. **时区**：时间字段使用 ISO 8601 / RFC3339。

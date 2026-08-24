@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	qembedding "Qavor/internal/embedding"
 	"Qavor/internal/model/entity"
 
 	"github.com/cloudwego/eino/adk"
@@ -21,12 +22,15 @@ import (
 const structuredMessageMax = 20
 
 // callbackSpanKey 用于在 context 中存储当前组件 Span 句柄（OnStart 注入，OnEnd/OnError 读取）
+// 将Eino组件回调转换成span
 type callbackSpanKey struct{}
 
+// withCallbackSpan OnStart后，传递Span ctx
 func withCallbackSpan(ctx context.Context, span *Span) context.Context {
 	return context.WithValue(ctx, callbackSpanKey{}, span)
 }
 
+// callbackSpanFromContext OnEnd/OnError时取出span
 func callbackSpanFromContext(ctx context.Context) *Span {
 	span, _ := ctx.Value(callbackSpanKey{}).(*Span)
 	return span
@@ -36,7 +40,7 @@ func callbackSpanFromContext(ctx context.Context) *Span {
 // 只创建组件 Span（llm/tool/retriever/agent），不创建根 TraceRecord，不结束父 Span
 type callbackCollector struct {
 	tracer    *Tracer
-	sanitizer Sanitizer
+	sanitizer Sanitizer //用户数据脱敏
 }
 
 func newCallbackCollector(tracer *Tracer) *callbackCollector {
@@ -48,7 +52,7 @@ func newCallbackCollector(tracer *Tracer) *callbackCollector {
 	}
 	return &callbackCollector{
 		tracer:    tracer,
-		sanitizer: Sanitizer{Mode: mode, MaxRunes: maxLen},
+		sanitizer: Sanitizer{Mode: mode, MaxRunes: maxLen}, // 脱敏api_key,密码等等
 	}
 }
 
@@ -83,7 +87,7 @@ func (c *callbackCollector) end(ctx context.Context, end SpanEnd) {
 	span.End(end)
 }
 
-// NewHandler 创建全局采集器（进程启动时经 callbacks.AppendGlobalHandlers 注册一次）
+// NewHandler 创建并组合Eino全局handler
 // tracer 为 nil 时所有回调为 no-op
 func NewHandler(tracer *Tracer) callbacks.Handler {
 	col := newCallbackCollector(tracer)
@@ -277,6 +281,10 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 			return ctx
 		},
 		OnError: func(ctx context.Context, info *callbacks.RunInfo, err error) context.Context {
+			if qembedding.IsArkFallbackProbe(ctx) && qembedding.IsArkMultimodalFallbackError(err) {
+				col.end(ctx, SpanEnd{Status: SpanStatusOK})
+				return ctx
+			}
 			col.end(ctx, SpanEnd{Status: SpanStatusError, ErrorMessage: err.Error()})
 			return ctx
 		},
@@ -298,7 +306,7 @@ func NewHandler(tracer *Tracer) callbacks.Handler {
 
 	// Graph 需要完整 callbacks.Handler（composeTemplates 接受）
 	graphH := &graphHandler{col: col}
-
+	// 图式编排，eino支持llm，tool等
 	return callbackstpl.NewHandlerHelper().
 		ChatModel(modelH).
 		Tool(toolH).

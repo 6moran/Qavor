@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// Middleware 创建并管理完整 HTTP Span 生命周期
-// 只追踪 TracedRoutes 中配置的路由（method + path 精确匹配）
+// Middleware HTTP自动埋点
+// 只追踪 TracedRoutes 中配置白名单
 // tracer 为 nil 或未启用时透传不做任何事
 func Middleware(tracer *Tracer) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -22,7 +22,7 @@ func Middleware(tracer *Tracer) gin.HandlerFunc {
 
 		meta := RequestMeta{
 			TraceID:   validatedTraceID(c),
-			RequestID: requestID(c),
+			RequestID: requestID(c), // 从 X-Request-Id 头提取或生成新 UUID
 			Method:    c.Request.Method,
 			Path:      c.Request.URL.Path,
 			EntryType: entity.EntryTypeHTTP,
@@ -39,6 +39,7 @@ func Middleware(tracer *Tracer) gin.HandlerFunc {
 				})
 				panic(recovered)
 			}
+			// 请求结束关闭span
 			span.End(SpanEnd{
 				Status:     statusFromHTTP(c.Writer.Status()),
 				Attributes: entity.JSON{"http.status_code": c.Writer.Status()},
