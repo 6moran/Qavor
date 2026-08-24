@@ -24,6 +24,8 @@ type ModelResolver interface {
 	CreateLLMClient(ctx context.Context, modelID uint) (llm.Client, error)
 	// GetContextWindow 获取模型的上下文窗口大小，0 表示使用默认值
 	GetContextWindow(modelID uint) int
+	// GetMaxOutputTokens 获取模型配置的最大输出 Token 数，0 表示未配置
+	GetMaxOutputTokens(modelID uint) int
 }
 
 // llmClientAdapter 将 llm.Client 适配为 LLMClient 接口
@@ -85,7 +87,15 @@ func (m *contextManager) LoadHistory(ctx context.Context, conversationID uint, m
 	// 如果指定了 maxTokens，使用该值裁剪；否则使用默认值
 	var tokenizer *ContextTokenizer
 	if maxTokens > 0 {
-		tokenizer = NewContextTokenizer(maxTokens, m.config.ReserveTokens)
+		// ReserveTokens 联动模型输出上限：输入预算至少为模型配置的 MaxOutputTokens
+		// 预留出输出空间，避免模型配置了更大的输出上限时被 4096 的固定预留压榨输入预算
+		reserveTokens := m.config.ReserveTokens
+		if modelID > 0 && m.modelResolver != nil {
+			if outputCap := m.modelResolver.GetMaxOutputTokens(modelID); outputCap > reserveTokens {
+				reserveTokens = outputCap
+			}
+		}
+		tokenizer = NewContextTokenizer(maxTokens, reserveTokens)
 	} else {
 		tokenizer = m.tokenizer
 	}

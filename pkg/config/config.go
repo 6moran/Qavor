@@ -456,7 +456,6 @@ func (c *TraceConfig) ApplyDefaults() {
 		c.TracedRoutes = []string{
 			"POST /api/v1/chat",
 			"POST /api/v1/chat/call",
-			"POST /api/v1/chat/stream",
 			"POST /api/v1/agent/runs",
 		}
 	}

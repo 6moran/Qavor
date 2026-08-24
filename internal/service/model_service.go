@@ -55,6 +55,9 @@ type ModelService interface {
 	SetModelConfigChangeCallback(callback func(modelID string))
 	// GetModelInfo 获取模型基本信息，用于动态调整上下文窗口
 	GetModelInfo(modelID uint) (provider, name string, contextWindow int, ok bool)
+	// GetMaxOutputTokens 获取模型配置的最大输出 Token 数（0 表示未配置，使用 Agent 默认值）。
+	// 供 Run 执行链路将模型输出上限下发到 LLM 调用（max_tokens），并联动输入预算预留。
+	GetMaxOutputTokens(modelID uint) int
 }
 
 // modelService 模型服务实现
@@ -380,6 +383,15 @@ func (s *modelService) GetModelInfo(modelID uint) (provider, name string, contex
 		return "", "", 0, false
 	}
 	return model.Protocol, model.Name, model.ContextWindow, true
+}
+
+// GetMaxOutputTokens 获取模型配置的最大输出 Token 数（0 表示未配置）。
+func (s *modelService) GetMaxOutputTokens(modelID uint) int {
+	model, err := s.modelRepo.FindByID(modelID)
+	if err != nil || model == nil {
+		return 0
+	}
+	return model.MaxOutputTokens
 }
 
 // ResolveReranker 根据模型管理中的配置创建重排客户端。

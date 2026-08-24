@@ -25,6 +25,8 @@ type ModelResolver interface {
 	ResolveChatModel(ctx context.Context, modelID uint) (model.ToolCallingChatModel, error)
 	// GetModelInfo 获取模型基本信息，用于动态调整上下文窗口
 	GetModelInfo(modelID uint) (provider, name string, contextWindow int, ok bool)
+	// GetMaxOutputTokens 获取模型配置的最大输出 Token 数，0 表示未配置（使用 Agent 默认值）
+	GetMaxOutputTokens(modelID uint) int
 }
 
 // ApprovalRequest 待审批的工具调用（供前端展示 + SSE 发布）。
@@ -143,6 +145,17 @@ func (e *agentExecutor) Execute(ctx context.Context, slug, query string, history
 
 	// 3. 审批模式写入 ctx（ApprovalMiddleware 从 ctx 读取）
 	ctx = agent.WithApprovalMode(ctx, opt.approvalMode)
+
+	// 3.1 模型配置的 MaxOutputTokens 作为请求级 max_tokens 覆盖（>0 时生效）。
+	// 优先级高于 AgentConfig.MaxTokens（agent 创建时的默认 4096），
+	// 使模型管理页配置的输出上限真正下发到 LLM 调用。
+	if modelIDStr, ok := cfg["model_id"].(string); ok && modelIDStr != "" {
+		if modelID, parseErr := strconv.ParseUint(modelIDStr, 10, 32); parseErr == nil && e.resolver != nil {
+			if outputCap := e.resolver.GetMaxOutputTokens(uint(modelID)); outputCap > 0 {
+				ctx = agent.WithMaxTokensOverride(ctx, outputCap)
+			}
+		}
+	}
 
 	// 4. 执行（首次 Run 或 resume）并遍历事件
 	var assistantMsgs []*schema.Message
