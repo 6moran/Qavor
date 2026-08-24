@@ -19,7 +19,6 @@ type traceTestChatService struct{}
 func (traceTestChatService) Chat(context.Context, uint, string, string) (*service.ChatResult, error) {
 	return &service.ChatResult{}, nil
 }
-func (traceTestChatService) ChatStream(context.Context, uint, string, string) error { return nil }
 
 type traceMetadataWriter struct {
 	traceID string

@@ -165,6 +165,7 @@ func (m *querySvcModelService) SetModelConfigChangeCallback(func(modelID string)
 func (m *querySvcModelService) GetModelInfo(uint) (string, string, int, bool) {
 	return "", "", 0, false
 }
+func (m *querySvcModelService) GetMaxOutputTokens(uint) int { return 0 }
 
 // ---------- mock: Eino ChatModel ----------
 

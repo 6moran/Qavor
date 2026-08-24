@@ -391,6 +391,36 @@ func ThreadIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// maxTokensOverrideKey 请求级输出上限覆盖的 context key。
+// 用于让模型配置的 MaxOutputTokens 生效：Agent 实例按 slug 缓存复用，
+// 不能直接改共享的 a.config.MaxTokens，因此通过 ctx 按请求传递。
+type maxTokensOverrideKey struct{}
+
+// WithMaxTokensOverride 将请求级 max_tokens 覆盖写入 ctx（>0 才生效，0 表示不覆盖）。
+func WithMaxTokensOverride(ctx context.Context, maxTokens int) context.Context {
+	return context.WithValue(ctx, maxTokensOverrideKey{}, maxTokens)
+}
+
+// maxTokensFromContext 读取请求级覆盖值，<=0 表示无覆盖。
+func maxTokensFromContext(ctx context.Context) int {
+	if v, ok := ctx.Value(maxTokensOverrideKey{}).(int); ok && v > 0 {
+		return v
+	}
+	return 0
+}
+
+// resolveMaxTokens 计算本次执行实际使用的 max_tokens：
+// 优先级 模型配置覆盖（WithMaxTokensOverride）> AgentConfig.MaxTokens > 0（不限制）。
+func (a *Agent) resolveMaxTokens(ctx context.Context) int {
+	if override := maxTokensFromContext(ctx); override > 0 {
+		return override
+	}
+	if a.config.MaxTokens != nil {
+		return *a.config.MaxTokens
+	}
+	return 0
+}
+
 // BuildSessionID 根据 threadID 构建 sessionID
 // 确保 sessionID 生成逻辑一致
 func BuildSessionID(threadID string) string {
@@ -428,8 +458,8 @@ func (a *Agent) execute(ctx context.Context, query string, history ...*schema.Me
 	if a.config.Temperature != nil {
 		modelOpts = append(modelOpts, model.WithTemperature(float32(*a.config.Temperature)))
 	}
-	if a.config.MaxTokens != nil {
-		modelOpts = append(modelOpts, model.WithMaxTokens(*a.config.MaxTokens))
+	if maxTokens := a.resolveMaxTokens(ctx); maxTokens > 0 {
+		modelOpts = append(modelOpts, model.WithMaxTokens(maxTokens))
 	}
 
 	// 创建运行选项
@@ -489,8 +519,8 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schem
 	if a.config.Temperature != nil {
 		modelOpts = append(modelOpts, model.WithTemperature(float32(*a.config.Temperature)))
 	}
-	if a.config.MaxTokens != nil {
-		modelOpts = append(modelOpts, model.WithMaxTokens(*a.config.MaxTokens))
+	if maxTokens := a.resolveMaxTokens(ctx); maxTokens > 0 {
+		modelOpts = append(modelOpts, model.WithMaxTokens(maxTokens))
 	}
 
 	// 创建运行选项

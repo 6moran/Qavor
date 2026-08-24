@@ -32,7 +32,6 @@ import (
 	"Qavor/internal/skill"
 	skillapi "Qavor/internal/skill/api"
 	"Qavor/internal/skill/remote"
-	"Qavor/internal/sse"
 
 	"github.com/cloudwego/eino/adk"
 
@@ -612,27 +611,8 @@ func (a *App) initDependencies() error {
 	contextModelResolver := &contextModelResolverAdapter{modelSvc: modelSvc}
 	contextMgr := contextmgr.NewContextManager(contextConfig, messageRepo, shortTermMgr, longTermMgr, nil, contextModelResolver, logger.GetLogger(), tracer)
 
-	// 创建 SSE 模块
-	heartbeatConfig := &sse.HeartbeatConfig{
-		Interval:         30 * time.Second,
-		BusinessInterval: 15 * time.Second,
-		Timeout:          60 * time.Second,
-	}
-	heartbeatMgr := sse.NewHeartbeatManager(heartbeatConfig, logger.GetLogger())
-
-	sseConfig := &sse.ManagerConfig{
-		MaxConnectionsPerUser: 5,
-		CleanInterval:         5 * time.Minute,
-		ConnectionTimeout:     10 * time.Minute,
-	}
-	sseManager := sse.NewManager(heartbeatMgr, logger.GetLogger(), sseConfig)
-
-	// 启动连接清理
-	sseManager.StartCleaner(context.Background())
-
-	// 创建 SSE API Controller (HTTP 处理)
 	// 创建 Chat Service
-	chatSvc := service.NewChatService(agentMgr, contextMgr, modelSvc, sseManager, messageRepo, conversationRepo, logger.GetLogger())
+	chatSvc := service.NewChatService(agentMgr, contextMgr, modelSvc, messageRepo, conversationRepo, logger.GetLogger())
 
 	// 创建 Chat Controller
 	chatCtrl := chatctrl.NewController(chatSvc, tracer)
@@ -921,4 +901,8 @@ func (a *contextModelResolverAdapter) GetContextWindow(modelID uint) int {
 		return contextWindow
 	}
 	return 0
+}
+
+func (a *contextModelResolverAdapter) GetMaxOutputTokens(modelID uint) int {
+	return a.modelSvc.GetMaxOutputTokens(modelID)
 }
