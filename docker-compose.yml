@@ -1,0 +1,190 @@
+# ============================================================
+# Qavor Docker Compose — 一键启动完整开发环境
+#
+#   使用方式：
+#     1. cp .env.example .env  （修改密码和 API Key）
+#     2. docker compose up -d
+#     3. 浏览器访问 http://localhost (前端)
+#     4. API 地址 http://localhost:8080 (后端，前端已反代)
+#
+#   常用命令：
+#     docker compose up -d              # 启动全部
+#     docker compose logs -f qavor-api   # 看后端日志
+#     docker compose down               # 停止（数据保留）
+#     docker compose down -v            # 停止并删除数据卷
+# ============================================================
+
+name: qavor
+
+services:
+
+  # ============================
+  # PostgreSQL + pgvector
+  # ============================
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: qavor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-qavor}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-qavor}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ============================
+  # Redis (队列 + 缓存)
+  # ============================
+  redis:
+    image: redis:7-alpine
+    container_name: qavor-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      ${REDIS_PASSWORD:+--requirepass $REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ============================
+  # MinIO (对象存储)
+  # ============================
+  minio:
+    image: minio/minio
+    container_name: qavor-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # 管理控制台
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # MinIO 初始化：创建 bucket
+  minio-init:
+    image: minio/mc
+    container_name: qavor-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set qavor http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
+      mc mb --ignore-existing qavor/${MINIO_BUCKET:-qavor} &&
+      mc anonymous set download qavor/${MINIO_BUCKET:-qavor} &&
+      echo 'MinIO bucket created.'"
+    restart: "no"
+
+  # ============================
+  # Qavor Backend (Go API)
+  # ============================
+  qavor-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: "1.0.0"
+    container_name: qavor-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      # --- 基础 ---
+      APP_MODE: "release"
+      APP_PORT: "8080"
+      # --- PostgreSQL（host 已在 config.docker.yaml 设为 postgres）---
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      # --- Redis ---
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      # --- MinIO ---
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_PUBLIC_ENDPOINT: "http://localhost:9000"
+      # --- Auth / JWT ---
+      QAVOR_AUTH_ADMIN_USERNAME: "admin"
+      QAVOR_AUTH_ADMIN_PASSWORD: ${QAVOR_AUTH_ADMIN_PASSWORD:-admin123}
+      JWT_SECRET: ${JWT_SECRET:-c1+sDDjbbXcPci24/abAYd9Wa9ZaX6FvH9kmzCNHVeA=}
+      # --- LLM / Embedding ---
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      ARK_API_KEY: ${ARK_API_KEY:-}
+      # --- 联网搜索 ---
+      WEB_SEARCH_API_KEY: ${WEB_SEARCH_API_KEY:-}
+    ports:
+      - "8080:8080"
+    volumes:
+      # Docker 专用配置挂载为 config.yaml
+      - ./configs/config.docker.yaml:/app/configs/config.yaml:ro
+      # 持久化工作区数据（Agent 文件、RAG 文档等）
+      - qavor_data:/app/data
+      - qavor_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ============================
+  # Qavor Frontend (Vue + Nginx)
+  # ============================
+  qavor-web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qavor-web
+    restart: unless-stopped
+    depends_on:
+      qavor-api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+# ============================
+# 数据卷
+# ============================
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  qavor_data:
+  qavor_logs:
