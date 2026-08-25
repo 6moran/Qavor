@@ -1,0 +1,34 @@
+# 前端构建上下文排除文件
+# Docker build context = frontend/，此文件仅对前端镜像构建生效
+
+# 依赖目录（容器内 pnpm install 重新安装 Linux 版本）
+node_modules/
+
+# 构建产物（容器内 pnpm build 重新生成）
+dist/
+
+# 环境变量（不入镜像）
+.env
+.env.local
+.env.*.local
+
+# 编辑器/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# 测试覆盖率
+coverage/
+
+# 日志
+*.log
+npm-debug.log*

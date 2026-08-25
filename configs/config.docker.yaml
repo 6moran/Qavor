@@ -1,0 +1,197 @@
+# ============================================================
+# Qavor Docker 专用配置
+#   - host 使用 docker-compose 服务名
+#   - 密钥留空，由 .env 环境变量注入
+#   - auto_migrate: true，首次启动自动建表
+#   使用方式（docker-compose.yml 中挂载）:
+#     volumes:
+#       - ./configs/config.docker.yaml:/app/configs/config.yaml:ro
+# ============================================================
+
+app:
+  name: "qavor-api"
+  version: "1.0.0"
+  mode: "debug"
+  port: 8080
+  skills_dir: ""
+
+auth:
+  admin_username: "admin"
+  admin_password: "change-me-via-env"  # QAVOR_AUTH_ADMIN_PASSWORD 覆盖
+
+database:
+  auto_migrate: true  # Docker 首次启动自动建表
+  redis:
+    host: "redis"       # compose 服务名
+    port: 6379
+    password: ""        # REDIS_PASSWORD 覆盖
+    db: 0
+    pool_size: 10
+  postgres:
+    host: "postgres"    # compose 服务名
+    port: 5432
+    username: "postgres"
+    password: ""        # POSTGRES_PASSWORD 覆盖
+    database: "qavor"
+    sslmode: "disable"
+    max_idle_conns: 10
+    max_open_conns: 100
+  minio:
+    endpoint: "minio:9000"           # compose 服务名
+    access_key: ""                   # MINIO_ACCESS_KEY 覆盖
+    secret_key: ""                   # MINIO_SECRET_KEY 覆盖
+    bucket: "qavor"
+    use_ssl: false
+    region: ""
+    public_endpoint: "http://localhost:9000"  # 浏览器访问 MinIO 的地址，按需改
+    max_file_size: 52428800
+    allowed_types: []
+
+document_queue:
+  parse_stream: "qavor:document:parse"
+  parse_group: "qavor-document-parse-workers"
+  read_block_seconds: 5
+  pending_check_seconds: 60
+  pending_min_idle_minutes: 30
+  pending_claim_count: 10
+  max_stream_length: 100000
+
+jwt:
+  secret: "change-me-via-env"  # JWT_SECRET 覆盖
+  expire_hours: 24
+
+log:
+  level: "debug"
+  filename: "logs/app.log"
+  max_size: 100
+  max_backups: 3
+  max_age: 28
+  compress: true
+
+cors:
+  enabled: true
+  allow_origins:
+    - "*"
+  allow_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allow_headers:
+    - "Origin"
+    - "Content-Type"
+    - "Authorization"
+
+email:
+  smtp:
+    host: "smtp.qq.com"
+    port: 465
+    account: ""
+    auth_code: ""
+  from: ""
+  from_name: "Qavor"
+
+llm:
+  model: "gpt-4o"
+  api_key: ""
+  base_url: ""
+  timeout: 60s
+  temperature: 0.7
+  max_completion_tokens: 2048
+  top_p: 1.0
+  stop: []
+  presence_penalty: 0
+  frequency_penalty: 0
+  seed: null
+  user: null
+
+agent:
+  workspace_root: "data/workspaces"
+  security:
+    enabled: true
+    shell_timeout_seconds: 0
+    credentials:
+      enabled: true
+      extra_patterns: []
+    command:
+      enabled: true
+      extra_bans: []
+    redaction:
+      enabled: true
+      extra_env_keys: []
+    syntax:
+      enabled: true
+    staleness:
+      enabled: true
+    line_prefix:
+      enabled: true
+    exit_code:
+      enabled: true
+    output:
+      max_bytes: 51200
+      offload_token_limit: 20000
+
+sse:
+  max_stream_time: 300
+  heartbeat_interval: 15
+  max_concurrent_tasks: 5
+
+mcp:
+  tool_retrieval:
+    enabled: false
+    threshold: 20
+    top_k: 10
+    embedding_provider: ""
+    embedding_model: ""
+
+embedding:
+  provider: "openai"
+  model: "text-embedding-3-small"
+  api_key: ""
+  base_url: ""
+  timeout: 60000
+  dimensions: 1536
+
+ollama:
+  base_url: "http://localhost:11434"
+  model: "llama3"
+
+rag:
+  chunk_tokens: 800
+  chunk_overlap_tokens: 100
+  top_k: 5
+  request_timeout_seconds: 60
+  embedding:
+    batch_size: 15
+
+run:
+  worker_count: 3
+  stream_max_len: 10000
+  lock_ttl_seconds: 1800
+  block_seconds: 5
+  retention_hours: 24
+
+trace:
+  enabled: true
+  content_mode: "summary"
+  max_content_length: 500
+  retention_days: 7
+  timeout_minutes: 30
+  janitor_interval: 5
+  writer_buffer_size: 2048
+  traced_routes:
+    - "POST /api/v1/chat"
+    - "POST /api/v1/chat/call"
+    - "POST /api/v1/agent/runs"
+
+web_search:
+  provider: "tavily"
+  base_url: ""
+  api_key: ""
+
+memory:
+  long_term:
+    max_items: 200
+    max_tokens: 1500
+    default_user_id: 0
