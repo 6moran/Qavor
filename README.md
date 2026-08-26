@@ -360,6 +360,13 @@ make vet
 - [Agent 对话链路追踪设计](docs/学习/我的其他文档/Agent对话链路追踪设计文档.md)
 - [模型供应商测试说明](testdata/README.md)
 
+### 开发流程
+
+- [开发指南](docs/DEVELOPMENT.md)
+- [PR流程规范](docs/PR流程规范.md)
+- [Git提交规范](docs/Git提交规范.md)
+- [部署流程](docs/部署流程.md)
+
 README 只维护项目入口、依赖边界和本地启动流程；完整接口字段和专项模块设计以对应文档及当前代码为准。
 
 ## 开发注意事项
