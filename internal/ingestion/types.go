@@ -31,6 +31,25 @@ type ParseResult struct {
 	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
+// OCRConfig is the runtime OCR selection passed to the persistent Python parser.
+// Credentials stay on the local stdio connection and are never logged.
+type OCRConfig struct {
+	Engine   string
+	APIURL   string
+	APIKey   string
+	APIModel string
+}
+
+// PythonWorkerOptions configures one long-lived local parser subprocess.
+type PythonWorkerOptions struct {
+	PythonPath string
+	ScriptPath string
+	MaxTasks   int
+	OCR        OCRConfig
+	ExtraEnv   []string
+	Images     ImageUploader
+}
+
 // DocumentParser 将源文档转换为 Markdown 格式。
 type DocumentParser interface {
 	Parse(ctx context.Context, input ParseInput) (ParseResult, error)
