@@ -1,13 +1,50 @@
 import io
+import tempfile
 import unittest
 from contextlib import redirect_stderr
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from pkg.documentparser.python import parse_document
 
 
 class ParsePdfTests(unittest.TestCase):
+    def test_pdf_docling_picture_placeholder_uses_one_whole_pdf_fallback(self) -> None:
+        class FakeDocument:
+            pictures = [
+                SimpleNamespace(
+                    image=SimpleNamespace(uri="data:image/png;base64,aW1hZ2U=")
+                )
+            ]
+
+            def export_to_markdown(self) -> str:
+                return "<!-- image -->"
+
+        class FakeConverter:
+            def convert(self, _path: Path) -> SimpleNamespace:
+                return SimpleNamespace(
+                    status=SimpleNamespace(name="SUCCESS"), document=FakeDocument()
+                )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "image-only.pdf"
+            path.touch()
+            with patch.object(parse_document, "_get_docling_converter", return_value=FakeConverter()), \
+                 patch.object(parse_document, "ocr_image", return_value="图片文字") as image_ocr, \
+                 patch.object(
+                     parse_document,
+                     "ocr_pdf",
+                     return_value=("整份 OCR 正文", [{"number": 1, "text": "整份 OCR 正文"}]),
+                 ) as pdf_ocr:
+                result = parse_document.parse_path(path)
+
+        self.assertEqual(result.markdown, "整份 OCR 正文")
+        self.assertEqual(result.metadata["fallback_reason"], "docling_empty")
+        self.assertEqual(result.pages, [{"number": 1, "text": "整份 OCR 正文"}])
+        image_ocr.assert_not_called()
+        pdf_ocr.assert_called_once_with(path)
+
     def test_pdf_prefers_docling_when_visible_content_exists(self) -> None:
         with patch.object(Path, "is_file", return_value=True), \
              patch.object(

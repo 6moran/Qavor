@@ -4,7 +4,7 @@
 
 将支持的文档转换为 Markdown 并输出 JSON:
 - .docx/.pptx/.xlsx 通过 Docling 转换,文档内图片导出为临时文件并以路径引用
-- .pdf 逐页渲染为图片后使用 RapidOCR 识别
+- .pdf 优先通过 Docling 转换，仅在无可见内容或失败时整份回退至 OCR
 - .jpg/.jpeg/.png/.bmp/.tiff/.tif 使用 RapidOCR 直接识别
 
 输出格式:JSON 对象,与 Go 侧 ingestion.ParseResult 字段一一对应:
@@ -149,9 +149,9 @@ def _build_picture_recognizer(
 def _convert_with_docling(
     file_path: Path,
     result: ParseResult,
-    recognizer: Callable[[Path], str],
+    recognizer: Callable[[Path], str] | None,
 ) -> str:
-    """使用 Docling 转换 docx/xlsx/pptx,图片导出到输入文件同级 images/ 目录。
+    """使用 Docling 转换文档；Office 图片导出到输入文件同级 images/ 目录。
 
     导出路径以绝对路径(正斜杠)写入 markdown 引用并加入 picture_paths,
     由 Go 侧上传 MinIO 后回填 URL。单张图片导出失败降级为文本占位,不中断解析。
@@ -162,8 +162,14 @@ def _convert_with_docling(
         raise RuntimeError(f"Docling 转换失败: {converted.status}")
 
     doc = converted.document
+    markdown = doc.export_to_markdown()
+    if recognizer is None:
+        # PDF routing must not OCR extracted images or let their placeholders
+        # turn an otherwise empty Docling result into visible content.
+        return re.sub(r"<!--\s*image\s*-->", "", markdown)
+
     if not (hasattr(doc, "pictures") and doc.pictures):
-        return doc.export_to_markdown()
+        return markdown
 
     images_dir = file_path.parent / "images"
     images_dir.mkdir(exist_ok=True)
@@ -186,7 +192,6 @@ def _convert_with_docling(
         else:
             replacements.append("")
 
-    markdown = doc.export_to_markdown()
     for replacement in replacements:
         # 使用 lambda 避免 replacement 中的反斜杠/分组被 re.sub 解释
         markdown = re.sub(r"<!--\s*image\s*-->", lambda _m: replacement, markdown, count=1)
@@ -208,11 +213,8 @@ def _parse_pdf(
     api_model: str,
 ) -> str:
     """Prefer Docling, then OCR the complete PDF once only when needed."""
-    picture_recognizer = _build_picture_recognizer(
-        ocr_engine, api_base_url, api_key, api_model
-    )
     try:
-        markdown = _convert_with_docling(path, result, picture_recognizer)
+        markdown = _convert_with_docling(path, result, None)
     except Exception as exc:  # noqa: BLE001
         print(f"PDF Docling 转换失败，回退 OCR: {exc}", file=sys.stderr)
         fallback_reason = "docling_failed"
