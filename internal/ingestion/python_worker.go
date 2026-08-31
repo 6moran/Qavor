@@ -27,12 +27,17 @@ type PythonWorker struct {
 	opts       PythonWorkerOptions
 
 	parseMu sync.Mutex
-	// stdoutReadMu covers every Decode using Cmd.StdoutPipe. Cmd.Wait may only
-	// begin after this lock is available, per os/exec's pipe contract.
-	stdoutReadMu sync.Mutex
-	stateMu      sync.Mutex
-	closed       bool
-	tasks        int
+	stateMu sync.Mutex
+	closed  bool
+	tasks   int
+
+	// readerMu gates Decode registration before any goroutine starts. Closing
+	// seals registrations, then waits for every registered reader to finish
+	// before the single Cmd.Wait can close StdoutPipe.
+	readerMu      sync.Mutex
+	readerCond    *sync.Cond
+	readerClosed  bool
+	activeReaders int
 
 	stdinOnce sync.Once
 	stdinErr  error
@@ -87,15 +92,20 @@ func startPythonWorker(ctx context.Context, opts PythonWorkerOptions) (*PythonWo
 		opts:       opts,
 		waitDone:   make(chan struct{}),
 	}
+	w.readerCond = sync.NewCond(&w.readerMu)
 	go drainParserStderr(stderr)
-	w.watchContext(ctx)
 
 	readyCh := make(chan parserReadyRead, 1)
+	if !w.registerStdoutReader() {
+		w.forceClose()
+		return nil, ErrPythonWorkerCrashed
+	}
+	w.watchContext(ctx)
 	go func() {
-		w.stdoutReadMu.Lock()
-		defer w.stdoutReadMu.Unlock()
 		var ready parserReady
-		readyCh <- parserReadyRead{ready: ready, err: w.decoder.Decode(&ready)}
+		err := w.decoder.Decode(&ready)
+		w.finishStdoutReader()
+		readyCh <- parserReadyRead{ready: ready, err: err}
 	}()
 	select {
 	case <-ctx.Done():
@@ -169,11 +179,14 @@ func (w *PythonWorker) Parse(ctx context.Context, input ParseInput) (ParseResult
 	}
 
 	responseCh := make(chan parserRead, 1)
+	if !w.registerStdoutReader() {
+		return ParseResult{}, ErrPythonWorkerCrashed
+	}
 	go func() {
-		w.stdoutReadMu.Lock()
-		defer w.stdoutReadMu.Unlock()
 		var response parserResponse
-		responseCh <- parserRead{response: response, err: w.decoder.Decode(&response)}
+		err := w.decoder.Decode(&response)
+		w.finishStdoutReader()
+		responseCh <- parserRead{response: response, err: err}
 	}()
 
 	select {
@@ -211,6 +224,7 @@ type parserReadyRead struct {
 
 func (w *PythonWorker) Close() error {
 	w.markClosed()
+	w.sealStdoutReaders()
 	w.parseMu.Lock()
 	defer w.parseMu.Unlock()
 	closeErr := w.closeStdin()
@@ -222,6 +236,7 @@ func (w *PythonWorker) Close() error {
 
 func (w *PythonWorker) forceClose() {
 	w.markClosed()
+	w.sealStdoutReaders()
 	_ = w.closeStdin()
 	w.forceOnce.Do(func() { w.terminateProcess() })
 	_ = w.wait()
@@ -263,8 +278,7 @@ func (w *PythonWorker) terminateProcess() {
 func (w *PythonWorker) wait() error {
 	w.waitOnce.Do(func() {
 		go func() {
-			w.stdoutReadMu.Lock()
-			w.stdoutReadMu.Unlock()
+			w.waitForStdoutReaders()
 			err := w.cmd.Wait()
 			w.controllerMu.Lock()
 			if w.controller != nil && !w.controllerClosed {
@@ -282,6 +296,39 @@ func (w *PythonWorker) wait() error {
 	w.waitMu.Lock()
 	defer w.waitMu.Unlock()
 	return w.waitErr
+}
+
+func (w *PythonWorker) registerStdoutReader() bool {
+	w.readerMu.Lock()
+	defer w.readerMu.Unlock()
+	if w.readerClosed {
+		return false
+	}
+	w.activeReaders++
+	return true
+}
+
+func (w *PythonWorker) finishStdoutReader() {
+	w.readerMu.Lock()
+	w.activeReaders--
+	if w.activeReaders == 0 {
+		w.readerCond.Broadcast()
+	}
+	w.readerMu.Unlock()
+}
+
+func (w *PythonWorker) sealStdoutReaders() {
+	w.readerMu.Lock()
+	w.readerClosed = true
+	w.readerMu.Unlock()
+}
+
+func (w *PythonWorker) waitForStdoutReaders() {
+	w.readerMu.Lock()
+	for w.activeReaders > 0 {
+		w.readerCond.Wait()
+	}
+	w.readerMu.Unlock()
 }
 
 func (w *PythonWorker) isClosed() bool {

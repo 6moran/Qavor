@@ -205,34 +205,38 @@ func TestPythonWorkerConcurrentCloseAfterResponseStarts(t *testing.T) {
 	}
 }
 
-func TestPythonWorkerCloseWaitsForActiveStdoutRead(t *testing.T) {
-	worker := startTestPythonWorker(t)
-	worker.stdoutReadMu.Lock()
-	locked := true
-	defer func() {
-		if locked {
-			worker.stdoutReadMu.Unlock()
+func TestPythonWorkerCancellationWaitsForRegisteredStdoutReader(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	worker := startTestPythonWorkerWithOptions(t, ctx, PythonWorkerOptions{})
+	registered := worker.registerStdoutReader()
+	if !registered {
+		t.Fatal("worker rejected a reader before shutdown")
+	}
+	finished := false
+	t.Cleanup(func() {
+		if !finished {
+			worker.finishStdoutReader()
 		}
+		cancel()
 		worker.forceClose()
-	}()
+	})
 
-	closeDone := make(chan error, 1)
-	go func() { closeDone <- worker.Close() }()
+	cancel()
 	select {
-	case err := <-closeDone:
-		t.Fatalf("Close returned before the stdout reader finished: %v", err)
+	case <-worker.waitDone:
+		t.Fatal("Cmd.Wait completed before the registered reader was released")
 	case <-time.After(100 * time.Millisecond):
 	}
 
-	worker.stdoutReadMu.Unlock()
-	locked = false
+	worker.finishStdoutReader()
+	finished = true
 	select {
-	case err := <-closeDone:
-		if err != nil {
-			t.Fatalf("Close error = %v", err)
-		}
+	case <-worker.waitDone:
 	case <-time.After(2 * time.Second):
-		t.Fatal("Close did not resume after stdout read completed")
+		t.Fatal("Cmd.Wait did not resume after the registered reader finished")
+	}
+	if worker.registerStdoutReader() {
+		t.Fatal("shutdown allowed a new stdout reader registration")
 	}
 }
 
