@@ -53,7 +53,7 @@ func NewPythonWorkerPool(ctx context.Context, opts PythonPoolOptions) (*PythonWo
 		opts:         opts,
 		idle:         make(chan *PythonWorker, opts.Size),
 		done:         make(chan struct{}),
-		stateChanged: make(chan struct{}, 1),
+		stateChanged: make(chan struct{}),
 		workers:      make(map[*PythonWorker]struct{}, opts.Size),
 		leased:       make(map[*PythonWorker]struct{}, opts.Size),
 	}
@@ -153,6 +153,7 @@ func (p *PythonWorkerPool) borrow(ctx context.Context) (*PythonWorker, error) {
 			p.mu.Unlock()
 			return nil, err
 		}
+		stateChanged := p.stateChanged
 		p.mu.Unlock()
 
 		select {
@@ -160,7 +161,7 @@ func (p *PythonWorkerPool) borrow(ctx context.Context) (*PythonWorker, error) {
 			return nil, ctx.Err()
 		case <-p.done:
 			return nil, ErrPythonWorkerCrashed
-		case <-p.stateChanged:
+		case <-stateChanged:
 			continue
 		case worker := <-p.idle:
 			p.mu.Lock()
@@ -252,12 +253,14 @@ func (p *PythonWorkerPool) recordReplacementFailure(err error) {
 	p.mu.Lock()
 	if !p.closed {
 		p.replacementErr = err
-		select {
-		case p.stateChanged <- struct{}{}:
-		default:
-		}
+		p.broadcastStateChangeLocked()
 	}
 	p.mu.Unlock()
+}
+
+func (p *PythonWorkerPool) broadcastStateChangeLocked() {
+	close(p.stateChanged)
+	p.stateChanged = make(chan struct{})
 }
 
 func (p *PythonWorkerPool) workerCount() int {

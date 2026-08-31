@@ -138,6 +138,51 @@ func TestPythonWorkerPoolReturnsWhenMaxTaskReplacementCannotStart(t *testing.T) 
 	}
 }
 
+func TestPythonWorkerPoolBroadcastsMaxTaskReplacementFailureToAllBorrowers(t *testing.T) {
+	stateDir := t.TempDir()
+	release := filepath.Join(stateDir, "release")
+	pool := newTestPythonPool(t, 1, 1,
+		"QAVOR_TEST_STATE_DIR="+stateDir,
+		"QAVOR_TEST_RELEASE_FILE="+release,
+	)
+	activeDone := make(chan error, 1)
+	go func() {
+		_, err := pool.Parse(context.Background(), ParseInput{Filename: "wait.pdf", Content: []byte("wait")})
+		activeDone <- err
+	}()
+	waitForPoolTestFiles(t, stateDir, "wait-", 1)
+	pool.opts.Worker.ScriptPath = filepath.Join(t.TempDir(), "missing-worker.py")
+
+	borrowersReady := make(chan struct{}, 2)
+	borrowersDone := make(chan error, 2)
+	for range 2 {
+		go func() {
+			borrowersReady <- struct{}{}
+			_, err := pool.Parse(context.Background(), ParseInput{Filename: "waiting.pdf", Content: []byte("waiting")})
+			borrowersDone <- err
+		}()
+	}
+	<-borrowersReady
+	<-borrowersReady
+	time.Sleep(150 * time.Millisecond)
+	if err := os.WriteFile(release, []byte("release"), 0o600); err != nil {
+		t.Fatalf("release active parse: %v", err)
+	}
+	if err := <-activeDone; err != nil {
+		t.Fatalf("active parse: %v", err)
+	}
+	for range 2 {
+		select {
+		case err := <-borrowersDone:
+			if !errors.Is(err, ErrPythonWorkerCrashed) {
+				t.Fatalf("borrower error = %v, want ErrPythonWorkerCrashed", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("replacement failure did not wake every waiting borrower")
+		}
+	}
+}
+
 func TestPythonWorkerPoolRetriesOneCrashWithReplacement(t *testing.T) {
 	stateDir := t.TempDir()
 	pool := newTestPythonPool(t, 1, 10, "QAVOR_TEST_STATE_DIR="+stateDir)
