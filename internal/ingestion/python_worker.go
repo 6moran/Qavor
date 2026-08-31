@@ -26,10 +26,11 @@ type PythonWorker struct {
 	controller parserProcessController
 	opts       PythonWorkerOptions
 
-	parseMu sync.Mutex
-	stateMu sync.Mutex
-	closed  bool
-	tasks   int
+	parseMu      sync.Mutex
+	stateMu      sync.Mutex
+	closed       bool
+	tasks        int
+	capabilities map[string]bool
 
 	// readerMu gates Decode registration before any goroutine starts. Closing
 	// seals registrations, then waits for every registered reader to finish
@@ -122,6 +123,11 @@ func startPythonWorker(ctx context.Context, opts PythonWorkerOptions) (*PythonWo
 		if err := validateParserReady(read.ready); err != nil {
 			w.forceClose()
 			return nil, err
+		}
+		w.capabilities = map[string]bool{
+			"docling":  read.ready.Capabilities.Docling,
+			"rapidocr": read.ready.Capabilities.RapidOCR,
+			"api_ocr":  read.ready.Capabilities.APIOCR,
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -356,6 +362,14 @@ func (w *PythonWorker) reachedMaxTasks() bool {
 	w.stateMu.Lock()
 	defer w.stateMu.Unlock()
 	return w.opts.MaxTasks > 0 && w.tasks >= w.opts.MaxTasks
+}
+
+func (w *PythonWorker) capabilitySnapshot() map[string]bool {
+	capabilities := make(map[string]bool, len(w.capabilities))
+	for capability, available := range w.capabilities {
+		capabilities[capability] = available
+	}
+	return capabilities
 }
 
 func parserReadError(err error) error {

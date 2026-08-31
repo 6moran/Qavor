@@ -9,6 +9,41 @@ import time
 
 def response(request):
     filename = request["filename"]
+    state_dir = os.getenv("QAVOR_TEST_STATE_DIR", "")
+
+    def state_path():
+        if not state_dir:
+            return ""
+        os.makedirs(state_dir, exist_ok=True)
+        return os.path.join(state_dir, filename)
+
+    if filename == "wait.pdf":
+        marker = state_path()
+        if marker:
+            with open(os.path.join(state_dir, f"wait-{os.getpid()}"), "w", encoding="utf-8") as marker_file:
+                marker_file.write("started")
+        release = os.getenv("QAVOR_TEST_RELEASE_FILE", "")
+        while release and not os.path.exists(release):
+            time.sleep(0.01)
+    if filename in {"crash-once.pdf", "bad-json-once.pdf"}:
+        marker = state_path()
+        if marker and not os.path.exists(marker):
+            with open(marker, "w", encoding="utf-8") as marker_file:
+                marker_file.write("1")
+            if filename == "crash-once.pdf":
+                os._exit(17)
+            print("not-json", flush=True)
+            return
+    if filename == "always-crash.pdf":
+        marker = state_path()
+        attempts = 0
+        if marker and os.path.exists(marker):
+            with open(marker, encoding="utf-8") as marker_file:
+                attempts = int(marker_file.read())
+        if marker:
+            with open(marker, "w", encoding="utf-8") as marker_file:
+                marker_file.write(str(attempts + 1))
+        os._exit(17)
     if filename == "crash.pdf":
         os._exit(17)
     if filename == "block.pdf":
@@ -22,6 +57,20 @@ def response(request):
         print("not-json", flush=True)
         return
     request_id = request["request_id"]
+    if filename == "parser-error.pdf":
+        print(
+            json.dumps(
+                {
+                    "type": "result",
+                    "version": 1,
+                    "request_id": request_id,
+                    "ok": False,
+                    "error": {"code": "PARSER_FAILED", "message": "bad input"},
+                }
+            ),
+            flush=True,
+        )
+        return
     # The Go race test closes stdin after this response has started but before it finishes.
     if filename == "close-race.pdf":
         payload = json.dumps(
