@@ -25,6 +25,7 @@ type DocumentWorkerOptions struct {
 	PendingCheck     time.Duration // 定期检查 Pending 状态任务的时间间隔
 	PendingMinIdle   time.Duration // Pending 任务被重新领取前的最小空闲时间
 	PendingClaimSize int64         // 每次领取 Pending 任务的数量上限
+	ConsumerCount    int           // 固定的 Redis Stream 消费者数量
 }
 
 // DocumentWorker 文档处理 Worker，负责从 Redis 队列消费文档处理任务。
@@ -343,11 +344,23 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 		w.runPendingRecovery(recoveryCtx, workerID, options)
 	}()
 
-	defer func() {
-		cancelRecovery()
-		recoveryWG.Wait()
-	}()
+	var consumersWG sync.WaitGroup
+	for i := 0; i < options.ConsumerCount; i++ {
+		consumerID := fmt.Sprintf("%s-%d", workerID, i)
+		consumersWG.Add(1)
+		go func() {
+			defer consumersWG.Done()
+			w.runConsumer(ctx, consumerID, options)
+		}()
+	}
+	consumersWG.Wait()
+	cancelRecovery()
+	recoveryWG.Wait()
+}
 
+// runConsumer continuously receives new queue messages for one unique Redis
+// consumer ID. Pending recovery is intentionally coordinated separately.
+func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, options DocumentWorkerOptions) {
 	for {
 		message, err := w.queue.Consume(ctx, workerID, options.ReadBlock)
 		if err != nil {
@@ -410,6 +423,9 @@ func (o *DocumentWorkerOptions) applyDefaults() {
 	}
 	if o.PendingClaimSize <= 0 {
 		o.PendingClaimSize = 10
+	}
+	if o.ConsumerCount <= 0 {
+		o.ConsumerCount = 1
 	}
 }
 

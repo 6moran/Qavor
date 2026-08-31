@@ -173,6 +173,7 @@ type App struct {
 	server           *http.Server
 	workerStop       context.CancelFunc
 	workerDone       chan struct{}
+	parserPool       *ingestion.PythonWorkerPool
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
 	evaluationStop   context.CancelFunc
@@ -362,7 +363,7 @@ func (a *App) initDependencies() error {
 	ragSettingsSvc := service.NewRAGSettingsService(systemSettingRepo, modelRepo)
 	systemConfigSvc := service.NewSystemConfigService(systemSettingRepo, modelRepo)
 	systemCtrl := systemctrl.NewController(ragSettingsSvc, systemConfigSvc)
-	ocrCtrl := ocrctrl.NewController(systemConfigSvc)
+	var ocrCtrl *ocrctrl.Controller
 	storage := service.NewMinIOObjectStorage()
 	knowledgeBaseSvc := service.NewKnowledgeBaseService(knowledgeBaseRepo, modelRepo, knowledgeFileRepo, storage, agentRepo)
 	knowledgeFileSvc := service.NewKnowledgeFileService(knowledgeBaseRepo, knowledgeFileRepo, processingJobRepo, storage, queue, knowledgeChunkRepo)
@@ -440,11 +441,34 @@ func (a *App) initDependencies() error {
 		a.workerDone = make(chan struct{})
 		imgUploader := imageUploader{storage: storage}
 		ocrEngine, ocrAPIBaseURL, ocrAPIKey, ocrAPIModel := ocrEngineForParser(workerCtx, systemSettingRepo, systemConfigSvc)
-		parser := ingestion.NewParser(
-			ingestion.NewPythonParser(a.cfg.DocumentParser.PythonPath, "pkg/documentparser/python/parse_document.py", imgUploader).
-				WithOCR(ocrEngine, ocrAPIBaseURL, ocrAPIKey, ocrAPIModel),
-			imgUploader,
-		)
+		// The pool must outlive consumer cancellation so shutdown can first stop
+		// intake and wait for in-flight handlers before explicitly closing Python.
+		parserPool, err := ingestion.NewPythonWorkerPool(context.Background(), ingestion.PythonPoolOptions{
+			Size: a.cfg.DocumentParser.PoolSize,
+			Worker: ingestion.PythonWorkerOptions{
+				PythonPath: a.cfg.DocumentParser.PythonPath,
+				ScriptPath: "pkg/documentparser/python/parse_document.py",
+				MaxTasks:   a.cfg.DocumentParser.MaxTasksPerWorker,
+				OCR: ingestion.OCRConfig{
+					Engine:   ocrEngine,
+					APIURL:   ocrAPIBaseURL,
+					APIKey:   ocrAPIKey,
+					APIModel: ocrAPIModel,
+				},
+				Images: imgUploader,
+			},
+		})
+		if err != nil {
+			logger.Warn("Python 文档解析进程池未启动，二进制文档解析不可用", zap.Error(err))
+		} else {
+			a.parserPool = parserPool
+		}
+		parser := ingestion.NewParser(a.parserPool, imgUploader)
+		if a.parserPool != nil {
+			ocrCtrl = ocrctrl.NewController(systemConfigSvc, a.parserPool)
+		} else {
+			ocrCtrl = ocrctrl.NewController(systemConfigSvc)
+		}
 		documentWorker := worker.NewDocumentWorker(queue, processingJobRepo, knowledgeFileRepo, storage, parser, indexer)
 		hostname, _ := os.Hostname()
 		workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
@@ -453,6 +477,7 @@ func (a *App) initDependencies() error {
 			PendingCheck:     time.Duration(a.cfg.DocumentQueue.PendingCheckSeconds) * time.Second,
 			PendingMinIdle:   time.Duration(a.cfg.DocumentQueue.PendingMinIdleMinutes) * time.Minute,
 			PendingClaimSize: a.cfg.DocumentQueue.PendingClaimCount,
+			ConsumerCount:    a.cfg.DocumentParser.PoolSize,
 		}
 		go func() {
 			defer close(a.workerDone)
@@ -460,6 +485,7 @@ func (a *App) initDependencies() error {
 		}()
 	} else {
 		logger.Warn("Redis 不可用，文档异步处理 Worker 未启动")
+		ocrCtrl = ocrctrl.NewController(systemConfigSvc)
 	}
 
 	// 初始化 MCPManager
@@ -788,6 +814,11 @@ func (a *App) gracefulShutdown() {
 		case <-a.workerDone:
 		case <-time.After(5 * time.Second):
 			logger.Warn("等待文档处理 Worker 关闭超时")
+		}
+	}
+	if a.parserPool != nil {
+		if err := a.parserPool.Close(); err != nil {
+			logger.Warn("关闭 Python 文档解析进程池失败", zap.Error(err))
 		}
 	}
 	if a.runWorkerStop != nil {
