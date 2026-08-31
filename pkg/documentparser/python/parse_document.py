@@ -39,6 +39,7 @@ except ImportError:
     from image_alt import build_image_markdown
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
+VISIBLE_TEXT_PATTERN = re.compile(r"[A-Za-z0-9\u3400-\u9fff]")
 
 
 @dataclass
@@ -81,6 +82,7 @@ def _get_docling_converter() -> Any:
 
                 _docling_converter = DocumentConverter(
                     format_options={
+                        InputFormat.PDF: None,
                         InputFormat.DOCX: None,
                         InputFormat.XLSX: None,
                         InputFormat.PPTX: None,
@@ -191,6 +193,51 @@ def _convert_with_docling(
     return markdown
 
 
+def has_visible_content(markdown: str) -> bool:
+    """Return whether Docling produced content beyond Markdown punctuation."""
+    without_markup = re.sub(r"[`#>*_\[\]()!|\-]", "", markdown or "")
+    return VISIBLE_TEXT_PATTERN.search(without_markup) is not None
+
+
+def _parse_pdf(
+    path: Path,
+    result: ParseResult,
+    ocr_engine: str,
+    api_base_url: str,
+    api_key: str,
+    api_model: str,
+) -> str:
+    """Prefer Docling, then OCR the complete PDF once only when needed."""
+    picture_recognizer = _build_picture_recognizer(
+        ocr_engine, api_base_url, api_key, api_model
+    )
+    try:
+        markdown = _convert_with_docling(path, result, picture_recognizer)
+    except Exception as exc:  # noqa: BLE001
+        print(f"PDF Docling 转换失败，回退 OCR: {exc}", file=sys.stderr)
+        fallback_reason = "docling_failed"
+    else:
+        if has_visible_content(markdown):
+            result.metadata.update({"parser": "docling", "fallback": False})
+            return markdown
+        fallback_reason = "docling_empty"
+
+    if ocr_engine == "api":
+        markdown, result.pages = ocr_pdf_api(path, api_base_url, api_key, api_model)
+        parser = "api_ocr"
+    else:
+        markdown, result.pages = ocr_pdf(path)
+        parser = "rapidocr"
+    result.metadata.update(
+        {
+            "parser": parser,
+            "fallback": True,
+            "fallback_reason": fallback_reason,
+        }
+    )
+    return markdown
+
+
 def parse_path(
     path: Path,
     ocr_engine: str = "rapidocr",
@@ -216,12 +263,9 @@ def parse_path(
             result.markdown = _convert_with_docling(path, result, picture_recognizer)
             result.metadata["parser"] = "docling"
         elif suffix == ".pdf":
-            if ocr_engine == "api":
-                result.markdown, result.pages = ocr_pdf_api(path, api_base_url, api_key, api_model)
-                result.metadata["parser"] = "api_ocr"
-            else:
-                result.markdown, result.pages = ocr_pdf(path)
-                result.metadata["parser"] = "rapidocr"
+            result.markdown = _parse_pdf(
+                path, result, ocr_engine, api_base_url, api_key, api_model
+            )
         elif suffix in IMAGE_EXTENSIONS:
             if ocr_engine == "api":
                 result.markdown = ocr_image_api(path, api_base_url, api_key, api_model)
