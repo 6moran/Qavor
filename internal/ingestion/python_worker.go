@@ -224,9 +224,12 @@ type parserReadyRead struct {
 
 func (w *PythonWorker) Close() error {
 	w.markClosed()
-	w.sealStdoutReaders()
 	w.parseMu.Lock()
 	defer w.parseMu.Unlock()
+	// A normal close lets an already-started Parse finish registering and
+	// draining its response before sealing new stdout readers. Forced shutdown
+	// uses forceClose instead, which seals immediately and terminates first.
+	w.sealStdoutReaders()
 	closeErr := w.closeStdin()
 	if waitErr := w.wait(); waitErr != nil && !isExpectedProcessExit(waitErr) && closeErr == nil {
 		return waitErr

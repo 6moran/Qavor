@@ -43,6 +43,24 @@ def response(request):
         sys.stdout.write(payload[midpoint:] + "\n")
         sys.stdout.flush()
         return
+    if filename == "normal-close-race.pdf":
+        marker = os.getenv("QAVOR_TEST_NORMAL_CLOSE_MARKER")
+        if marker:
+            with open(marker, "w", encoding="utf-8") as marker_file:
+                marker_file.write("request-received")
+        print(
+            json.dumps(
+                {
+                    "type": "result",
+                    "version": 1,
+                    "request_id": request_id,
+                    "ok": True,
+                    "result": {"markdown": "x" * (2 * 1024 * 1024)},
+                }
+            ),
+            flush=True,
+        )
+        return
     if filename == "wrong-request-id.pdf":
         request_id = "another-request"
     if filename == "long-stderr.pdf":

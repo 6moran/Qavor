@@ -240,6 +240,93 @@ func TestPythonWorkerCancellationWaitsForRegisteredStdoutReader(t *testing.T) {
 	}
 }
 
+func TestPythonWorkerNormalCloseWaitsForParseBeforeSealingReaders(t *testing.T) {
+	worker := startTestPythonWorker(t)
+	worker.parseMu.Lock()
+	parseLocked := true
+	registered := false
+	t.Cleanup(func() {
+		if registered {
+			worker.finishStdoutReader()
+		}
+		if parseLocked {
+			worker.parseMu.Unlock()
+		}
+		worker.forceClose()
+	})
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- worker.Close() }()
+	waitForWorkerClosed(t, worker)
+	if !worker.registerStdoutReader() {
+		t.Fatal("normal Close sealed stdout readers before the active Parse could register its response")
+	}
+	registered = true
+	worker.finishStdoutReader()
+	registered = false
+	worker.parseMu.Unlock()
+	parseLocked = false
+
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not finish after Parse registration completed")
+	}
+}
+
+func TestPythonWorkerNormalCloseWaitsForRequestReaderRegistration(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "request-received")
+	worker := startTestPythonWorkerWithOptions(t, context.Background(), PythonWorkerOptions{
+		ExtraEnv: []string{"QAVOR_TEST_NORMAL_CLOSE_MARKER=" + marker},
+	})
+	worker.readerMu.Lock()
+	locked := true
+	t.Cleanup(func() {
+		if locked {
+			worker.readerMu.Unlock()
+		}
+		worker.forceClose()
+	})
+
+	parseDone := make(chan error, 1)
+	go func() {
+		result, err := worker.Parse(context.Background(), ParseInput{Filename: "normal-close-race.pdf", Content: []byte("race")})
+		if err == nil && len(result.Markdown) != 2*1024*1024 {
+			err = errors.New("response was truncated during normal Close")
+		}
+		parseDone <- err
+	}()
+	waitForTestMarker(t, marker)
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- worker.Close() }()
+	// Give Close time to queue behind readerMu before releasing Parse's
+	// registration path. The worker has already received the request marker.
+	time.Sleep(200 * time.Millisecond)
+	worker.readerMu.Unlock()
+	locked = false
+
+	select {
+	case err := <-parseDone:
+		if err != nil {
+			t.Fatalf("Parse error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Parse did not finish after normal Close")
+	}
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("normal Close blocked after rejecting an unwatched response")
+	}
+}
+
 func TestPythonWorkerRejectsMismatchedRequestID(t *testing.T) {
 	worker := startTestPythonWorker(t)
 	defer worker.Close()
