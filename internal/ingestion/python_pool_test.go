@@ -176,6 +176,25 @@ func TestPythonWorkerPoolStopsAfterOneInfrastructureRetry(t *testing.T) {
 	}
 }
 
+func TestPythonWorkerPoolReturnsWhenReplacementCannotStart(t *testing.T) {
+	pool := newTestPythonPool(t, 1, 10)
+	pool.opts.Worker.ScriptPath = filepath.Join(t.TempDir(), "missing-worker.py")
+
+	finished := make(chan error, 1)
+	go func() {
+		_, err := pool.Parse(context.Background(), ParseInput{Filename: "crash.pdf", Content: []byte("crash")})
+		finished <- err
+	}()
+	select {
+	case err := <-finished:
+		if !errors.Is(err, ErrPythonWorkerCrashed) {
+			t.Fatalf("error = %v, want ErrPythonWorkerCrashed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Parse waited for an unavailable replacement worker")
+	}
+}
+
 func TestPythonWorkerPoolDoesNotRetryParserErrors(t *testing.T) {
 	pool := newTestPythonPool(t, 1, 10)
 	warm, err := pool.Parse(context.Background(), ParseInput{Filename: "warm.pdf", Content: []byte("warm")})
@@ -220,6 +239,51 @@ func TestPythonWorkerPoolCloseRejectsNewRequests(t *testing.T) {
 	_, err := pool.Parse(context.Background(), ParseInput{Filename: "after-close.pdf", Content: []byte("closed")})
 	if !errors.Is(err, ErrPythonWorkerCrashed) {
 		t.Fatalf("error = %v, want ErrPythonWorkerCrashed", err)
+	}
+}
+
+func TestPythonWorkerPoolCloseWakesWaitingBorrower(t *testing.T) {
+	stateDir := t.TempDir()
+	release := filepath.Join(stateDir, "release")
+	pool := newTestPythonPool(t, 1, 10,
+		"QAVOR_TEST_STATE_DIR="+stateDir,
+		"QAVOR_TEST_RELEASE_FILE="+release,
+	)
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := pool.Parse(context.Background(), ParseInput{Filename: "wait.pdf", Content: []byte("wait")})
+		firstDone <- err
+	}()
+	waitForPoolTestFiles(t, stateDir, "wait-", 1)
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := pool.Parse(context.Background(), ParseInput{Filename: "second.pdf", Content: []byte("second")})
+		secondDone <- err
+	}()
+	select {
+	case err := <-secondDone:
+		t.Fatalf("second Parse completed before Close: %v", err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if err := pool.Close(); err != nil {
+		t.Fatalf("close pool: %v", err)
+	}
+	select {
+	case err := <-secondDone:
+		if !errors.Is(err, ErrPythonWorkerCrashed) {
+			t.Fatalf("waiting Parse error = %v, want ErrPythonWorkerCrashed", err)
+		}
+	case <-time.After(2 * time.Second):
+		_ = os.WriteFile(release, []byte("release"), 0o600)
+		<-firstDone
+		t.Fatal("Close did not wake the waiting borrower")
+	}
+	if err := os.WriteFile(release, []byte("release"), 0o600); err != nil {
+		t.Fatalf("release active parse: %v", err)
+	}
+	if err := <-firstDone; err != nil {
+		t.Fatalf("active Parse after Close: %v", err)
 	}
 }
 

@@ -27,6 +27,7 @@ type PythonWorkerPool struct {
 	ctx  context.Context
 	opts PythonPoolOptions
 	idle chan *PythonWorker
+	done chan struct{}
 
 	mu      sync.Mutex
 	workers map[*PythonWorker]struct{}
@@ -49,6 +50,7 @@ func NewPythonWorkerPool(ctx context.Context, opts PythonPoolOptions) (*PythonWo
 		ctx:     ctx,
 		opts:    opts,
 		idle:    make(chan *PythonWorker, opts.Size),
+		done:    make(chan struct{}),
 		workers: make(map[*PythonWorker]struct{}, opts.Size),
 		leased:  make(map[*PythonWorker]struct{}, opts.Size),
 	}
@@ -83,7 +85,9 @@ func (p *PythonWorkerPool) Parse(ctx context.Context, input ParseInput) (ParseRe
 			return result, parseErr
 		}
 
-		p.retireWorker(worker)
+		if err := p.retireWorker(worker); err != nil {
+			return result, fmt.Errorf("%w: replacement worker start failed: %v", parseErr, err)
+		}
 		if attempt == 1 {
 			return result, parseErr
 		}
@@ -121,6 +125,7 @@ func (p *PythonWorkerPool) Close() error {
 		return nil
 	}
 	p.closed = true
+	close(p.done)
 	workers := p.drainIdleLocked()
 	p.mu.Unlock()
 
@@ -144,6 +149,8 @@ func (p *PythonWorkerPool) borrow(ctx context.Context) (*PythonWorker, error) {
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
+	case <-p.done:
+		return nil, ErrPythonWorkerCrashed
 	case worker := <-p.idle:
 		p.mu.Lock()
 		if p.closed {
@@ -184,7 +191,7 @@ func (p *PythonWorkerPool) returnWorker(worker *PythonWorker) {
 	}
 }
 
-func (p *PythonWorkerPool) retireWorker(worker *PythonWorker) {
+func (p *PythonWorkerPool) retireWorker(worker *PythonWorker) error {
 	p.mu.Lock()
 	delete(p.leased, worker)
 	_, registered := p.workers[worker]
@@ -195,12 +202,13 @@ func (p *PythonWorkerPool) retireWorker(worker *PythonWorker) {
 	p.mu.Unlock()
 
 	if !registered {
-		return
+		return nil
 	}
 	_ = worker.Close()
 	if !closed {
-		_ = p.startAndRegister()
+		return p.startAndRegister()
 	}
+	return nil
 }
 
 func (p *PythonWorkerPool) startAndRegister() error {
