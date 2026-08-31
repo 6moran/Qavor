@@ -33,12 +33,12 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
-from docling.datamodel.base_models import InputFormat
-from docling.document_converter import DocumentConverter
+try:
+    from .image_alt import build_image_markdown
+except ImportError:
+    from image_alt import build_image_markdown
 
-from api_ocr import ocr_image_api, ocr_pdf_api
-from image_alt import build_image_markdown
-from rapid_ocr import IMAGE_EXTENSIONS, ocr_image, ocr_pdf
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif")
 
 
 @dataclass
@@ -51,22 +51,34 @@ class ParseResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+class ParserError(Exception):
+    """A safe parser error that preserves the stable error code."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
 def fail(code: str, message: str) -> None:
     """输出错误信息并退出程序。"""
     print(json.dumps({"error_code": code, "error_message": message}, ensure_ascii=False))
     raise SystemExit(2)
 
 
-_docling_converter: DocumentConverter | None = None
+_docling_converter: Any | None = None
 _docling_lock = threading.Lock()
 
 
-def _get_docling_converter() -> DocumentConverter:
+def _get_docling_converter() -> Any:
     """获取 Docling 转换器单例(进程内只加载一次)。"""
     global _docling_converter
     if _docling_converter is None:
         with _docling_lock:
             if _docling_converter is None:
+                from docling.datamodel.base_models import InputFormat
+                from docling.document_converter import DocumentConverter
+
                 _docling_converter = DocumentConverter(
                     format_options={
                         InputFormat.DOCX: None,
@@ -75,6 +87,42 @@ def _get_docling_converter() -> DocumentConverter:
                     }
                 )
     return _docling_converter
+
+
+def ocr_image(image: str | Path | Any) -> str:
+    """Call the optional RapidOCR backend only when an image is parsed."""
+    try:
+        from .rapid_ocr import ocr_image as backend
+    except ImportError:
+        from rapid_ocr import ocr_image as backend
+    return backend(image)
+
+
+def ocr_pdf(path: Path) -> tuple[str, list[dict[str, Any]]]:
+    """Call the optional RapidOCR backend only when a PDF is parsed."""
+    try:
+        from .rapid_ocr import ocr_pdf as backend
+    except ImportError:
+        from rapid_ocr import ocr_pdf as backend
+    return backend(path)
+
+
+def ocr_image_api(path: Path, base_url: str, api_key: str, model: str) -> str:
+    """Call the optional API OCR backend only when it is selected."""
+    try:
+        from .api_ocr import ocr_image_api as backend
+    except ImportError:
+        from api_ocr import ocr_image_api as backend
+    return backend(path, base_url, api_key, model)
+
+
+def ocr_pdf_api(path: Path, base_url: str, api_key: str, model: str) -> tuple[str, list[dict[str, Any]]]:
+    """Call the optional API OCR backend only when it is selected."""
+    try:
+        from .api_ocr import ocr_pdf_api as backend
+    except ImportError:
+        from api_ocr import ocr_pdf_api as backend
+    return backend(path, base_url, api_key, model)
 
 
 def _parse_data_uri(data_uri: str) -> tuple[bytes, str]:
@@ -143,10 +191,71 @@ def _convert_with_docling(
     return markdown
 
 
+def parse_path(
+    path: Path,
+    ocr_engine: str = "rapidocr",
+    api_base_url: str = "",
+    api_key: str = "",
+    api_model: str = "",
+) -> ParseResult:
+    """Parse one supported file without writing protocol output."""
+    if not path.is_file():
+        raise ParserError("PARSER_FILE_NOT_FOUND", "输入文件不存在")
+    if ocr_engine not in {"rapidocr", "api"}:
+        raise ParserError("PARSER_OCR_ENGINE_INVALID", "不支持的 OCR 引擎")
+    if ocr_engine == "api" and not api_base_url:
+        raise ParserError("PARSER_OCR_CONFIG_MISSING", "未配置 OCR API 服务地址")
+
+    suffix = path.suffix.lower()
+    result = ParseResult(metadata={"file_type": suffix})
+    try:
+        if suffix in (".docx", ".pptx", ".xlsx"):
+            picture_recognizer = _build_picture_recognizer(
+                ocr_engine, api_base_url, api_key, api_model
+            )
+            result.markdown = _convert_with_docling(path, result, picture_recognizer)
+            result.metadata["parser"] = "docling"
+        elif suffix == ".pdf":
+            if ocr_engine == "api":
+                result.markdown, result.pages = ocr_pdf_api(path, api_base_url, api_key, api_model)
+                result.metadata["parser"] = "api_ocr"
+            else:
+                result.markdown, result.pages = ocr_pdf(path)
+                result.metadata["parser"] = "rapidocr"
+        elif suffix in IMAGE_EXTENSIONS:
+            if ocr_engine == "api":
+                result.markdown = ocr_image_api(path, api_base_url, api_key, api_model)
+                result.metadata["parser"] = "api_ocr"
+            else:
+                result.markdown = ocr_image(path)
+                result.metadata["parser"] = "rapidocr"
+        else:
+            raise ParserError("PARSER_UNSUPPORTED_TYPE", f"不支持的文档类型: {suffix}")
+    except ParserError:
+        raise
+    except Exception as exc:
+        print(f"parser failed: {exc}", file=sys.stderr)
+        raise ParserError("PARSER_FAILED", "文档解析失败") from exc
+    return result
+
+
+def _parse_request(request: dict[str, Any]) -> dict[str, Any]:
+    result = parse_path(
+        Path(request["input_path"]),
+        request["ocr_engine"],
+        request.get("ocr_api_url", ""),
+        request.get("ocr_api_key", ""),
+        request.get("ocr_api_model", ""),
+    )
+    return asdict(result)
+
+
 def main() -> None:
     """解析命令行参数并执行文档解析,输出 JSON 结果。"""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", required=True)
+    input_mode = parser.add_mutually_exclusive_group(required=True)
+    input_mode.add_argument("--input")
+    input_mode.add_argument("--serve-stdio", action="store_true")
     parser.add_argument(
         "--ocr-engine",
         choices=("rapidocr", "api"),
@@ -157,44 +266,23 @@ def main() -> None:
     parser.add_argument("--ocr-api-key", default="", help="通用 OCR API 访问凭证")
     parser.add_argument("--ocr-api-model", default="", help="通用 OCR API 模型名称")
     args = parser.parse_args()
-    path = Path(args.input)
-    if not path.is_file():
-        fail("PARSER_FILE_NOT_FOUND", "输入文件不存在")
-    if args.ocr_engine == "api" and not args.ocr_api_url:
-        fail("PARSER_OCR_CONFIG_MISSING", "未配置 OCR API 服务地址")
-    suffix = path.suffix.lower()
-    result = ParseResult(metadata={"file_type": suffix})
-    picture_recognizer = _build_picture_recognizer(
-        args.ocr_engine,
-        args.ocr_api_url,
-        args.ocr_api_key,
-        args.ocr_api_model,
-    )
+    if args.serve_stdio:
+        try:
+            from .protocol import serve_stdio
+        except ImportError:
+            from protocol import serve_stdio
+        serve_stdio(_parse_request, sys.stdin, sys.stdout, sys.stderr)
+        return
     try:
-        if suffix in (".docx", ".pptx", ".xlsx"):
-            result.markdown = _convert_with_docling(path, result, picture_recognizer)
-            result.metadata["parser"] = "docling"
-        elif suffix == ".pdf":
-            if args.ocr_engine == "api":
-                result.markdown, result.pages = ocr_pdf_api(path, args.ocr_api_url, args.ocr_api_key, args.ocr_api_model)
-                result.metadata["parser"] = "api_ocr"
-            else:
-                result.markdown, result.pages = ocr_pdf(path)
-                result.metadata["parser"] = "rapidocr"
-        elif suffix in IMAGE_EXTENSIONS:
-            if args.ocr_engine == "api":
-                result.markdown = ocr_image_api(path, args.ocr_api_url, args.ocr_api_key, args.ocr_api_model)
-                result.metadata["parser"] = "api_ocr"
-            else:
-                result.markdown = ocr_image(path)
-                result.metadata["parser"] = "rapidocr"
-        else:
-            fail("PARSER_UNSUPPORTED_TYPE", f"不支持的文档类型: {suffix}")
-    except SystemExit:
-        raise
-    except Exception as exc:
-        print(f"parser failed: {exc}", file=sys.stderr)
-        fail("PARSER_FAILED", "文档解析失败")
+        result = parse_path(
+            Path(args.input),
+            args.ocr_engine,
+            args.ocr_api_url,
+            args.ocr_api_key,
+            args.ocr_api_model,
+        )
+    except ParserError as exc:
+        fail(exc.code, exc.message)
     print(json.dumps(asdict(result), ensure_ascii=False))
 
 
