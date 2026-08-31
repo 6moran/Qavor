@@ -27,9 +27,12 @@ type PythonWorker struct {
 	opts       PythonWorkerOptions
 
 	parseMu sync.Mutex
-	stateMu sync.Mutex
-	closed  bool
-	tasks   int
+	// stdoutReadMu covers every Decode using Cmd.StdoutPipe. Cmd.Wait may only
+	// begin after this lock is available, per os/exec's pipe contract.
+	stdoutReadMu sync.Mutex
+	stateMu      sync.Mutex
+	closed       bool
+	tasks        int
 
 	stdinOnce sync.Once
 	stdinErr  error
@@ -89,6 +92,8 @@ func startPythonWorker(ctx context.Context, opts PythonWorkerOptions) (*PythonWo
 
 	readyCh := make(chan parserReadyRead, 1)
 	go func() {
+		w.stdoutReadMu.Lock()
+		defer w.stdoutReadMu.Unlock()
 		var ready parserReady
 		readyCh <- parserReadyRead{ready: ready, err: w.decoder.Decode(&ready)}
 	}()
@@ -165,6 +170,8 @@ func (w *PythonWorker) Parse(ctx context.Context, input ParseInput) (ParseResult
 
 	responseCh := make(chan parserRead, 1)
 	go func() {
+		w.stdoutReadMu.Lock()
+		defer w.stdoutReadMu.Unlock()
 		var response parserResponse
 		responseCh <- parserRead{response: response, err: w.decoder.Decode(&response)}
 	}()
@@ -204,6 +211,8 @@ type parserReadyRead struct {
 
 func (w *PythonWorker) Close() error {
 	w.markClosed()
+	w.parseMu.Lock()
+	defer w.parseMu.Unlock()
 	closeErr := w.closeStdin()
 	if waitErr := w.wait(); waitErr != nil && !isExpectedProcessExit(waitErr) && closeErr == nil {
 		return waitErr
@@ -254,6 +263,8 @@ func (w *PythonWorker) terminateProcess() {
 func (w *PythonWorker) wait() error {
 	w.waitOnce.Do(func() {
 		go func() {
+			w.stdoutReadMu.Lock()
+			w.stdoutReadMu.Unlock()
 			err := w.cmd.Wait()
 			w.controllerMu.Lock()
 			if w.controller != nil && !w.controllerClosed {

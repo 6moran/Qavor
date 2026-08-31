@@ -22,6 +22,27 @@ def response(request):
         print("not-json", flush=True)
         return
     request_id = request["request_id"]
+    # The Go race test closes stdin after this response has started but before it finishes.
+    if filename == "close-race.pdf":
+        payload = json.dumps(
+            {
+                "type": "result",
+                "version": 1,
+                "request_id": request_id,
+                "ok": True,
+                "result": {"markdown": "x" * (4 * 1024 * 1024)},
+            }
+        )
+        midpoint = len(payload) // 2
+        sys.stdout.write(payload[:midpoint])
+        sys.stdout.flush()
+        marker = os.getenv("QAVOR_TEST_CLOSE_RACE_MARKER")
+        if marker:
+            with open(marker, "w", encoding="utf-8") as marker_file:
+                marker_file.write("response-started")
+        sys.stdout.write(payload[midpoint:] + "\n")
+        sys.stdout.flush()
+        return
     if filename == "wrong-request-id.pdf":
         request_id = "another-request"
     if filename == "long-stderr.pdf":

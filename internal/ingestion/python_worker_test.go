@@ -167,6 +167,75 @@ func TestPythonWorkerStartContextCancellationUnblocksCloseAndActiveParse(t *test
 	}
 }
 
+func TestPythonWorkerConcurrentCloseAfterResponseStarts(t *testing.T) {
+	for attempt := 0; attempt < 20; attempt++ {
+		marker := filepath.Join(t.TempDir(), "response-started")
+		worker := startTestPythonWorkerWithOptions(t, context.Background(), PythonWorkerOptions{
+			ExtraEnv: []string{"QAVOR_TEST_CLOSE_RACE_MARKER=" + marker},
+		})
+
+		parseDone := make(chan error, 1)
+		go func() {
+			result, err := worker.Parse(context.Background(), ParseInput{Filename: "close-race.pdf", Content: []byte("race")})
+			if err == nil && len(result.Markdown) != 4*1024*1024 {
+				err = errors.New("response was truncated during Close")
+			}
+			parseDone <- err
+		}()
+		waitForTestMarker(t, marker)
+
+		closeDone := make(chan error, 1)
+		go func() { closeDone <- worker.Close() }()
+		select {
+		case err := <-parseDone:
+			if err != nil {
+				t.Fatalf("attempt %d parse: %v", attempt, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d Parse did not finish", attempt)
+		}
+		select {
+		case err := <-closeDone:
+			if err != nil {
+				t.Fatalf("attempt %d Close: %v", attempt, err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("attempt %d Close did not finish", attempt)
+		}
+	}
+}
+
+func TestPythonWorkerCloseWaitsForActiveStdoutRead(t *testing.T) {
+	worker := startTestPythonWorker(t)
+	worker.stdoutReadMu.Lock()
+	locked := true
+	defer func() {
+		if locked {
+			worker.stdoutReadMu.Unlock()
+		}
+		worker.forceClose()
+	}()
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- worker.Close() }()
+	select {
+	case err := <-closeDone:
+		t.Fatalf("Close returned before the stdout reader finished: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	worker.stdoutReadMu.Unlock()
+	locked = false
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not resume after stdout read completed")
+	}
+}
+
 func TestPythonWorkerRejectsMismatchedRequestID(t *testing.T) {
 	worker := startTestPythonWorker(t)
 	defer worker.Close()
