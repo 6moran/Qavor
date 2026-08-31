@@ -3,22 +3,27 @@ package ingestion
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"testing"
+	"time"
 )
 
 func startTestPythonWorker(t *testing.T) *PythonWorker {
+	return startTestPythonWorkerWithOptions(t, context.Background(), PythonWorkerOptions{})
+}
+
+func startTestPythonWorkerWithOptions(t *testing.T, ctx context.Context, options PythonWorkerOptions) *PythonWorker {
 	t.Helper()
 	python, err := exec.LookPath("python")
 	if err != nil {
 		t.Skip("python is unavailable: ", err)
 	}
-	worker, err := startPythonWorker(context.Background(), PythonWorkerOptions{
-		PythonPath: python,
-		ScriptPath: filepath.Join("testdata", "stdio_worker.py"),
-	})
+	options.PythonPath = python
+	options.ScriptPath = filepath.Join("testdata", "stdio_worker.py")
+	worker, err := startPythonWorker(ctx, options)
 	if err != nil {
 		t.Fatalf("start worker: %v", err)
 	}
@@ -68,6 +73,100 @@ func TestPythonWorkerDrainsStderrWithoutCorruptingResult(t *testing.T) {
 	}
 }
 
+func TestPythonWorkerDrainsStderrLongerThanScannerToken(t *testing.T) {
+	worker := startTestPythonWorker(t)
+	defer worker.forceClose()
+
+	parseDone := make(chan error, 1)
+	go func() {
+		_, err := worker.Parse(context.Background(), ParseInput{Filename: "long-stderr.pdf", Content: []byte("stderr")})
+		parseDone <- err
+	}()
+
+	select {
+	case err := <-parseDone:
+		if err != nil {
+			t.Fatalf("parse with a long stderr record: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("long stderr output blocked the worker")
+	}
+}
+
+func TestPythonWorkerStartCancellationInterruptsReadyHandshake(t *testing.T) {
+	python, err := exec.LookPath("python")
+	if err != nil {
+		t.Skip("python is unavailable: ", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	marker := filepath.Join(t.TempDir(), "waiting")
+	startDone := make(chan error, 1)
+	go func() {
+		_, err := startPythonWorker(ctx, PythonWorkerOptions{
+			PythonPath: python,
+			ScriptPath: filepath.Join("testdata", "stdio_worker.py"),
+			ExtraEnv:   []string{"QAVOR_STDIO_MODE=no-ready", "QAVOR_TEST_READY_MARKER=" + marker, "QAVOR_TEST_EXIT_AFTER=3"},
+		})
+		startDone <- err
+	}()
+
+	waitForTestMarker(t, marker)
+	cancel()
+	select {
+	case err := <-startDone:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("start error = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancellation did not interrupt the ready handshake")
+	}
+}
+
+func TestPythonWorkerStartContextCancellationUnblocksCloseAndActiveParse(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	marker := filepath.Join(t.TempDir(), "blocked")
+	worker := startTestPythonWorkerWithOptions(t, ctx, PythonWorkerOptions{
+		ExtraEnv: []string{"QAVOR_TEST_BLOCK_MARKER=" + marker},
+	})
+	t.Cleanup(func() {
+		cancel()
+		if worker.cmd != nil && worker.cmd.Process != nil {
+			_ = worker.cmd.Process.Kill()
+		}
+		worker.forceClose()
+	})
+
+	parseDone := make(chan error, 1)
+	go func() {
+		_, err := worker.Parse(context.Background(), ParseInput{Filename: "block.pdf", Content: []byte("block")})
+		parseDone <- err
+	}()
+	waitForTestMarker(t, marker)
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- worker.Close() }()
+	waitForWorkerClosed(t, worker)
+	cancel()
+
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("close error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("context cancellation did not unblock Close")
+	}
+	select {
+	case err := <-parseDone:
+		if !errors.Is(err, ErrPythonWorkerCrashed) {
+			t.Fatalf("parse error = %v, want ErrPythonWorkerCrashed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("context cancellation did not unblock Parse")
+	}
+}
+
 func TestPythonWorkerRejectsMismatchedRequestID(t *testing.T) {
 	worker := startTestPythonWorker(t)
 	defer worker.Close()
@@ -108,6 +207,51 @@ func TestPythonWorkerCloseRejectsNewRequests(t *testing.T) {
 	if !errors.Is(err, ErrPythonWorkerCrashed) {
 		t.Fatalf("error = %v, want ErrPythonWorkerCrashed", err)
 	}
+}
+
+func TestPythonWorkerTracksCompletedTasksForPoolRotation(t *testing.T) {
+	worker := startTestPythonWorkerWithOptions(t, context.Background(), PythonWorkerOptions{MaxTasks: 2})
+	defer worker.Close()
+
+	if worker.reachedMaxTasks() {
+		t.Fatal("new worker should not be ready for rotation")
+	}
+	if _, err := worker.Parse(context.Background(), ParseInput{Filename: "one.pdf", Content: []byte("one")}); err != nil {
+		t.Fatalf("first parse: %v", err)
+	}
+	if worker.reachedMaxTasks() {
+		t.Fatal("worker should not rotate before MaxTasks responses")
+	}
+	if _, err := worker.Parse(context.Background(), ParseInput{Filename: "two.pdf", Content: []byte("two")}); err != nil {
+		t.Fatalf("second parse: %v", err)
+	}
+	if !worker.reachedMaxTasks() {
+		t.Fatal("worker should be ready for pool-managed rotation after MaxTasks responses")
+	}
+}
+
+func waitForTestMarker(t *testing.T, marker string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(marker); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("worker did not create marker %q", marker)
+}
+
+func waitForWorkerClosed(t *testing.T, worker *PythonWorker) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if worker.isClosed() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("Close did not begin")
 }
 
 func pidFromMarkdown(markdown string) string {

@@ -28,10 +28,19 @@ type PythonWorker struct {
 
 	parseMu sync.Mutex
 	stateMu sync.Mutex
-	closeMu sync.Once
 	closed  bool
 	tasks   int
-	done    chan struct{}
+
+	stdinOnce sync.Once
+	stdinErr  error
+	waitOnce  sync.Once
+	waitMu    sync.Mutex
+	waitErr   error
+	waitDone  chan struct{}
+	forceOnce sync.Once
+
+	controllerMu     sync.Mutex
+	controllerClosed bool
 }
 
 func startPythonWorker(ctx context.Context, opts PythonWorkerOptions) (*PythonWorker, error) {
@@ -73,26 +82,37 @@ func startPythonWorker(ctx context.Context, opts PythonWorkerOptions) (*PythonWo
 		encoder:    json.NewEncoder(stdin),
 		controller: controller,
 		opts:       opts,
-		done:       make(chan struct{}),
+		waitDone:   make(chan struct{}),
 	}
 	go drainParserStderr(stderr)
+	w.watchContext(ctx)
 
-	var ready parserReady
-	if err := w.decoder.Decode(&ready); err != nil {
+	readyCh := make(chan parserReadyRead, 1)
+	go func() {
+		var ready parserReady
+		readyCh <- parserReadyRead{ready: ready, err: w.decoder.Decode(&ready)}
+	}()
+	select {
+	case <-ctx.Done():
 		w.forceClose()
-		return nil, parserReadError(err)
+		return nil, ctx.Err()
+	case read := <-readyCh:
+		if read.err != nil {
+			w.forceClose()
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			return nil, parserReadError(read.err)
+		}
+		if err := validateParserReady(read.ready); err != nil {
+			w.forceClose()
+			return nil, err
+		}
 	}
-	if err := validateParserReady(ready); err != nil {
+	if err := ctx.Err(); err != nil {
 		w.forceClose()
 		return nil, err
 	}
-	go func() {
-		select {
-		case <-ctx.Done():
-			w.forceClose()
-		case <-w.done:
-		}
-	}()
 	return w, nil
 }
 
@@ -177,47 +197,80 @@ type parserRead struct {
 	err      error
 }
 
+type parserReadyRead struct {
+	ready parserReady
+	err   error
+}
+
 func (w *PythonWorker) Close() error {
-	var closeErr error
-	w.closeMu.Do(func() {
-		w.markClosed()
-		if w.stdin != nil {
-			if err := w.stdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
-				closeErr = err
-			}
-		}
-		if w.cmd != nil && w.cmd.Process != nil {
-			if err := w.cmd.Wait(); err != nil && !isExpectedProcessExit(err) && closeErr == nil {
-				closeErr = err
-			}
-		}
-		if w.controller != nil {
-			if err := w.controller.close(); err != nil && closeErr == nil {
-				closeErr = err
-			}
-		}
-		close(w.done)
-	})
+	w.markClosed()
+	closeErr := w.closeStdin()
+	if waitErr := w.wait(); waitErr != nil && !isExpectedProcessExit(waitErr) && closeErr == nil {
+		return waitErr
+	}
 	return closeErr
 }
 
 func (w *PythonWorker) forceClose() {
-	w.closeMu.Do(func() {
-		w.markClosed()
+	w.markClosed()
+	_ = w.closeStdin()
+	w.forceOnce.Do(func() { w.terminateProcess() })
+	_ = w.wait()
+}
+
+func (w *PythonWorker) watchContext(ctx context.Context) {
+	go func() {
+		select {
+		case <-ctx.Done():
+			w.forceClose()
+		case <-w.waitDone:
+		}
+	}()
+}
+
+func (w *PythonWorker) closeStdin() error {
+	w.stdinOnce.Do(func() {
 		if w.stdin != nil {
-			_ = w.stdin.Close()
+			if err := w.stdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+				w.stdinErr = err
+			}
 		}
-		if w.controller != nil {
-			_ = w.controller.terminate()
-			_ = w.controller.close()
-		} else if w.cmd != nil && w.cmd.Process != nil {
-			_ = w.cmd.Process.Kill()
-		}
-		if w.cmd != nil && w.cmd.Process != nil {
-			_ = w.cmd.Wait()
-		}
-		close(w.done)
 	})
+	return w.stdinErr
+}
+
+func (w *PythonWorker) terminateProcess() {
+	w.controllerMu.Lock()
+	defer w.controllerMu.Unlock()
+	if w.controller != nil && !w.controllerClosed {
+		_ = w.controller.terminate()
+		return
+	}
+	if w.cmd != nil && w.cmd.Process != nil {
+		_ = w.cmd.Process.Kill()
+	}
+}
+
+func (w *PythonWorker) wait() error {
+	w.waitOnce.Do(func() {
+		go func() {
+			err := w.cmd.Wait()
+			w.controllerMu.Lock()
+			if w.controller != nil && !w.controllerClosed {
+				_ = w.controller.close()
+				w.controllerClosed = true
+			}
+			w.controllerMu.Unlock()
+			w.waitMu.Lock()
+			w.waitErr = err
+			w.waitMu.Unlock()
+			close(w.waitDone)
+		}()
+	})
+	<-w.waitDone
+	w.waitMu.Lock()
+	defer w.waitMu.Unlock()
+	return w.waitErr
 }
 
 func (w *PythonWorker) isClosed() bool {
@@ -261,12 +314,18 @@ func isExpectedProcessExit(err error) bool {
 }
 
 func drainParserStderr(stderr io.Reader) {
-	scanner := bufio.NewScanner(stderr)
-	scanner.Buffer(make([]byte, 4*1024), 1024*1024)
-	for scanner.Scan() {
-		logWarn("Python parser worker", zap.String("stderr", scanner.Text()))
-	}
-	if err := scanner.Err(); err != nil {
-		logWarn("读取 Python parser stderr 失败", zap.Error(err))
+	buffer := make([]byte, 32*1024)
+	for {
+		count, err := stderr.Read(buffer)
+		if count > 0 {
+			logWarn("Python parser worker", zap.ByteString("stderr", buffer[:count]))
+		}
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, io.EOF) {
+			logWarn("读取 Python parser stderr 失败", zap.Error(err))
+		}
+		return
 	}
 }
