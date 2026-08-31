@@ -116,6 +116,28 @@ func TestPythonWorkerPoolRotatesIdleWorkerAfterMaxTasks(t *testing.T) {
 	}
 }
 
+func TestPythonWorkerPoolReturnsWhenMaxTaskReplacementCannotStart(t *testing.T) {
+	pool := newTestPythonPool(t, 1, 1)
+	pool.opts.Worker.ScriptPath = filepath.Join(t.TempDir(), "missing-worker.py")
+	if _, err := pool.Parse(context.Background(), ParseInput{Filename: "one.pdf", Content: []byte("one")}); err != nil {
+		t.Fatalf("completed request before rotation: %v", err)
+	}
+
+	finished := make(chan error, 1)
+	go func() {
+		_, err := pool.Parse(context.Background(), ParseInput{Filename: "two.pdf", Content: []byte("two")})
+		finished <- err
+	}()
+	select {
+	case err := <-finished:
+		if !errors.Is(err, ErrPythonWorkerCrashed) {
+			t.Fatalf("error = %v, want ErrPythonWorkerCrashed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Parse waited for a failed MaxTasks replacement worker")
+	}
+}
+
 func TestPythonWorkerPoolRetriesOneCrashWithReplacement(t *testing.T) {
 	stateDir := t.TempDir()
 	pool := newTestPythonPool(t, 1, 10, "QAVOR_TEST_STATE_DIR="+stateDir)

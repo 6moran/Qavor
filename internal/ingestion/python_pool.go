@@ -24,15 +24,17 @@ type ParserHealth struct {
 // supplies bounded backpressure while the registry lets Health and Close take
 // a coherent snapshot without exposing mutable worker state.
 type PythonWorkerPool struct {
-	ctx  context.Context
-	opts PythonPoolOptions
-	idle chan *PythonWorker
-	done chan struct{}
+	ctx          context.Context
+	opts         PythonPoolOptions
+	idle         chan *PythonWorker
+	done         chan struct{}
+	stateChanged chan struct{}
 
-	mu      sync.Mutex
-	workers map[*PythonWorker]struct{}
-	leased  map[*PythonWorker]struct{}
-	closed  bool
+	mu             sync.Mutex
+	workers        map[*PythonWorker]struct{}
+	leased         map[*PythonWorker]struct{}
+	closed         bool
+	replacementErr error
 }
 
 // NewPythonWorkerPool starts the configured workers. A partial startup keeps
@@ -47,12 +49,13 @@ func NewPythonWorkerPool(ctx context.Context, opts PythonPoolOptions) (*PythonWo
 	}
 
 	p := &PythonWorkerPool{
-		ctx:     ctx,
-		opts:    opts,
-		idle:    make(chan *PythonWorker, opts.Size),
-		done:    make(chan struct{}),
-		workers: make(map[*PythonWorker]struct{}, opts.Size),
-		leased:  make(map[*PythonWorker]struct{}, opts.Size),
+		ctx:          ctx,
+		opts:         opts,
+		idle:         make(chan *PythonWorker, opts.Size),
+		done:         make(chan struct{}),
+		stateChanged: make(chan struct{}, 1),
+		workers:      make(map[*PythonWorker]struct{}, opts.Size),
+		leased:       make(map[*PythonWorker]struct{}, opts.Size),
 	}
 	var lastErr error
 	for range opts.Size {
@@ -139,33 +142,42 @@ func (p *PythonWorkerPool) Close() error {
 }
 
 func (p *PythonWorkerPool) borrow(ctx context.Context) (*PythonWorker, error) {
-	p.mu.Lock()
-	closed := p.closed
-	p.mu.Unlock()
-	if closed {
-		return nil, ErrPythonWorkerCrashed
-	}
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-p.done:
-		return nil, ErrPythonWorkerCrashed
-	case worker := <-p.idle:
+	for {
 		p.mu.Lock()
 		if p.closed {
-			delete(p.workers, worker)
-			p.mu.Unlock()
-			_ = worker.Close()
-			return nil, ErrPythonWorkerCrashed
-		}
-		if _, registered := p.workers[worker]; !registered {
 			p.mu.Unlock()
 			return nil, ErrPythonWorkerCrashed
 		}
-		p.leased[worker] = struct{}{}
+		if len(p.workers) == 0 && p.replacementErr != nil {
+			err := fmt.Errorf("%w: replacement worker start failed: %v", ErrPythonWorkerCrashed, p.replacementErr)
+			p.mu.Unlock()
+			return nil, err
+		}
 		p.mu.Unlock()
-		return worker, nil
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-p.done:
+			return nil, ErrPythonWorkerCrashed
+		case <-p.stateChanged:
+			continue
+		case worker := <-p.idle:
+			p.mu.Lock()
+			if p.closed {
+				delete(p.workers, worker)
+				p.mu.Unlock()
+				_ = worker.Close()
+				return nil, ErrPythonWorkerCrashed
+			}
+			if _, registered := p.workers[worker]; !registered {
+				p.mu.Unlock()
+				return nil, ErrPythonWorkerCrashed
+			}
+			p.leased[worker] = struct{}{}
+			p.mu.Unlock()
+			return worker, nil
+		}
 	}
 }
 
@@ -187,7 +199,9 @@ func (p *PythonWorkerPool) returnWorker(worker *PythonWorker) {
 	}
 	_ = worker.Close()
 	if !closed {
-		_ = p.startAndRegister()
+		if err := p.startAndRegister(); err != nil {
+			p.recordReplacementFailure(err)
+		}
 	}
 }
 
@@ -206,7 +220,10 @@ func (p *PythonWorkerPool) retireWorker(worker *PythonWorker) error {
 	}
 	_ = worker.Close()
 	if !closed {
-		return p.startAndRegister()
+		if err := p.startAndRegister(); err != nil {
+			p.recordReplacementFailure(err)
+			return err
+		}
 	}
 	return nil
 }
@@ -223,9 +240,24 @@ func (p *PythonWorkerPool) startAndRegister() error {
 		return ErrPythonWorkerCrashed
 	}
 	p.workers[worker] = struct{}{}
+	if len(p.workers) == p.opts.Size {
+		p.replacementErr = nil
+	}
 	p.idle <- worker
 	p.mu.Unlock()
 	return nil
+}
+
+func (p *PythonWorkerPool) recordReplacementFailure(err error) {
+	p.mu.Lock()
+	if !p.closed {
+		p.replacementErr = err
+		select {
+		case p.stateChanged <- struct{}{}:
+		default:
+		}
+	}
+	p.mu.Unlock()
 }
 
 func (p *PythonWorkerPool) workerCount() int {
