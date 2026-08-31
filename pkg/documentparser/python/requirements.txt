@@ -1,6 +1,8 @@
 ﻿# 文档解析模块依赖包
 # Office 文档(docx/pptx/xlsx)使用 Docling 转换;图片与 PDF 使用 RapidOCR 识别
 
+-c constraints.txt
+
 docling>=2.68.0                   # Office 文档 -> Markdown
 rapidocr>=3.0.0                   # 图片 OCR(PP-OCRv5)
 onnxruntime>=1.17.0               # RapidOCR 推理引擎(必装,rapidocr 不自动拉取)
