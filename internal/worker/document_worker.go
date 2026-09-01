@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -171,7 +172,8 @@ func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.Docume
 		Path:     file.Path,
 	})
 	if err != nil {
-		return w.failParseJob(job, "PARSER_FAILED", "文档解析失败")
+		code, message := parserFailure(err)
+		return w.failParseJob(job, code, message)
 	}
 
 	object, err := w.storage.UploadReader(
@@ -202,6 +204,14 @@ func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.Docume
 		w.cleanupMarkdownObject(job, oldMarkdown, "Markdown 引用已切换，清理旧对象失败")
 	}
 	return true, nil
+}
+
+func parserFailure(err error) (code, message string) {
+	var parserErr *ingestion.ParserError
+	if errors.As(err, &parserErr) && parserErr.Code != "" && parserErr.Message != "" {
+		return parserErr.Code, parserErr.Message
+	}
+	return "PARSER_FAILED", "文档解析失败"
 }
 
 func (w *DocumentWorker) cleanupMarkdownObject(job *entity.DocumentProcessingJob, path, message string) {

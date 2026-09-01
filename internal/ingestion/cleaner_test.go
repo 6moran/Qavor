@@ -27,6 +27,21 @@ func TestDocumentCleanerGolden(t *testing.T) {
 			want:  "```go\n# not a heading\nfunc main() {}\n```",
 		},
 		{
+			name:  "preserves fenced code whitespace while cleaning prose",
+			input: "正文   \n\n\n```go\nfunc main() {  \n\n\n\treturn\n}\t\n```\n\n\n结尾   ",
+			want:  "正文\n\n```go\nfunc main() {  \n\n\n\treturn\n}\t\n```\n\n结尾",
+		},
+		{
+			name:  "preserves indented code whitespace while cleaning prose",
+			input: "正文   \n\n\n    # code heading   \n    ![]()  \n\n\n    return value\t\n\n结尾   ",
+			want:  "正文\n\n    # code heading   \n    ![]()  \n\n\n    return value\t\n\n结尾",
+		},
+		{
+			name:  "preserves trailing blank line in indented code",
+			input: "    value\n\n",
+			want:  "    value\n\n",
+		},
+		{
 			name:  "preserves footnotes",
 			input: "正文[^1]\n\n[^1]: 保留脚注",
 			want:  "正文[^1]\n\n[^1]: 保留脚注",

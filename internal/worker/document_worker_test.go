@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -36,9 +37,11 @@ func (wFakeQueue) ClaimStale(_ context.Context, _ string, _ time.Duration, _ int
 
 type wFakeJobs struct {
 	repository.DocumentProcessingJobRepository
-	mu      sync.Mutex
-	status  string
-	jobType string
+	mu           sync.Mutex
+	status       string
+	jobType      string
+	errorCode    string
+	errorMessage string
 }
 
 func (f *wFakeJobs) ClaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
@@ -57,10 +60,12 @@ func (f *wFakeJobs) MarkSucceeded(string) error {
 	f.status = entity.JobSucceeded
 	return nil
 }
-func (f *wFakeJobs) MarkFailed(string, string, string) error {
+func (f *wFakeJobs) MarkFailed(_ string, code, message string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.status = entity.JobFailed
+	f.errorCode = code
+	f.errorMessage = message
 	return nil
 }
 
@@ -69,6 +74,8 @@ type wFakeFiles struct {
 	mu            sync.Mutex
 	status        string
 	markdownPath  string
+	originalName  string
+	errorMessage  string
 	failOnStatus  string
 	transitionErr error
 }
@@ -76,11 +83,15 @@ type wFakeFiles struct {
 func (f *wFakeFiles) FindByKBIDAndFileID(string, string) (*entity.KnowledgeFile, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	originalName := f.originalName
+	if originalName == "" {
+		originalName = "test.txt"
+	}
 	return &entity.KnowledgeFile{
 		FileID:           "file-1",
 		KBID:             "kb-1",
 		Path:             "original.txt",
-		OriginalFilename: "test.txt",
+		OriginalFilename: originalName,
 		MarkdownFile:     f.markdownPath,
 		Status:           f.status,
 	}, nil
@@ -93,6 +104,9 @@ func (f *wFakeFiles) TransitionStatus(_ context.Context, _, _ string, _ []string
 		return false, f.transitionErr
 	}
 	f.status = to
+	if v, ok := updates["error_message"]; ok {
+		f.errorMessage = v.(string)
+	}
 	if v, ok := updates["markdown_file"]; ok {
 		f.markdownPath = v.(string)
 	}
@@ -410,6 +424,74 @@ func TestParseJobStopsAtParsedWithoutIndexing(t *testing.T) {
 	}
 	if w.files.(*wFakeFiles).status != entity.FileParsed {
 		t.Fatalf("file status=%q want %q", w.files.(*wFakeFiles).status, entity.FileParsed)
+	}
+}
+
+type workerParserError struct {
+	err error
+}
+
+func (p workerParserError) Parse(context.Context, ingestion.ParseInput) (ingestion.ParseResult, error) {
+	return ingestion.ParseResult{}, p.err
+}
+
+func TestParseJobPersistsSafeParserErrorOrGenericFailure(t *testing.T) {
+	tests := []struct {
+		name        string
+		filename    string
+		content     string
+		python      ingestion.DocumentParser
+		wantCode    string
+		wantMessage string
+	}{
+		{
+			name:        "preserves empty content parser error",
+			filename:    "test.txt",
+			content:     "# \n![]()\n",
+			wantCode:    "PARSER_EMPTY_CONTENT",
+			wantMessage: "文档解析结果为空",
+		},
+		{
+			name:        "preserves python parser error",
+			filename:    "test.pdf",
+			content:     "pdf",
+			python:      workerParserError{err: fmt.Errorf("python failed: %w", &ingestion.ParserError{Code: "PARSER_FILE_NOT_FOUND", Message: "输入文件不存在"})},
+			wantCode:    "PARSER_FILE_NOT_FOUND",
+			wantMessage: "输入文件不存在",
+		},
+		{
+			name:        "uses generic failure for unknown parser error",
+			filename:    "test.pdf",
+			content:     "pdf",
+			python:      workerParserError{err: errors.New("untrusted parser detail")},
+			wantCode:    "PARSER_FAILED",
+			wantMessage: "文档解析失败",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jobs := &wFakeJobs{jobType: entity.JobTypeParse}
+			files := &wFakeFiles{status: entity.FileParseQueued, originalName: tt.filename}
+			worker := &DocumentWorker{
+				queue:   wFakeQueue{},
+				jobs:    jobs,
+				files:   files,
+				storage: &wFakeStorage{content: tt.content},
+				parser:  ingestion.NewParser(tt.python),
+			}
+
+			ack, err := worker.processMessage(context.Background(), documentqueue.Message{JobID: "parse-error"}, "w-1", false)
+			if err != nil || !ack {
+				t.Fatalf("ack=%v err=%v", ack, err)
+			}
+			if jobs.status != entity.JobFailed || jobs.errorCode != tt.wantCode || jobs.errorMessage != tt.wantMessage {
+				t.Fatalf("job failure = status=%q code=%q message=%q, want failed/%q/%q", jobs.status, jobs.errorCode, jobs.errorMessage, tt.wantCode, tt.wantMessage)
+			}
+			if files.status != entity.FileParseFailed || files.errorMessage != tt.wantMessage {
+				t.Fatalf("file failure = status=%q message=%q, want parse_failed/%q", files.status, files.errorMessage, tt.wantMessage)
+			}
+		})
 	}
 }
 

@@ -54,7 +54,11 @@ func removeUnsafeControls(markdown string) (string, error) {
 
 func trimLineEnds(markdown string) (string, error) {
 	lines := strings.Split(markdown, "\n")
+	state := codeBlockState{}
 	for i, line := range lines {
+		if state.contains(line) {
+			continue
+		}
 		lines[i] = strings.TrimRight(line, " \t")
 	}
 	return strings.Join(lines, "\n"), nil
@@ -63,15 +67,14 @@ func trimLineEnds(markdown string) (string, error) {
 func removeEmptyArtifacts(markdown string) (string, error) {
 	lines := strings.Split(markdown, "\n")
 	kept := make([]string, 0, len(lines))
-	inCodeFence := false
+	state := codeBlockState{}
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if isFence(trimmed) {
-			inCodeFence = !inCodeFence
+		if state.contains(line) {
 			kept = append(kept, line)
 			continue
 		}
-		if !inCodeFence && (isEmptyHeading(trimmed) || isEmptyImagePlaceholder(trimmed) || trimmed == "<!-- image -->") {
+		if isEmptyHeading(trimmed) || isEmptyImagePlaceholder(trimmed) || trimmed == "<!-- image -->" {
 			continue
 		}
 		kept = append(kept, line)
@@ -81,6 +84,43 @@ func removeEmptyArtifacts(markdown string) (string, error) {
 
 func isFence(line string) bool {
 	return strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~")
+}
+
+type codeBlockState struct {
+	fenced   bool
+	indented bool
+}
+
+// contains reports whether line belongs to a fenced or indented Markdown code
+// block. Indented blank lines are retained while an indented block is active so
+// formatting rules cannot rewrite code that follows them.
+func (s *codeBlockState) contains(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if s.fenced {
+		if isFence(trimmed) {
+			s.fenced = false
+		}
+		return true
+	}
+	if s.indented {
+		if isIndentedCodeLine(line) || trimmed == "" {
+			return true
+		}
+		s.indented = false
+	}
+	if isIndentedCodeLine(line) {
+		s.indented = true
+		return true
+	}
+	if isFence(trimmed) {
+		s.fenced = true
+		return true
+	}
+	return false
+}
+
+func isIndentedCodeLine(line string) bool {
+	return strings.HasPrefix(line, "\t") || strings.HasPrefix(line, "    ")
 }
 
 func isEmptyHeading(line string) bool {
@@ -113,7 +153,16 @@ func collapseBlankLines(markdown string) (string, error) {
 	lines := strings.Split(markdown, "\n")
 	output := make([]string, 0, len(lines))
 	previousBlank := true
+	lastProtected := false
+	state := codeBlockState{}
 	for _, line := range lines {
+		if state.contains(line) {
+			output = append(output, line)
+			previousBlank = false
+			lastProtected = true
+			continue
+		}
+		lastProtected = false
 		blank := strings.TrimSpace(line) == ""
 		if blank {
 			if previousBlank {
@@ -126,7 +175,7 @@ func collapseBlankLines(markdown string) (string, error) {
 		output = append(output, line)
 		previousBlank = false
 	}
-	if len(output) > 0 && output[len(output)-1] == "" {
+	if len(output) > 0 && output[len(output)-1] == "" && !lastProtected {
 		output = output[:len(output)-1]
 	}
 	return strings.Join(output, "\n"), nil
