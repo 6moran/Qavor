@@ -39,6 +39,47 @@ type DocumentWorker struct {
 	indexer rag.DocumentIndexer                        // RAG 索引器（可选，Embedding 未配置时为 nil）
 }
 
+// inFlightMessages keeps this process from handling the same stream message
+// concurrently through the normal consumer and pending-recovery paths.
+type inFlightMessages struct {
+	mu       sync.Mutex
+	messages map[string]struct{}
+}
+
+func newInFlightMessages() *inFlightMessages {
+	return &inFlightMessages{messages: make(map[string]struct{})}
+}
+
+func (m *inFlightMessages) reserve(message documentqueue.Message) bool {
+	key := message.ID
+	if key == "" {
+		key = message.JobID
+	}
+	if key == "" {
+		return true
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.messages[key]; exists {
+		return false
+	}
+	m.messages[key] = struct{}{}
+	return true
+}
+
+func (m *inFlightMessages) release(message documentqueue.Message) {
+	key := message.ID
+	if key == "" {
+		key = message.JobID
+	}
+	if key == "" {
+		return
+	}
+	m.mu.Lock()
+	delete(m.messages, key)
+	m.mu.Unlock()
+}
+
 // NewDocumentWorker 创建文档处理 Worker 实例。
 func NewDocumentWorker(queue documentqueue.DocumentQueue, jobs repository.DocumentProcessingJobRepository, files repository.KnowledgeFileRepository, storage service.ObjectStorage, parser *ingestion.Parser, indexer rag.DocumentIndexer) *DocumentWorker {
 	return &DocumentWorker{queue: queue, jobs: jobs, files: files, storage: storage, parser: parser, indexer: indexer}
@@ -337,12 +378,13 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 	}
 
 	recoveryCtx, cancelRecovery := context.WithCancel(ctx)
-	recoveredMessages := make(chan documentqueue.Message)
+	recoveredMessages := make(chan documentqueue.Message, options.ConsumerCount)
+	inFlight := newInFlightMessages()
 	var recoveryWG sync.WaitGroup
 	recoveryWG.Add(1)
 	go func() {
 		defer recoveryWG.Done()
-		w.runPendingRecovery(recoveryCtx, workerID, options, recoveredMessages)
+		w.runPendingRecovery(recoveryCtx, workerID, options, recoveredMessages, inFlight)
 	}()
 
 	var consumersWG sync.WaitGroup
@@ -351,7 +393,7 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 		consumersWG.Add(1)
 		go func() {
 			defer consumersWG.Done()
-			w.runConsumer(ctx, consumerID, options, recoveredMessages)
+			w.runConsumer(ctx, consumerID, options, recoveredMessages, inFlight)
 		}()
 	}
 	consumersWG.Wait()
@@ -361,13 +403,11 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 
 // runConsumer continuously receives new queue messages for one unique Redis
 // consumer ID. Pending recovery is intentionally coordinated separately.
-func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, options DocumentWorkerOptions, recoveredMessages <-chan documentqueue.Message) {
+func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, options DocumentWorkerOptions, recoveredMessages <-chan documentqueue.Message, inFlight *inFlightMessages) {
 	for {
 		select {
 		case message := <-recoveredMessages:
-			if err := w.handleMessage(ctx, message, workerID, true); err != nil {
-				logger.Warn("补偿文档处理消息失败", zap.String("job_id", message.JobID), zap.Error(err))
-			}
+			w.handleInFlightMessage(ctx, message, workerID, true, inFlight)
 			continue
 		default:
 		}
@@ -389,14 +429,26 @@ func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, optio
 			}
 			continue
 		}
-		if err := w.handleMessage(ctx, *message, workerID, false); err != nil {
-			logger.Warn("文档处理消息执行失败", zap.String("job_id", message.JobID), zap.Error(err))
+		if !inFlight.reserve(*message) {
+			continue
 		}
+		w.handleInFlightMessage(ctx, *message, workerID, false, inFlight)
+	}
+}
+
+func (w *DocumentWorker) handleInFlightMessage(ctx context.Context, message documentqueue.Message, workerID string, reclaimed bool, inFlight *inFlightMessages) {
+	defer inFlight.release(message)
+	if err := w.handleMessage(ctx, message, workerID, reclaimed); err != nil {
+		if reclaimed {
+			logger.Warn("补偿文档处理消息失败", zap.String("job_id", message.JobID), zap.Error(err))
+			return
+		}
+		logger.Warn("文档处理消息执行失败", zap.String("job_id", message.JobID), zap.Error(err))
 	}
 }
 
 // runPendingRecovery 定期检查并回收处于 Pending 状态超过指定时间的任务。
-func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string, options DocumentWorkerOptions, recoveredMessages chan<- documentqueue.Message) {
+func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string, options DocumentWorkerOptions, recoveredMessages chan<- documentqueue.Message, inFlight *inFlightMessages) {
 	ticker := time.NewTicker(options.PendingCheck)
 	defer ticker.Stop()
 	for {
@@ -412,9 +464,13 @@ func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string
 				continue
 			}
 			for _, message := range messages {
+				if !inFlight.reserve(message) {
+					continue
+				}
 				select {
 				case recoveredMessages <- message:
 				case <-ctx.Done():
+					inFlight.release(message)
 					return
 				}
 			}

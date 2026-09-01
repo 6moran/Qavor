@@ -291,6 +291,50 @@ type quotaStorage struct {
 	max     atomic.Int32
 }
 
+type duplicateRecoveryQueue struct {
+	claimCalls  atomic.Int32
+	claimedMany chan struct{}
+	claimOnce   sync.Once
+	acked       atomic.Int32
+}
+
+func (q *duplicateRecoveryQueue) EnsureGroup(context.Context) error                    { return nil }
+func (q *duplicateRecoveryQueue) Publish(context.Context, documentqueue.Message) error { return nil }
+func (q *duplicateRecoveryQueue) Consume(ctx context.Context, _ string, _ time.Duration) (*documentqueue.Message, error) {
+	select {
+	case <-time.After(time.Millisecond):
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+func (q *duplicateRecoveryQueue) Ack(context.Context, string) error {
+	q.acked.Add(1)
+	return nil
+}
+func (q *duplicateRecoveryQueue) ClaimStale(context.Context, string, time.Duration, int64) ([]documentqueue.Message, error) {
+	calls := q.claimCalls.Add(1)
+	if calls >= 3 {
+		q.claimOnce.Do(func() { close(q.claimedMany) })
+	}
+	if calls > 3 {
+		return nil, nil
+	}
+	return []documentqueue.Message{{ID: "duplicate-recovery-message", JobID: "duplicate-recovery-job"}}, nil
+}
+
+type duplicateRecoveryJobs struct {
+	repository.DocumentProcessingJobRepository
+	reclaimed atomic.Int32
+}
+
+func (j *duplicateRecoveryJobs) ReclaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
+	j.reclaimed.Add(1)
+	return quotaJob(jobID, workerID), nil
+}
+func (*duplicateRecoveryJobs) MarkSucceeded(string) error              { return nil }
+func (*duplicateRecoveryJobs) MarkFailed(string, string, string) error { return nil }
+
 func (s *quotaStorage) Read(path string) (io.ReadCloser, error) {
 	active := s.active.Add(1)
 	for {
@@ -557,6 +601,66 @@ func TestRunLimitsNormalAndRecoveredMessagesToConsumerCount(t *testing.T) {
 	}
 
 	release <- struct{}{}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop after context cancellation")
+	}
+}
+
+func TestRunSkipsStaleClaimsForRecoveryMessageAlreadyInFlight(t *testing.T) {
+	queue := &duplicateRecoveryQueue{claimedMany: make(chan struct{})}
+	jobs := &duplicateRecoveryJobs{}
+	release := make(chan struct{})
+	storage := &blockingStorage{started: make(chan struct{}, 2), release: release}
+	worker := &DocumentWorker{
+		queue:   queue,
+		jobs:    jobs,
+		files:   &quotaFiles{status: map[string]string{"duplicate-recovery-job": entity.FileParseQueued}},
+		storage: storage,
+		parser:  ingestion.NewParser(nil),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		worker.Run(ctx, "consumer", DocumentWorkerOptions{
+			ConsumerCount:  1,
+			PendingCheck:   time.Millisecond,
+			PendingMinIdle: time.Millisecond,
+		})
+	}()
+
+	select {
+	case <-storage.started:
+	case <-time.After(time.Second):
+		t.Fatal("recovered message did not enter processing")
+	}
+	select {
+	case <-queue.claimedMany:
+	case <-time.After(time.Second):
+		t.Fatal("recovery did not perform repeated stale claims while processing was blocked")
+	}
+	if got := jobs.reclaimed.Load(); got != 1 {
+		t.Fatalf("recovered handler entries while first attempt is in flight = %d, want 1", got)
+	}
+
+	release <- struct{}{}
+	select {
+	case <-storage.started:
+		t.Fatal("same recovered message was processed twice")
+	case <-time.After(25 * time.Millisecond):
+	}
+	if got := jobs.reclaimed.Load(); got != 1 {
+		t.Fatalf("recovered handler entries after completion = %d, want 1", got)
+	}
+	if got := queue.acked.Load(); got != 1 {
+		t.Fatalf("acks = %d, want 1", got)
+	}
+
 	cancel()
 	select {
 	case <-done:
