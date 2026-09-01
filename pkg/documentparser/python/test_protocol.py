@@ -1,6 +1,7 @@
 import io
 import importlib
 import json
+import os
 import unittest
 from pathlib import Path
 
@@ -25,8 +26,9 @@ class ServeStdioTests(unittest.TestCase):
         stdin = io.StringIO(parse_request() + "\n")
         stdout = io.StringIO()
         stderr = io.StringIO()
+        parser_result = {"markdown": "hello", "metadata": {"parser": "fake"}}
 
-        serve_stdio(lambda request: {"markdown": "hello", "metadata": {}}, stdin, stdout, stderr)
+        serve_stdio(lambda request: parser_result, stdin, stdout, stderr)
 
         messages = [json.loads(line) for line in stdout.getvalue().splitlines()]
         self.assertEqual(messages[0]["type"], "ready")
@@ -34,6 +36,11 @@ class ServeStdioTests(unittest.TestCase):
         self.assertEqual(messages[1]["request_id"], "r1")
         self.assertTrue(messages[1]["ok"])
         self.assertEqual(messages[1]["result"]["markdown"], "hello")
+        self.assertEqual(
+            messages[1]["result"]["metadata"],
+            {"parser": "fake", "worker_pid": os.getpid()},
+        )
+        self.assertEqual(parser_result, {"markdown": "hello", "metadata": {"parser": "fake"}})
 
     def test_serve_stdio_returns_safe_parser_error(self) -> None:
         stdin = io.StringIO(parse_request() + "\n")

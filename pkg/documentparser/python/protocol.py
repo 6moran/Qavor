@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import traceback
 from collections.abc import Callable
 from typing import Any, TextIO
@@ -73,6 +74,16 @@ def _validate_request(request: Any) -> str | None:
     return None
 
 
+def _serve_result(result: dict[str, Any]) -> dict[str, Any]:
+    """Attach worker-only metadata without changing parser or CLI results."""
+    served_result = dict(result)
+    metadata = result.get("metadata")
+    served_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    served_metadata["worker_pid"] = os.getpid()
+    served_result["metadata"] = served_metadata
+    return served_result
+
+
 def serve_stdio(
     parse_fn: Callable[[dict[str, Any]], dict[str, Any]],
     stdin: TextIO,
@@ -121,7 +132,7 @@ def serve_stdio(
                     "version": PROTOCOL_VERSION,
                     "request_id": request_id,
                     "ok": True,
-                    "result": result,
+                    "result": _serve_result(result),
                 },
             )
         except Exception as exc:  # noqa: BLE001 - parser failures must not stop the worker
