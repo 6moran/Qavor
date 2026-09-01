@@ -195,6 +195,121 @@ func (s *blockingStorage) UploadReader(_, _, _ string, reader io.Reader, _ int64
 	return &service.UploadedObject{Path: "derived/normalized.md"}, nil
 }
 
+type quotaQueue struct {
+	normal           chan documentqueue.Message
+	allowRecovery    chan struct{}
+	recoveryClaimed  chan struct{}
+	recoveryReturned atomic.Bool
+}
+
+func (q *quotaQueue) EnsureGroup(context.Context) error                    { return nil }
+func (q *quotaQueue) Publish(context.Context, documentqueue.Message) error { return nil }
+func (q *quotaQueue) Consume(ctx context.Context, _ string, _ time.Duration) (*documentqueue.Message, error) {
+	select {
+	case message := <-q.normal:
+		return &message, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+func (q *quotaQueue) Ack(context.Context, string) error { return nil }
+func (q *quotaQueue) ClaimStale(ctx context.Context, _ string, _ time.Duration, _ int64) ([]documentqueue.Message, error) {
+	select {
+	case <-q.allowRecovery:
+		if q.recoveryReturned.CompareAndSwap(false, true) {
+			close(q.recoveryClaimed)
+			return []documentqueue.Message{{ID: "recovery-message", JobID: "recovery-job"}}, nil
+		}
+		return nil, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+type quotaJobs struct {
+	repository.DocumentProcessingJobRepository
+}
+
+func (quotaJobs) ClaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
+	return quotaJob(jobID, workerID), nil
+}
+
+func (quotaJobs) ReclaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
+	return quotaJob(jobID, workerID), nil
+}
+
+func quotaJob(jobID, workerID string) *entity.DocumentProcessingJob {
+	return &entity.DocumentProcessingJob{
+		JobID:    jobID,
+		KBID:     "kb-1",
+		FileID:   jobID,
+		WorkerID: workerID,
+		Status:   entity.JobRunning,
+		JobType:  entity.JobTypeParse,
+		Attempt:  1,
+	}
+}
+
+func (quotaJobs) MarkSucceeded(string) error              { return nil }
+func (quotaJobs) MarkFailed(string, string, string) error { return nil }
+
+type quotaFiles struct {
+	repository.KnowledgeFileRepository
+	mu     sync.Mutex
+	status map[string]string
+}
+
+func (f *quotaFiles) FindByKBIDAndFileID(_ string, fileID string) (*entity.KnowledgeFile, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return &entity.KnowledgeFile{
+		KBID:             "kb-1",
+		FileID:           fileID,
+		Path:             fileID + ".txt",
+		OriginalFilename: fileID + ".txt",
+		Status:           f.status[fileID],
+	}, nil
+}
+
+func (f *quotaFiles) TransitionStatus(_ context.Context, _ string, fileID string, from []string, to string, _ map[string]any) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, expected := range from {
+		if f.status[fileID] == expected {
+			f.status[fileID] = to
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+type quotaStorage struct {
+	service.ObjectStorage
+	started chan string
+	release <-chan struct{}
+	active  atomic.Int32
+	max     atomic.Int32
+}
+
+func (s *quotaStorage) Read(path string) (io.ReadCloser, error) {
+	active := s.active.Add(1)
+	for {
+		currentMax := s.max.Load()
+		if active <= currentMax || s.max.CompareAndSwap(currentMax, active) {
+			break
+		}
+	}
+	s.started <- path
+	<-s.release
+	s.active.Add(-1)
+	return io.NopCloser(strings.NewReader("content")), nil
+}
+
+func (s *quotaStorage) UploadReader(_, _, _ string, reader io.Reader, _ int64) (*service.UploadedObject, error) {
+	_, _ = io.ReadAll(reader)
+	return &service.UploadedObject{Path: "derived/normalized.md"}, nil
+}
+
 // --- helpers ---
 
 func parseWorkerFixture() *DocumentWorker {
@@ -348,7 +463,8 @@ func TestRunStartsBoundedConsumersAndOneRecoveryCoordinator(t *testing.T) {
 	consumerIDs := map[string]bool{}
 	for range 2 {
 		select {
-		case consumerIDs[<-queue.consumerIDs] = true:
+		case consumerID := <-queue.consumerIDs:
+			consumerIDs[consumerID] = true
 		case <-time.After(time.Second):
 			t.Fatal("consumer did not start")
 		}
@@ -366,6 +482,81 @@ func TestRunStartsBoundedConsumersAndOneRecoveryCoordinator(t *testing.T) {
 	}
 
 	close(release)
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not stop after context cancellation")
+	}
+}
+
+func TestRunLimitsNormalAndRecoveredMessagesToConsumerCount(t *testing.T) {
+	queue := &quotaQueue{
+		normal:          make(chan documentqueue.Message, 1),
+		allowRecovery:   make(chan struct{}),
+		recoveryClaimed: make(chan struct{}),
+	}
+	queue.normal <- documentqueue.Message{ID: "normal-message", JobID: "normal-job"}
+	release := make(chan struct{})
+	storage := &quotaStorage{started: make(chan string, 2), release: release}
+	worker := &DocumentWorker{
+		queue:   queue,
+		jobs:    quotaJobs{},
+		files:   &quotaFiles{status: map[string]string{"normal-job": entity.FileParseQueued, "recovery-job": entity.FileParseQueued}},
+		storage: storage,
+		parser:  ingestion.NewParser(nil),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer close(release)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		worker.Run(ctx, "consumer", DocumentWorkerOptions{
+			ConsumerCount: 1,
+			PendingCheck:  time.Millisecond,
+		})
+	}()
+
+	select {
+	case path := <-storage.started:
+		if path != "normal-job.txt" {
+			t.Fatalf("first parsed path = %q, want normal-job.txt", path)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("normal message did not enter processing")
+	}
+	close(queue.allowRecovery)
+	select {
+	case <-queue.recoveryClaimed:
+	case <-time.After(time.Second):
+		t.Fatal("recovery message was not claimed")
+	}
+
+	select {
+	case path := <-storage.started:
+		t.Fatalf("recovered message %q began while the sole consumer handled normal work", path)
+	case <-time.After(25 * time.Millisecond):
+	}
+	if got := storage.max.Load(); got != 1 {
+		t.Fatalf("maximum concurrent handlers = %d, want 1", got)
+	}
+
+	release <- struct{}{}
+	select {
+	case path := <-storage.started:
+		if path != "recovery-job.txt" {
+			t.Fatalf("second parsed path = %q, want recovery-job.txt", path)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("recovered message was not handled after the consumer became free")
+	}
+	if got := storage.max.Load(); got != 1 {
+		t.Fatalf("maximum concurrent handlers = %d, want 1", got)
+	}
+
+	release <- struct{}{}
 	cancel()
 	select {
 	case <-done:

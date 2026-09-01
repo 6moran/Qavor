@@ -174,6 +174,7 @@ type App struct {
 	workerStop       context.CancelFunc
 	workerDone       chan struct{}
 	parserPool       *ingestion.PythonWorkerPool
+	closeParserPool  func() error
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
 	evaluationStop   context.CancelFunc
@@ -806,21 +807,7 @@ func (a *App) gracefulShutdown() {
 	if err := a.server.Shutdown(ctx); err != nil {
 		logger.Error("服务器关闭失败", zap.Error(err))
 	}
-	if a.workerStop != nil {
-		a.workerStop()
-	}
-	if a.workerDone != nil {
-		select {
-		case <-a.workerDone:
-		case <-time.After(5 * time.Second):
-			logger.Warn("等待文档处理 Worker 关闭超时")
-		}
-	}
-	if a.parserPool != nil {
-		if err := a.parserPool.Close(); err != nil {
-			logger.Warn("关闭 Python 文档解析进程池失败", zap.Error(err))
-		}
-	}
+	a.shutdownDocumentWorkers(5 * time.Second)
 	if a.runWorkerStop != nil {
 		a.runWorkerStop()
 		logger.Info("Run Worker 已关闭")
@@ -870,6 +857,38 @@ func (a *App) gracefulShutdown() {
 
 	logger.Info("服务器已关闭")
 	logger.Info("=========================================")
+}
+
+// shutdownDocumentWorkers stops document consumers before closing the parser
+// pool. A timeout only reports a stalled worker: it must never release the
+// pool while a consumer can still be using it.
+func (a *App) shutdownDocumentWorkers(waitTimeout time.Duration) {
+	if a.workerStop != nil {
+		a.workerStop()
+	}
+	if a.workerDone != nil {
+		timer := time.NewTimer(waitTimeout)
+		select {
+		case <-a.workerDone:
+			timer.Stop()
+		case <-timer.C:
+			if logger.Initialized() {
+				logger.Warn("等待文档处理 Worker 关闭超时，继续等待以避免提前关闭解析进程池")
+			}
+			<-a.workerDone
+		}
+	}
+	if a.closeParserPool != nil {
+		if err := a.closeParserPool(); err != nil {
+			logger.Warn("关闭 Python 文档解析进程池失败", zap.Error(err))
+		}
+		return
+	}
+	if a.parserPool != nil {
+		if err := a.parserPool.Close(); err != nil {
+			logger.Warn("关闭 Python 文档解析进程池失败", zap.Error(err))
+		}
+	}
 }
 
 // modelResolverAdapter 将 service.ModelService 适配为 shortterm.ModelResolver
