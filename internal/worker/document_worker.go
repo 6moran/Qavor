@@ -336,27 +336,23 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 		)
 	}
 
-	consumerIDs := make([]string, options.ConsumerCount)
-	recoveredMessages := make([]chan documentqueue.Message, options.ConsumerCount)
-	var consumersWG sync.WaitGroup
-	for i := 0; i < options.ConsumerCount; i++ {
-		consumerID := fmt.Sprintf("%s-%d", workerID, i)
-		consumerIDs[i] = consumerID
-		recoveredMessages[i] = make(chan documentqueue.Message)
-		consumersWG.Add(1)
-		go func(consumerID string, recovered <-chan documentqueue.Message) {
-			defer consumersWG.Done()
-			w.runConsumer(ctx, consumerID, recovered, options)
-		}(consumerID, recoveredMessages[i])
-	}
-
 	recoveryCtx, cancelRecovery := context.WithCancel(ctx)
 	var recoveryWG sync.WaitGroup
 	recoveryWG.Add(1)
 	go func() {
 		defer recoveryWG.Done()
-		w.runPendingRecovery(recoveryCtx, consumerIDs, recoveredMessages, options)
+		w.runPendingRecovery(recoveryCtx, workerID, options)
 	}()
+
+	var consumersWG sync.WaitGroup
+	for i := 0; i < options.ConsumerCount; i++ {
+		consumerID := fmt.Sprintf("%s-%d", workerID, i)
+		consumersWG.Add(1)
+		go func() {
+			defer consumersWG.Done()
+			w.runConsumer(ctx, consumerID, options)
+		}()
+	}
 	consumersWG.Wait()
 	cancelRecovery()
 	recoveryWG.Wait()
@@ -364,19 +360,8 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 
 // runConsumer continuously receives new queue messages for one unique Redis
 // consumer ID. Pending recovery is intentionally coordinated separately.
-func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, recovered <-chan documentqueue.Message, options DocumentWorkerOptions) {
+func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, options DocumentWorkerOptions) {
 	for {
-		// Recovery only dispatches to this consumer. Processing it here prevents
-		// pending work from bypassing the configured consumer concurrency limit.
-		select {
-		case message := <-recovered:
-			if err := w.handleMessage(ctx, message, workerID, true); err != nil {
-				logger.Warn("补偿文档处理消息失败", zap.String("job_id", message.JobID), zap.Error(err))
-			}
-			continue
-		default:
-		}
-
 		message, err := w.queue.Consume(ctx, workerID, options.ReadBlock)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -401,18 +386,15 @@ func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, recov
 }
 
 // runPendingRecovery 定期检查并回收处于 Pending 状态超过指定时间的任务。
-func (w *DocumentWorker) runPendingRecovery(ctx context.Context, consumerIDs []string, recoveredMessages []chan documentqueue.Message, options DocumentWorkerOptions) {
+func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string, options DocumentWorkerOptions) {
 	ticker := time.NewTicker(options.PendingCheck)
 	defer ticker.Stop()
-	nextConsumer := 0
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			consumerIndex := nextConsumer % len(consumerIDs)
-			nextConsumer++
-			messages, err := w.queue.ClaimStale(ctx, consumerIDs[consumerIndex], options.PendingMinIdle, options.PendingClaimSize)
+			messages, err := w.queue.ClaimStale(ctx, workerID, options.PendingMinIdle, options.PendingClaimSize)
 			if err != nil {
 				if ctx.Err() == nil {
 					logger.Warn("领取超时文档消息失败", zap.Error(err))
@@ -420,10 +402,8 @@ func (w *DocumentWorker) runPendingRecovery(ctx context.Context, consumerIDs []s
 				continue
 			}
 			for _, message := range messages {
-				select {
-				case recoveredMessages[consumerIndex] <- message:
-				case <-ctx.Done():
-					return
+				if err := w.handleMessage(ctx, message, workerID, true); err != nil {
+					logger.Warn("补偿文档处理消息失败", zap.String("job_id", message.JobID), zap.Error(err))
 				}
 			}
 		}

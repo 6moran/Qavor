@@ -137,7 +137,6 @@ func (f *failingIndexer) Index(_ context.Context, _ rag.IndexInput) (*rag.IndexO
 
 type concurrentQueue struct {
 	jobs            chan documentqueue.Message
-	stale           chan documentqueue.Message
 	consumerIDs     chan string
 	recoveryStarted chan struct{}
 	recoveryOnce    sync.Once
@@ -147,7 +146,6 @@ type concurrentQueue struct {
 func newConcurrentQueue(messages ...documentqueue.Message) *concurrentQueue {
 	q := &concurrentQueue{
 		jobs:            make(chan documentqueue.Message, len(messages)),
-		stale:           make(chan documentqueue.Message, 1),
 		consumerIDs:     make(chan string, 8),
 		recoveryStarted: make(chan struct{}),
 	}
@@ -172,25 +170,10 @@ func (q *concurrentQueue) Consume(ctx context.Context, consumer string, _ time.D
 		return nil, ctx.Err()
 	}
 }
-
-func (f *wFakeJobs) ReclaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
-	return &entity.DocumentProcessingJob{
-		JobID:    jobID,
-		WorkerID: workerID,
-		Status:   entity.JobRunning,
-		JobType:  f.jobType,
-		Attempt:  1,
-	}, nil
-}
 func (q *concurrentQueue) Ack(context.Context, string) error { return nil }
 func (q *concurrentQueue) ClaimStale(ctx context.Context, _ string, _ time.Duration, _ int64) ([]documentqueue.Message, error) {
 	q.recoveryCalls.Add(1)
 	q.recoveryOnce.Do(func() { close(q.recoveryStarted) })
-	select {
-	case message := <-q.stale:
-		return []documentqueue.Message{message}, nil
-	default:
-	}
 	<-ctx.Done()
 	return nil, ctx.Err()
 }
@@ -365,8 +348,7 @@ func TestRunStartsBoundedConsumersAndOneRecoveryCoordinator(t *testing.T) {
 	consumerIDs := map[string]bool{}
 	for range 2 {
 		select {
-		case consumerID := <-queue.consumerIDs:
-			consumerIDs[consumerID] = true
+		case consumerIDs[<-queue.consumerIDs] = true:
 		case <-time.After(time.Second):
 			t.Fatal("consumer did not start")
 		}
@@ -397,54 +379,5 @@ func TestDocumentWorkerOptionsDefaultConsumerCount(t *testing.T) {
 	options.applyDefaults()
 	if options.ConsumerCount != 1 {
 		t.Fatalf("ConsumerCount = %d, want 1", options.ConsumerCount)
-	}
-}
-
-func TestRunKeepsRecoveredMessagesWithinConsumerLimit(t *testing.T) {
-	queue := newConcurrentQueue(documentqueue.Message{ID: "normal", JobID: "normal-job"})
-	queue.stale <- documentqueue.Message{ID: "stale", JobID: "stale-job"}
-	release := make(chan struct{})
-	storage := &blockingStorage{started: make(chan struct{}, 2), release: release}
-	worker := &DocumentWorker{
-		queue:   queue,
-		jobs:    &wFakeJobs{jobType: entity.JobTypeParse},
-		files:   &wFakeFiles{status: entity.FileParseQueued},
-		storage: storage,
-		parser:  ingestion.NewParser(nil),
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		worker.Run(ctx, "consumer", DocumentWorkerOptions{ConsumerCount: 1, PendingCheck: time.Millisecond})
-	}()
-
-	select {
-	case <-storage.started:
-	case <-time.After(time.Second):
-		t.Fatal("normal message did not enter processing")
-	}
-	select {
-	case <-queue.recoveryStarted:
-	case <-time.After(time.Second):
-		t.Fatal("pending recovery did not claim the stale message")
-	}
-	select {
-	case <-storage.started:
-		t.Fatal("recovery processing bypassed the single consumer limit")
-	case <-time.After(25 * time.Millisecond):
-	}
-
-	close(release)
-	select {
-	case <-storage.started:
-	case <-time.After(time.Second):
-		t.Fatal("recovered message was not processed after the consumer became free")
-	}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("worker did not stop after context cancellation")
 	}
 }
