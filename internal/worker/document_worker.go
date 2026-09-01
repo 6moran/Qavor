@@ -405,6 +405,9 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 // consumer ID. Pending recovery is intentionally coordinated separately.
 func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, options DocumentWorkerOptions, recoveredMessages <-chan documentqueue.Message, inFlight *inFlightMessages) {
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case message := <-recoveredMessages:
 			w.handleInFlightMessage(ctx, message, workerID, true, inFlight)

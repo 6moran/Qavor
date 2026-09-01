@@ -669,6 +669,32 @@ func TestRunSkipsStaleClaimsForRecoveryMessageAlreadyInFlight(t *testing.T) {
 	}
 }
 
+func TestRunConsumerDoesNotStartQueuedRecoveryAfterCancellation(t *testing.T) {
+	message := documentqueue.Message{ID: "queued-recovery-message", JobID: "queued-recovery-job"}
+	recoveredMessages := make(chan documentqueue.Message, 1)
+	recoveredMessages <- message
+	inFlight := newInFlightMessages()
+	if !inFlight.reserve(message) {
+		t.Fatal("failed to reserve queued recovery message")
+	}
+	jobs := &duplicateRecoveryJobs{}
+	worker := &DocumentWorker{
+		queue:   wFakeQueue{},
+		jobs:    jobs,
+		files:   &quotaFiles{status: map[string]string{"queued-recovery-job": entity.FileParseQueued}},
+		storage: &wFakeStorage{content: "content"},
+		parser:  ingestion.NewParser(nil),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	worker.runConsumer(ctx, "consumer", DocumentWorkerOptions{}, recoveredMessages, inFlight)
+
+	if got := jobs.reclaimed.Load(); got != 0 {
+		t.Fatalf("queued recovery handlers started after cancellation = %d, want 0", got)
+	}
+}
+
 func TestDocumentWorkerOptionsDefaultConsumerCount(t *testing.T) {
 	options := DocumentWorkerOptions{}
 	options.applyDefaults()
