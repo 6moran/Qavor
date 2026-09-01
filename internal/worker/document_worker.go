@@ -208,10 +208,50 @@ func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.Docume
 
 func parserFailure(err error) (code, message string) {
 	var parserErr *ingestion.ParserError
-	if errors.As(err, &parserErr) && parserErr.Code != "" && parserErr.Message != "" {
+	if errors.As(err, &parserErr) && isSafeParserFailure(parserErr) {
 		return parserErr.Code, parserErr.Message
 	}
 	return "PARSER_FAILED", "文档解析失败"
+}
+
+func isSafeParserFailure(parserErr *ingestion.ParserError) bool {
+	if parserErr == nil {
+		return false
+	}
+	allowedMessages, ok := safeParserFailureMessages[parserErr.Code]
+	if !ok {
+		return false
+	}
+	_, ok = allowedMessages[parserErr.Message]
+	return ok
+}
+
+var safeParserFailureMessages = map[string]map[string]struct{}{
+	"PARSER_EMPTY_CONTENT": {
+		"文档解析结果为空": {},
+	},
+	"PARSER_FILE_NOT_FOUND": {
+		"输入文件不存在":                 {},
+		"document parsing failed": {},
+	},
+	"PARSER_OCR_ENGINE_INVALID": {
+		"不支持的 OCR 引擎":             {},
+		"document parsing failed": {},
+	},
+	"PARSER_OCR_CONFIG_MISSING": {
+		"未配置 OCR API 服务地址":        {},
+		"document parsing failed": {},
+	},
+	"PARSER_UNSUPPORTED_TYPE": {
+		"document parsing failed": {},
+	},
+	"PARSER_PROTOCOL_ERROR": {
+		"invalid protocol request": {},
+	},
+	"PARSER_FAILED": {
+		"文档解析失败":                  {},
+		"document parsing failed": {},
+	},
 }
 
 func (w *DocumentWorker) cleanupMarkdownObject(job *entity.DocumentProcessingJob, path, message string) {

@@ -467,6 +467,30 @@ func TestParseJobPersistsSafeParserErrorOrGenericFailure(t *testing.T) {
 			wantCode:    "PARSER_FAILED",
 			wantMessage: "文档解析失败",
 		},
+		{
+			name:        "uses generic failure for forged parser error message",
+			filename:    "test.pdf",
+			content:     "pdf",
+			python:      workerParserError{err: &ingestion.ParserError{Code: "PARSER_FILE_NOT_FOUND", Message: "C:\\secret\\input.pdf: token=leaked"}},
+			wantCode:    "PARSER_FAILED",
+			wantMessage: "文档解析失败",
+		},
+		{
+			name:        "uses generic failure for forged parser error code",
+			filename:    "test.pdf",
+			content:     "pdf",
+			python:      workerParserError{err: &ingestion.ParserError{Code: "PARSER_INTERNAL_STACK", Message: "文档解析失败"}},
+			wantCode:    "PARSER_FAILED",
+			wantMessage: "文档解析失败",
+		},
+		{
+			name:        "uses generic failure for oversized parser error message",
+			filename:    "test.pdf",
+			content:     "pdf",
+			python:      workerParserError{err: &ingestion.ParserError{Code: "PARSER_FILE_NOT_FOUND", Message: strings.Repeat("x", 4097)}},
+			wantCode:    "PARSER_FAILED",
+			wantMessage: "文档解析失败",
+		},
 	}
 
 	for _, tt := range tests {

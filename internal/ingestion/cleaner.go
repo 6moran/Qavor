@@ -82,13 +82,10 @@ func removeEmptyArtifacts(markdown string) (string, error) {
 	return strings.Join(kept, "\n"), nil
 }
 
-func isFence(line string) bool {
-	return strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~")
-}
-
 type codeBlockState struct {
-	fenced   bool
-	indented bool
+	fenceChar   byte
+	fenceLength int
+	indented    bool
 }
 
 // contains reports whether line belongs to a fenced or indented Markdown code
@@ -96,9 +93,10 @@ type codeBlockState struct {
 // formatting rules cannot rewrite code that follows them.
 func (s *codeBlockState) contains(line string) bool {
 	trimmed := strings.TrimSpace(line)
-	if s.fenced {
-		if isFence(trimmed) {
-			s.fenced = false
+	if s.fenceChar != 0 {
+		if s.isClosingFence(trimmed) {
+			s.fenceChar = 0
+			s.fenceLength = 0
 		}
 		return true
 	}
@@ -112,11 +110,34 @@ func (s *codeBlockState) contains(line string) bool {
 		s.indented = true
 		return true
 	}
-	if isFence(trimmed) {
-		s.fenced = true
+	if fenceChar, fenceLength, ok := openingFence(trimmed); ok {
+		s.fenceChar = fenceChar
+		s.fenceLength = fenceLength
 		return true
 	}
 	return false
+}
+
+func openingFence(line string) (byte, int, bool) {
+	if len(line) < 3 || (line[0] != '`' && line[0] != '~') {
+		return 0, 0, false
+	}
+	length := 1
+	for length < len(line) && line[length] == line[0] {
+		length++
+	}
+	return line[0], length, length >= 3
+}
+
+func (s *codeBlockState) isClosingFence(line string) bool {
+	if len(line) < s.fenceLength || line[0] != s.fenceChar {
+		return false
+	}
+	length := 1
+	for length < len(line) && line[length] == s.fenceChar {
+		length++
+	}
+	return length >= s.fenceLength && strings.TrimSpace(line[length:]) == ""
 }
 
 func isIndentedCodeLine(line string) bool {

@@ -27,6 +27,11 @@ func TestDocumentCleanerGolden(t *testing.T) {
 			want:  "```go\n# not a heading\nfunc main() {}\n```",
 		},
 		{
+			name:  "only closes fenced code with matching complete fence",
+			input: "````go\n```not-a-closing-fence   \n~~~\n```\n``\n# still code   \n![]()  \n`````\n#\n正文   ",
+			want:  "````go\n```not-a-closing-fence   \n~~~\n```\n``\n# still code   \n![]()  \n`````\n正文",
+		},
+		{
 			name:  "preserves fenced code whitespace while cleaning prose",
 			input: "正文   \n\n\n```go\nfunc main() {  \n\n\n\treturn\n}\t\n```\n\n\n结尾   ",
 			want:  "正文\n\n```go\nfunc main() {  \n\n\n\treturn\n}\t\n```\n\n结尾",
