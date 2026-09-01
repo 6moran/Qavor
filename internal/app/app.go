@@ -174,6 +174,7 @@ type App struct {
 	workerStop       context.CancelFunc
 	workerDone       chan struct{}
 	parserPool       *ingestion.PythonWorkerPool
+	closeParserPool  func() error
 	runWorkerStop    context.CancelFunc
 	traceJanitorStop context.CancelFunc
 	evaluationStop   context.CancelFunc
@@ -462,6 +463,7 @@ func (a *App) initDependencies() error {
 			logger.Warn("Python 文档解析进程池未启动，二进制文档解析不可用", zap.Error(err))
 		} else {
 			a.parserPool = parserPool
+			a.closeParserPool = parserPool.Close
 		}
 		parser := ingestion.NewParser(a.parserPool, imgUploader)
 		if a.parserPool != nil {
@@ -806,21 +808,7 @@ func (a *App) gracefulShutdown() {
 	if err := a.server.Shutdown(ctx); err != nil {
 		logger.Error("服务器关闭失败", zap.Error(err))
 	}
-	if a.workerStop != nil {
-		a.workerStop()
-	}
-	if a.workerDone != nil {
-		select {
-		case <-a.workerDone:
-		case <-time.After(5 * time.Second):
-			logger.Warn("等待文档处理 Worker 关闭超时")
-		}
-	}
-	if a.parserPool != nil {
-		if err := a.parserPool.Close(); err != nil {
-			logger.Warn("关闭 Python 文档解析进程池失败", zap.Error(err))
-		}
-	}
+	a.shutdownDocumentWorkers(5 * time.Second)
 	if a.runWorkerStop != nil {
 		a.runWorkerStop()
 		logger.Info("Run Worker 已关闭")
@@ -870,6 +858,36 @@ func (a *App) gracefulShutdown() {
 
 	logger.Info("服务器已关闭")
 	logger.Info("=========================================")
+}
+
+// shutdownDocumentWorkers stops queue intake before closing the parser pool.
+// A timeout is diagnostic only: after logging it we continue waiting so no
+// worker can use the pool while its subprocesses are being torn down.
+func (a *App) shutdownDocumentWorkers(timeout time.Duration) {
+	if a.workerStop != nil {
+		a.workerStop()
+	}
+	if a.workerDone != nil {
+		if timeout > 0 {
+			select {
+			case <-a.workerDone:
+			case <-time.After(timeout):
+				if logger.Initialized() {
+					logger.Warn("等待文档处理 Worker 关闭超时，继续等待以避免与解析进程池并发关闭")
+				}
+				<-a.workerDone
+			}
+		} else {
+			<-a.workerDone
+		}
+	}
+	if a.closeParserPool != nil {
+		if err := a.closeParserPool(); err != nil {
+			if logger.Initialized() {
+				logger.Warn("关闭 Python 文档解析进程池失败", zap.Error(err))
+			}
+		}
+	}
 }
 
 // modelResolverAdapter 将 service.ModelService 适配为 shortterm.ModelResolver
