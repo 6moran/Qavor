@@ -94,7 +94,7 @@ type codeBlockState struct {
 func (s *codeBlockState) contains(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if s.fenceChar != 0 {
-		if s.isClosingFence(trimmed) {
+		if s.isClosingFence(line) {
 			s.fenceChar = 0
 			s.fenceLength = 0
 		}
@@ -130,6 +130,14 @@ func openingFence(line string) (byte, int, bool) {
 }
 
 func (s *codeBlockState) isClosingFence(line string) bool {
+	leadingSpaces := 0
+	for leadingSpaces < len(line) && line[leadingSpaces] == ' ' {
+		leadingSpaces++
+	}
+	if leadingSpaces > 3 {
+		return false
+	}
+	line = line[leadingSpaces:]
 	if len(line) < s.fenceLength || line[0] != s.fenceChar {
 		return false
 	}

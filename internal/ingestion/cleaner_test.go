@@ -32,6 +32,16 @@ func TestDocumentCleanerGolden(t *testing.T) {
 			want:  "````go\n```not-a-closing-fence   \n~~~\n```\n``\n# still code   \n![]()  \n`````\n正文",
 		},
 		{
+			name:  "keeps tab and four-space fence-like lines inside fenced code",
+			input: "```go\n    ```\n\t```\n# still code   \n```\n#\n正文   ",
+			want:  "```go\n    ```\n\t```\n# still code   \n```\n正文",
+		},
+		{
+			name:  "allows three leading spaces before a closing fence",
+			input: "```go\n   ```\n#\n正文",
+			want:  "```go\n   ```\n正文",
+		},
+		{
 			name:  "preserves fenced code whitespace while cleaning prose",
 			input: "正文   \n\n\n```go\nfunc main() {  \n\n\n\treturn\n}\t\n```\n\n\n结尾   ",
 			want:  "正文\n\n```go\nfunc main() {  \n\n\n\treturn\n}\t\n```\n\n结尾",
