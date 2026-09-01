@@ -143,6 +143,7 @@ func (w *DocumentWorker) processMessage(ctx context.Context, message documentque
 
 // processParseJob 处理解析任务：parse_queued -> parsing -> 读取原文件 -> 解析 -> 上传 Markdown -> parsed。
 func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.DocumentProcessingJob, file *entity.KnowledgeFile) (bool, error) {
+	oldMarkdown := file.MarkdownFile
 	ok, err := w.files.TransitionStatus(ctx, job.KBID, job.FileID, []string{entity.FileParseQueued}, entity.FileParsing, nil)
 	if err != nil {
 		return false, err
@@ -175,7 +176,7 @@ func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.Docume
 
 	object, err := w.storage.UploadReader(
 		fmt.Sprintf("knowledge-internal/%s/%s/derived", job.KBID, job.FileID),
-		"normalized.md",
+		fmt.Sprintf("normalized-%s.md", job.JobID),
 		"text/markdown",
 		bytes.NewReader([]byte(parsed.Markdown)),
 		int64(len(parsed.Markdown)),
@@ -186,16 +187,33 @@ func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.Docume
 
 	ok, err = w.files.TransitionStatus(ctx, job.KBID, job.FileID, []string{entity.FileParsing}, entity.FileParsed, map[string]any{"markdown_file": object.Path, "error_message": ""})
 	if err != nil {
+		w.cleanupMarkdownObject(job, object.Path, "切换 Markdown 引用失败，清理新对象失败")
 		return false, err
 	}
 	if !ok {
+		w.cleanupMarkdownObject(job, object.Path, "切换 Markdown 引用失败，清理新对象失败")
 		return w.failParseJob(job, "STATE_CONFLICT", "文件状态冲突，无法完成解析")
 	}
 
 	if err := w.jobs.MarkSucceeded(job.JobID); err != nil {
 		return false, err
 	}
+	if oldMarkdown != "" && oldMarkdown != object.Path {
+		w.cleanupMarkdownObject(job, oldMarkdown, "Markdown 引用已切换，清理旧对象失败")
+	}
 	return true, nil
+}
+
+func (w *DocumentWorker) cleanupMarkdownObject(job *entity.DocumentProcessingJob, path, message string) {
+	if err := w.storage.Delete(path); err != nil && logger.Initialized() {
+		logger.Warn(message,
+			zap.String("job_id", job.JobID),
+			zap.String("kb_id", job.KBID),
+			zap.String("file_id", job.FileID),
+			zap.String("object_path", path),
+			zap.Error(err),
+		)
+	}
 }
 
 // processIndexJob 处理索引任务：index_queued -> indexing -> 读取 Markdown -> RAG 索引 -> indexed。

@@ -101,19 +101,35 @@ func (f *wFakeFiles) TransitionStatus(_ context.Context, _, _ string, _ []string
 
 type wFakeStorage struct {
 	service.ObjectStorage
-	content string
+	content        string
+	objectPath     string
+	uploadFilename string
+	deleted        []string
+	deleteErr      error
+	onDelete       func(string)
 }
 
 func (f *wFakeStorage) Read(path string) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader(f.content)), nil
 }
 
-func (f *wFakeStorage) UploadReader(_, _, _ string, reader io.Reader, _ int64) (*service.UploadedObject, error) {
+func (f *wFakeStorage) UploadReader(_, filename, _ string, reader io.Reader, _ int64) (*service.UploadedObject, error) {
 	_, _ = io.ReadAll(reader)
-	return &service.UploadedObject{Path: "derived/normalized.md"}, nil
+	f.uploadFilename = filename
+	path := f.objectPath
+	if path == "" {
+		path = "derived/normalized.md"
+	}
+	return &service.UploadedObject{Path: path}, nil
 }
 
-func (f *wFakeStorage) Delete(string) error { return nil }
+func (f *wFakeStorage) Delete(path string) error {
+	f.deleted = append(f.deleted, path)
+	if f.onDelete != nil {
+		f.onDelete(path)
+	}
+	return f.deleteErr
+}
 
 type wFakeIndexer struct {
 	calls int
@@ -394,6 +410,65 @@ func TestParseJobStopsAtParsedWithoutIndexing(t *testing.T) {
 	}
 	if w.files.(*wFakeFiles).status != entity.FileParsed {
 		t.Fatalf("file status=%q want %q", w.files.(*wFakeFiles).status, entity.FileParsed)
+	}
+}
+
+func TestParseJobSwitchesMarkdownObjectBeforeDeletingOldObject(t *testing.T) {
+	files := &wFakeFiles{status: entity.FileParseQueued, markdownPath: "derived/old.md"}
+	storage := &wFakeStorage{content: "parsed content", objectPath: "derived/normalized-job-123.md"}
+	worker := &DocumentWorker{
+		queue:   wFakeQueue{},
+		jobs:    &wFakeJobs{jobType: entity.JobTypeParse},
+		files:   files,
+		storage: storage,
+		parser:  ingestion.NewParser(nil),
+	}
+	storage.onDelete = func(path string) {
+		if path == "derived/old.md" && files.markdownPath != "derived/normalized-job-123.md" {
+			t.Fatalf("old object deleted before switch: markdown path = %q", files.markdownPath)
+		}
+	}
+
+	ack, err := worker.processMessage(context.Background(), documentqueue.Message{JobID: "job-123"}, "w-1", false)
+	if err != nil || !ack {
+		t.Fatalf("ack=%v err=%v", ack, err)
+	}
+	if storage.uploadFilename != "normalized-job-123.md" {
+		t.Fatalf("upload filename = %q", storage.uploadFilename)
+	}
+	if files.markdownPath != "derived/normalized-job-123.md" {
+		t.Fatalf("markdown path = %q", files.markdownPath)
+	}
+	if got := strings.Join(storage.deleted, ","); got != "derived/old.md" {
+		t.Fatalf("deleted = %q, want old object only", got)
+	}
+}
+
+func TestParseJobTransitionFailureDeletesNewObjectWithoutDeletingOldObject(t *testing.T) {
+	files := &wFakeFiles{
+		status:        entity.FileParseQueued,
+		markdownPath:  "derived/old.md",
+		failOnStatus:  entity.FileParsed,
+		transitionErr: errors.New("database unavailable"),
+	}
+	storage := &wFakeStorage{content: "parsed content", objectPath: "derived/normalized-job-123.md"}
+	worker := &DocumentWorker{
+		queue:   wFakeQueue{},
+		jobs:    &wFakeJobs{jobType: entity.JobTypeParse},
+		files:   files,
+		storage: storage,
+		parser:  ingestion.NewParser(nil),
+	}
+
+	ack, err := worker.processMessage(context.Background(), documentqueue.Message{JobID: "job-123"}, "w-1", false)
+	if err == nil || ack {
+		t.Fatalf("ack=%v err=%v", ack, err)
+	}
+	if files.markdownPath != "derived/old.md" {
+		t.Fatalf("markdown path = %q, want old path retained", files.markdownPath)
+	}
+	if got := strings.Join(storage.deleted, ","); got != "derived/normalized-job-123.md" {
+		t.Fatalf("deleted = %q, want newly uploaded object only", got)
 	}
 }
 
