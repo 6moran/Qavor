@@ -1,0 +1,8 @@
+{
+  "digital.pdf": ["Qavor 数字 PDF", "结构化表格", "2026"],
+  "scanned.pdf": ["Qavor 扫描 PDF", "OCR 314159"],
+  "with-image.docx": ["DOCX 正文", "图片文字 271828"],
+  "slides.pptx": ["PPTX 标题", "演示正文"],
+  "table.xlsx": ["产品", "数量", "42"],
+  "text-image.png": ["图片 OCR", "161803"]
+}
