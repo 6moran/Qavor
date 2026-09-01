@@ -7,6 +7,12 @@ on:
       - develop
   pull_request:
   workflow_dispatch:
+    inputs:
+      run_real_parser_tests:
+        description: Run Docling and RapidOCR parser integration tests (downloads models on first use)
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -46,6 +52,49 @@ jobs:
 
       - name: Build backend
         run: go build -o /tmp/qavor-api ./cmd/server
+
+      - name: Set up Python for lightweight document parser tests
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            pkg/documentparser/python/constraints.txt
+            pkg/documentparser/python/requirements-test.txt
+
+      - name: Install lightweight document parser test dependencies
+        run: python -m pip install -c pkg/documentparser/python/constraints.txt -r pkg/documentparser/python/requirements-test.txt
+
+      - name: Run lightweight document parser tests
+        run: python -m unittest discover -s pkg/documentparser/python -p "test_*.py" -v
+
+  document-parser-real:
+    name: Document parser real integration (manual)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_real_parser_tests }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            pkg/documentparser/python/constraints.txt
+            pkg/documentparser/python/requirements.txt
+            pkg/documentparser/python/requirements-test.txt
+
+      - name: Install real document parser dependencies
+        run: python -m pip install -c pkg/documentparser/python/constraints.txt -r pkg/documentparser/python/requirements.txt -r pkg/documentparser/python/requirements-test.txt
+
+      - name: Run real document parser integration tests
+        env:
+          QAVOR_REAL_PARSER_TESTS: '1'
+        run: python -m unittest discover -s pkg/documentparser/python -p "test_*.py" -v
 
   frontend:
     name: Frontend

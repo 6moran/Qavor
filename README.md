@@ -208,10 +208,13 @@ pnpm install
 cd ..
 ```
 
-如果需要解析 `.docx`、`.pptx`、`.xlsx`、PDF 或图片，再安装 Python 依赖：
+如果需要解析 `.docx`、`.pptx`、`.xlsx`、PDF 或图片，请在隔离环境中安装 Python 依赖：
 
 ```bash
-python -m pip install -r pkg/documentparser/python/requirements.txt
+python -m venv .tmp/document-parser-venv
+# PowerShell: .\.tmp\document-parser-venv\Scripts\Activate.ps1
+# Bash: source .tmp/document-parser-venv/bin/activate
+python -m pip install -c pkg/documentparser/python/constraints.txt -r pkg/documentparser/python/requirements.txt
 ```
 
 该依赖集合包含 Docling 和 OCR 组件，首次安装及模型下载耗时较长。不使用上述文档解析能力时可以跳过。
@@ -283,9 +286,16 @@ Qavor 先读取 `configs/config.yaml`，再通过进程环境变量和根目录 
 | MinIO | `MINIO_ENDPOINT`、`MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`、`MINIO_BUCKET`、`MINIO_PUBLIC_ENDPOINT` | 文件、附件与解析产物 |
 | RAG | `RAG_CHUNK_TOKENS`、`RAG_CHUNK_OVERLAP_TOKENS`、`RAG_TOP_K` | 分块、召回数量和请求超时等算法默认值 |
 | Trace | `trace.enabled`、`trace.retention_days`、`trace.timeout_minutes` | 链路采集、保留周期和超时判定 |
+| 文档解析 | `document_parser.python_path`、`document_parser.pool_size`、`document_parser.max_tasks_per_worker` | 本地 Python 解析进程路径、池容量（默认 `2`）与每个进程处理任务上限（默认 `100`） |
 | Skill | `app.skills_dir` | Skill 文件目录；留空时使用工作目录下的 `qavor/skills` |
 
 模型 API Key 不写入全局 README 配置。模型连接信息通过系统的模型管理功能保存，并由 Agent 或知识库按模型 ID 选择。
+
+### 文档解析运行边界
+
+二进制文档由 Go 管理固定容量的本地 Python 进程池；子进程使用隐藏的标准输入/输出 JSONL 通信，不监听网络端口。数字 PDF 固定先经 Docling 解析；Docling 失败或没有有效正文时，整份 PDF 才回退到 OCR，绝不按页混合两种结果。清洗只规范格式和已知残片，保留页眉、页脚、页码、代码块、表格、图片 URL 与免责声明。
+
+没有 `document_parser` 的单文档超时配置，也不设置单文档超时：底层 Docling 或 OCR 永久卡住时会占用一个 Worker，需要重启 Qavor 恢复。正常关闭会先停止领取文档任务并等待在途 Worker 退出，再关闭应用创建的 Python 进程。
 
 ## 项目结构
 
