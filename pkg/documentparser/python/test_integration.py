@@ -37,14 +37,20 @@ def real_parser_dependencies_available() -> tuple[bool, str]:
     return True, ""
 
 
-REAL_DEPS_AVAILABLE, REAL_DEPS_SKIP_REASON = real_parser_dependencies_available()
+REAL_PARSER_TESTS_ENABLED = os.getenv("QAVOR_REAL_PARSER_TESTS") == "1"
+if REAL_PARSER_TESTS_ENABLED:
+    REAL_DEPS_AVAILABLE, REAL_DEPS_SKIP_REASON = real_parser_dependencies_available()
+    if not REAL_DEPS_AVAILABLE:
+        raise RuntimeError(
+            "QAVOR_REAL_PARSER_TESTS=1 requires real parser dependencies: "
+            f"{REAL_DEPS_SKIP_REASON}"
+        )
 
 
 @unittest.skipUnless(
-    os.getenv("QAVOR_REAL_PARSER_TESTS") == "1",
+    REAL_PARSER_TESTS_ENABLED,
     "set QAVOR_REAL_PARSER_TESTS=1 to run real parser integration tests",
 )
-@unittest.skipUnless(REAL_DEPS_AVAILABLE, REAL_DEPS_SKIP_REASON)
 class RealParserIntegrationTests(unittest.TestCase):
     def assert_markers(self, filename: str, markdown: str) -> None:
         for marker in EXPECTED[filename]:

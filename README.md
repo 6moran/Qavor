@@ -210,11 +210,18 @@ cd ..
 
 如果需要解析 `.docx`、`.pptx`、`.xlsx`、PDF 或图片，请在隔离环境中安装 Python 依赖：
 
-```bash
+PowerShell：
+
+```powershell
 python -m venv .tmp/document-parser-venv
-# PowerShell: .\.tmp\document-parser-venv\Scripts\Activate.ps1
-# Bash: source .tmp/document-parser-venv/bin/activate
-python -m pip install -c pkg/documentparser/python/constraints.txt -r pkg/documentparser/python/requirements.txt
+& .\.tmp\document-parser-venv\Scripts\python.exe -m pip install -c pkg/documentparser/python/constraints.txt -r pkg/documentparser/python/requirements.txt
+```
+
+Bash：
+
+```bash
+python3 -m venv .tmp/document-parser-venv
+.tmp/document-parser-venv/bin/python -m pip install -c pkg/documentparser/python/constraints.txt -r pkg/documentparser/python/requirements.txt
 ```
 
 该依赖集合包含 Docling 和 OCR 组件，首次安装及模型下载耗时较长。不使用上述文档解析能力时可以跳过。
