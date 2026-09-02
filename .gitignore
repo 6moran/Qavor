@@ -86,3 +86,7 @@ qavor/
 data/
 
 .workbuddy/
+
+.gocache
+.gomodcache
+.gopath\pkg\sumdb\sum.golang.org
