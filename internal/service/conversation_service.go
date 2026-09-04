@@ -52,6 +52,15 @@ func (s *conversationService) CreateConversation(ctx context.Context, req *reque
 		AgentID:  req.AgentID,
 	}
 
+	if req.ToolApprovalMode != "" {
+		md := conversation.ExtraMetadata
+		if md == nil {
+			md = entity.JSON{}
+		}
+		md["tool_approval_mode"] = req.ToolApprovalMode
+		conversation.ExtraMetadata = md
+	}
+
 	if err := s.conversationRepo.Create(ctx, conversation); err != nil {
 		return nil, errors.New(errors.CodeInternalError, "创建会话失败")
 	}
@@ -226,14 +235,6 @@ func (s *conversationService) ArchiveConversation(ctx context.Context, id uint) 
 
 // ClearContext 清空会话上下文（轻量重置：清除短期记忆，保留会话本身）
 func (s *conversationService) ClearContext(ctx context.Context, id uint) error {
-	conversation, err := s.conversationRepo.FindByID(ctx, id)
-	if err != nil {
-		return errors.New(errors.CodeInternalError, "查询会话失败")
-	}
-	if conversation == nil {
-		return errors.New(errors.CodeConversationNotFound, "会话不存在")
-	}
-
 	// 清除 Redis 中的短期记忆
 	if s.shortTermMgr != nil {
 		if err := s.shortTermMgr.ClearMemory(ctx, id); err != nil {

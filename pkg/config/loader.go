@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -70,7 +71,7 @@ func Load(configPath string) (*Config, error) {
 
 	err := godotenv.Load(".env")
 	if err != nil {
-		panic("加载.env失败")
+		log.Printf("[WARN] 加载 .env 文件失败: %v，部分环境变量可能不可用", err)
 	}
 	// 从环境变量覆盖配置
 	// Redis

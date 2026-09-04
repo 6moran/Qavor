@@ -94,21 +94,42 @@ func configuredBuiltinToolNames(cfg *AgentConfig) []string {
 	return names
 }
 
+// availableBuiltinToolNames 返回配置要求且已在注册表中实际存在的内置工具名。
+// 保持配置顺序并去重，避免提示词描述不可用的工具能力。
+func availableBuiltinToolNames(cfg *AgentConfig, registry *tool.Registry) []string {
+	if cfg == nil || registry == nil {
+		return nil
+	}
+	desired := configuredBuiltinToolNames(cfg)
+	result := make([]string, 0, len(desired))
+	seen := make(map[string]struct{}, len(desired))
+	for _, name := range desired {
+		if name == tool.QueryKBToolName && len(cfg.Knowledges) == 0 {
+			continue
+		}
+		if _, duplicate := seen[name]; duplicate || !registry.Has(name) {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	return result
+}
+
 // resolveAgentTools 解析指定配置的内置工具与 MCP 工具。
 // 主智能体与子智能体共用：按各自配置独立解析，互不污染。
 // toolRegistry 为 nil 时跳过内置工具解析（测试/工具不可用场景）。
-func resolveAgentTools(cfg *AgentConfig, mcpManager *mcp.MCPManager, toolRegistry *tool.Registry) ([]einotool.BaseTool, []einotool.BaseTool) {
+func resolveAgentTools(cfg *AgentConfig, mcpManager *mcp.MCPManager, toolRegistry *tool.Registry) ([]einotool.BaseTool, []einotool.BaseTool, []string) {
 	var mcpTools []einotool.BaseTool
 	if len(cfg.MCPServers) > 0 && mcpManager != nil {
 		mcpTools = mcpManager.GetToolsByServers(cfg.MCPServers)
 	}
 	var builtinTools []einotool.BaseTool
-	if toolRegistry != nil {
-		if names := configuredBuiltinToolNames(cfg); len(names) > 0 {
-			builtinTools = toolRegistry.ToEinoToolsByNames(names)
-		}
+	builtinToolNames := availableBuiltinToolNames(cfg, toolRegistry)
+	if len(builtinToolNames) > 0 {
+		builtinTools = toolRegistry.ToEinoToolsByNames(builtinToolNames)
 	}
-	return builtinTools, mcpTools
+	return builtinTools, mcpTools, builtinToolNames
 }
 
 // NewAgent 创建智能体（构造一次，复用）。
@@ -127,17 +148,12 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		return nil, fmt.Errorf("llm is required")
 	}
 
-	// 未配置系统提示词时使用默认提示词，避免 LLM 返回无意义的通用回复
-	if cfg.Instruction == "" {
-		cfg.Instruction = "你是一个智能助手，可以根据用户的问题调用可用的工具来提供帮助。请用中文回答用户的问题。"
+	// 获取实际可用工具，再据此组装能力一致的最终提示词。
+	builtinTools, mcpTools, builtinToolNames := resolveAgentTools(cfg, mcpManager, toolRegistry)
+	instruction := buildMainAgentInstruction(cfg.Instruction, builtinToolNames)
+	if cfg.IsSubagent {
+		instruction = buildSubagentInstruction(cfg.Instruction, builtinToolNames, time.Now())
 	}
-	// 告知主智能体：子智能体可以通过 report_need_input 工具向用户提问，
-	// 需要用户交互的任务（如询问、确认、收集信息）可以完整委托给子智能体，
-	// 主智能体无需在派发前代为提问。
-	cfg.Instruction += "\n\n子智能体具备向用户提问的能力（通过 report_need_input 工具，而非 ask_user）。当你需要让子智能体执行包含用户交互的任务时（例如询问用户信息、确认问题等），子智能体会自动通过 report_need_input 工具向用户提问并等待回答。注意：子智能体使用的是 report_need_input 工具而不是 ask_user，两者功能完全相同只是名称不同。你无需在派发前代为提问，直接在派发给子智能体的任务描述中写明「请使用 report_need_input 工具向用户提问」即可。"
-
-	// 获取工具（主智能体）
-	builtinTools, mcpTools := resolveAgentTools(cfg, mcpManager, toolRegistry)
 
 	// 创建工具过滤中间件（始终注册，低于阈值时直接透传）
 	vectorCfg := RetrievalConfig{
@@ -182,7 +198,7 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		a, err := adk.NewChatModelAgent(context.Background(), &adk.ChatModelAgentConfig{
 			Name:        cfg.Name,
 			Description: cfg.Description,
-			Instruction: cfg.Instruction,
+			Instruction: instruction,
 			Model:       llm,
 			ToolsConfig: adk.ToolsConfig{
 				ToolsNodeConfig: compose.ToolsNodeConfig{
@@ -247,7 +263,7 @@ func NewAgent(cfg *AgentConfig, llm model.ToolCallingChatModel,
 		Name:                   cfg.Name,
 		Description:            cfg.Description,
 		ChatModel:              llm,
-		Instruction:            cfg.Instruction,
+		Instruction:            instruction,
 		ToolsConfig:            adk.ToolsConfig{ToolsNodeConfig: compose.ToolsNodeConfig{Tools: nil, ToolCallMiddlewares: toolErrorMW}},
 		MaxIteration:           maxIteration,
 		WithoutGeneralSubAgent: !enableGeneralSubAgent,
@@ -376,6 +392,36 @@ func ThreadIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// maxTokensOverrideKey 请求级输出上限覆盖的 context key。
+// 用于让模型配置的 MaxOutputTokens 生效：Agent 实例按 slug 缓存复用，
+// 不能直接改共享的 a.config.MaxTokens，因此通过 ctx 按请求传递。
+type maxTokensOverrideKey struct{}
+
+// WithMaxTokensOverride 将请求级 max_tokens 覆盖写入 ctx（>0 才生效，0 表示不覆盖）。
+func WithMaxTokensOverride(ctx context.Context, maxTokens int) context.Context {
+	return context.WithValue(ctx, maxTokensOverrideKey{}, maxTokens)
+}
+
+// maxTokensFromContext 读取请求级覆盖值，<=0 表示无覆盖。
+func maxTokensFromContext(ctx context.Context) int {
+	if v, ok := ctx.Value(maxTokensOverrideKey{}).(int); ok && v > 0 {
+		return v
+	}
+	return 0
+}
+
+// resolveMaxTokens 计算本次执行实际使用的 max_tokens：
+// 优先级 模型配置覆盖（WithMaxTokensOverride）> AgentConfig.MaxTokens > 0（不限制）。
+func (a *Agent) resolveMaxTokens(ctx context.Context) int {
+	if override := maxTokensFromContext(ctx); override > 0 {
+		return override
+	}
+	if a.config.MaxTokens != nil {
+		return *a.config.MaxTokens
+	}
+	return 0
+}
+
 // BuildSessionID 根据 threadID 构建 sessionID
 // 确保 sessionID 生成逻辑一致
 func BuildSessionID(threadID string) string {
@@ -413,8 +459,8 @@ func (a *Agent) execute(ctx context.Context, query string, history ...*schema.Me
 	if a.config.Temperature != nil {
 		modelOpts = append(modelOpts, model.WithTemperature(float32(*a.config.Temperature)))
 	}
-	if a.config.MaxTokens != nil {
-		modelOpts = append(modelOpts, model.WithMaxTokens(*a.config.MaxTokens))
+	if maxTokens := a.resolveMaxTokens(ctx); maxTokens > 0 {
+		modelOpts = append(modelOpts, model.WithMaxTokens(maxTokens))
 	}
 
 	// 创建运行选项
@@ -474,8 +520,8 @@ func (a *Agent) ExecuteIter(ctx context.Context, query string, history ...*schem
 	if a.config.Temperature != nil {
 		modelOpts = append(modelOpts, model.WithTemperature(float32(*a.config.Temperature)))
 	}
-	if a.config.MaxTokens != nil {
-		modelOpts = append(modelOpts, model.WithMaxTokens(*a.config.MaxTokens))
+	if maxTokens := a.resolveMaxTokens(ctx); maxTokens > 0 {
+		modelOpts = append(modelOpts, model.WithMaxTokens(maxTokens))
 	}
 
 	// 创建运行选项

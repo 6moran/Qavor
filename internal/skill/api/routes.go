@@ -20,7 +20,6 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 		skillGroup.POST("/import/prepare", ctrl.PrepareSkillUpload)
 
 		skillGroup.GET("/builtin", ctrl.ListBuiltinSkills)
-		skillGroup.POST("/builtin/sync", ctrl.SyncBuiltinSkills)
 		skillGroup.GET("/:slug", ctrl.GetSkill)
 		skillGroup.PUT("/:slug", ctrl.UpdateSkill)
 		skillGroup.DELETE("/:slug", ctrl.DeleteSkill)

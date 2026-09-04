@@ -24,6 +24,8 @@ type ModelResolver interface {
 	CreateLLMClient(ctx context.Context, modelID uint) (llm.Client, error)
 	// GetContextWindow 获取模型的上下文窗口大小，0 表示使用默认值
 	GetContextWindow(modelID uint) int
+	// GetMaxOutputTokens 获取模型配置的最大输出 Token 数，0 表示未配置
+	GetMaxOutputTokens(modelID uint) int
 }
 
 // llmClientAdapter 将 llm.Client 适配为 LLMClient 接口
@@ -85,7 +87,15 @@ func (m *contextManager) LoadHistory(ctx context.Context, conversationID uint, m
 	// 如果指定了 maxTokens，使用该值裁剪；否则使用默认值
 	var tokenizer *ContextTokenizer
 	if maxTokens > 0 {
-		tokenizer = NewContextTokenizer(maxTokens, m.config.ReserveTokens)
+		// ReserveTokens 联动模型输出上限：输入预算至少为模型配置的 MaxOutputTokens
+		// 预留出输出空间，避免模型配置了更大的输出上限时被 4096 的固定预留压榨输入预算
+		reserveTokens := m.config.ReserveTokens
+		if modelID > 0 && m.modelResolver != nil {
+			if outputCap := m.modelResolver.GetMaxOutputTokens(modelID); outputCap > reserveTokens {
+				reserveTokens = outputCap
+			}
+		}
+		tokenizer = NewContextTokenizer(maxTokens, reserveTokens)
 	} else {
 		tokenizer = m.tokenizer
 	}
@@ -147,7 +157,7 @@ func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistory
 		TotalTokens: m.tokenizer.CountAllTokens(messages),
 	}
 
-	// 加载短期记忆摘要与状态
+	// 加载短期记忆摘要与任务状态
 	if m.shortTermMgr != nil {
 		memory, err := m.shortTermMgr.GetMemory(spanCtx, query.ConversationID)
 		if err != nil {
@@ -156,7 +166,7 @@ func (m *contextManager) FetchContext(ctx context.Context, query *ContextHistory
 			if memory.Summary != "" {
 				window.ShortTermSummary = memory.Summary
 			}
-			window.ShortTermState = renderShortTermState(memory.State)
+			window.ShortTermState = renderTaskState(memory.TaskState)
 		}
 	}
 
@@ -342,20 +352,23 @@ func (m *contextManager) GetShortMemoryContext(ctx context.Context, conversation
 	return m.shortTermMgr.GetContext(ctx, conversationID, maxTokens)
 }
 
-// renderShortTermState 将会话状态渲染为可注入 Prompt 的文本
-func renderShortTermState(state *shortterm.SessionState) string {
+// renderTaskState 将任务状态渲染为可注入 Prompt 的文本
+func renderTaskState(state *shortterm.TaskState) string {
 	if state == nil {
 		return ""
 	}
 	var parts []string
-	if state.Topic != "" {
-		parts = append(parts, "主题: "+state.Topic)
+	if state.Goal != "" {
+		parts = append(parts, "目标: "+state.Goal)
 	}
-	if state.UserIntent != "" {
-		parts = append(parts, "用户意图: "+state.UserIntent)
+	if len(state.CompletedSteps) > 0 {
+		parts = append(parts, "已完成: "+strings.Join(state.CompletedSteps, "; "))
 	}
-	if len(state.KeyEntities) > 0 {
-		parts = append(parts, "关键实体: "+strings.Join(state.KeyEntities, ", "))
+	if len(state.PendingSteps) > 0 {
+		parts = append(parts, "待完成: "+strings.Join(state.PendingSteps, "; "))
+	}
+	if len(state.TechContext) > 0 {
+		parts = append(parts, "技术上下文: "+strings.Join(state.TechContext, ", "))
 	}
 	if len(parts) == 0 {
 		return ""

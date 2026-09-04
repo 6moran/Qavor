@@ -11,8 +11,7 @@ type Conversation struct {
 	ExtraMetadata JSON   `gorm:"type:json;comment:附加元数据" json:"extra_metadata,omitempty"`
 
 	// 关联关系
-	Messages []Message          `gorm:"foreignKey:ConversationID;constraint:OnDelete:CASCADE" json:"messages,omitempty"`
-	Stats    *ConversationStats `gorm:"foreignKey:ConversationID;constraint:OnDelete:CASCADE" json:"stats,omitempty"`
+	Messages []Message `gorm:"foreignKey:ConversationID;constraint:OnDelete:CASCADE" json:"messages,omitempty"`
 }
 
 // TableName 指定表名

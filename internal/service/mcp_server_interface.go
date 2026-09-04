@@ -20,5 +20,4 @@ type MCPServerService interface {
 	TestMCPServerConfig(req *request.CreateMCPServerRequest) (*dto.MCPTestResponse, error)
 	GetMCPServerTools(name string) ([]*dto.MCPToolResponse, error)
 	RefreshMCPServerTools(name string) ([]*dto.MCPToolResponse, error)
-	ToggleMCPServerTool(serverName, toolName string) error
 }

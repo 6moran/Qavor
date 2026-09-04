@@ -181,6 +181,23 @@ export function buildTimelineRows(spans) {
   })
 }
 
+const EXTRA_TIMELINE_BAR_COLORS = {
+  context: '#722ed1',
+  embedding: '#08979c',
+  rerank: '#d4380d'
+}
+
+/**
+ * 返回未包含在基础瀑布样式中的 Span 颜色；错误状态始终使用红色。
+ * @param {string} kind - Span 类型
+ * @param {string} status - Span 状态
+ * @returns {string|undefined}
+ */
+export function timelineBarColor(kind, status) {
+  if (status === 'error') return '#cf1322'
+  return EXTRA_TIMELINE_BAR_COLORS[kind]
+}
+
 /**
  * 收集诊断提示，输出稳定的 code 列表。
  * code: running_span / orphan_span / status_mismatch / dropped_data / slow_queue

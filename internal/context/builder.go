@@ -43,14 +43,14 @@ func (b *ContextBuilder) buildSystemPrompt(window *ContextWindow) string {
 
 	content += fmt.Sprintf("\n\n当前时间：%s", time.Now().Format("2006-01-02 15:04:05"))
 
-	// 注入短期记忆摘要（对话历史的压缩表示）
+	// 注入任务可恢复摘要
 	if window.ShortTermSummary != "" {
-		content += fmt.Sprintf("\n\n[对话历史摘要]\n%s", window.ShortTermSummary)
+		content += fmt.Sprintf("\n\n[任务恢复摘要]\n%s", window.ShortTermSummary)
 	}
 
-	// 注入短期记忆状态（主题/意图/实体）
+	// 注入任务状态（目标/进度/技术上下文）
 	if window.ShortTermState != "" {
-		content += fmt.Sprintf("\n\n[会话状态]\n%s", window.ShortTermState)
+		content += fmt.Sprintf("\n\n[任务状态]\n%s", window.ShortTermState)
 	}
 
 	if window.MemoryContext != "" {

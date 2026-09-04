@@ -33,14 +33,11 @@ func NewMCPServerFileStore(workspace string) (*MCPServerFileStoreImpl, error) {
 
 	// 确定文件路径
 	mcpPath := filepath.Join(workspace, "mcp.json")
-	configPath := filepath.Join(workspace, "config.json")
 
 	if _, err := os.Stat(mcpPath); err == nil {
 		s.filePath = mcpPath
-	} else if _, err := os.Stat(configPath); err == nil {
-		s.filePath = configPath
 	} else {
-		// 两个文件都不存在，创建默认的 mcp.json
+		// 文件不存在，创建默认的 mcp.json
 		s.filePath = mcpPath
 		if err := s.writeDefault(); err != nil {
 			return nil, err
@@ -170,9 +167,6 @@ func (s *MCPServerFileStoreImpl) Update(name string, updates *entity.MCPServerCo
 	// Enabled 字段需要特殊处理，允许设置为 false
 	if updates.Enabled != existing.Enabled {
 		existing.Enabled = updates.Enabled
-	}
-	if updates.DisabledTools != nil {
-		existing.DisabledTools = updates.DisabledTools
 	}
 	existing.UpdatedAt = time.Now().UTC()
 	return s.save()

@@ -22,16 +22,13 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { useInfoStore } from '@/stores/info'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { Clock } from 'lucide-vue-next'
 import dayjs from '@/utils/time'
 
-const infoStore = useInfoStore()
+const branding = { name: 'Qavor', subtitle: '智能体平台' }
 
 const currentTime = ref('')
-
-const branding = computed(() => infoStore.branding)
 
 const updateTime = () => {
   const now = dayjs().tz('Asia/Shanghai')

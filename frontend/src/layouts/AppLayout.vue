@@ -20,7 +20,6 @@ import { useAgentStore } from '@/stores/agent'
 import { useChatThreadsStore } from '@/stores/chatThreads'
 import { useChatUIStore } from '@/stores/chatUI'
 import { useDatabaseStore } from '@/stores/database'
-import { useInfoStore } from '@/stores/info'
 import { useTaskerStore } from '@/stores/tasker'
 import { storeToRefs } from 'pinia'
 
@@ -34,7 +33,6 @@ const agentStore = useAgentStore()
 const chatThreadsStore = useChatThreadsStore()
 const chatUIStore = useChatUIStore()
 const databaseStore = useDatabaseStore()
-const infoStore = useInfoStore()
 const taskerStore = useTaskerStore()
 const { threads, currentThreadId, hasMoreThreads, isLoadingMoreThreads, unreadThreadIds } = storeToRefs(chatThreadsStore)
 
@@ -68,8 +66,7 @@ const getRemoteDatabase = async () => {
 }
 
 onMounted(async () => {
-  // 加载信息配置与知识库数据无依赖，可并行
-  await Promise.all([infoStore.loadInfoConfig(), getRemoteDatabase()])
+  await getRemoteDatabase()
   await initAgentNavigation()
   await getRemoteConfig()
   taskerStore.loadTasks()
@@ -81,9 +78,7 @@ const router = useRouter()
 const activeConversationThreadId = computed(() => {
   return route.path.startsWith('/agent') ? currentThreadId.value : null
 })
-const organizationName = computed(() => {
-  return infoStore.organization.name || infoStore.branding.name || 'Qavor'
-})
+const organizationName = 'Qavor'
 
 // 下面是导航菜单部分，添加智能体项
 const mainList = computed(() => {

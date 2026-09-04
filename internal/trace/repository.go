@@ -7,8 +7,6 @@ import (
 	"Qavor/internal/model/entity"
 )
 
-// —— 新架构类型（Task 2 引入）——
-
 // Span 终态常量（新表 trace_spans 使用）
 const (
 	SpanStatusRunning     = "running"
@@ -53,13 +51,13 @@ type SpanSpec struct {
 	RunID        string      // 业务 Run ID（agent_runs 表主键，异步任务必填）
 	RequestID    string      // 请求 ID（X-Request-Id 头或生成）
 	Kind         string      // 组件类型：llm / tool / retriever / embedding / agent / http / context
-	Operation    string      // 操作名（语义化，如 llm.generate / tool.execute / http.server）
+	Operation    string      // 操作名（面向机器，如 llm.generate / tool.execute / http.server）
 	DisplayName  string      // 展示名（面向人，如模型名 / 工具名 / Agent slug）
 	InputSummary string      // 输入摘要（脱敏截断后，如 prompt 摘要 / 工具参数 / 检索 query）
 	Attributes   entity.JSON // 自定义属性（jsonb，如 temperature / model / http.method）
 }
 
-// RequestMeta HTTP 请求元信息（Middleware 创建 HTTP Span 时使用）
+// RequestMeta HTTP 请求元信息（Middleware 创建 HTTP Span 时使用，即创建根Span使用）
 // 由 gin 中间件从请求头和路由信息中提取，用于构建 http.server span 和 TraceRecord
 type RequestMeta struct {
 	TraceID        string // 外部传入的 TraceID（X-Trace-Id 头，必须是合法 UUID），为空时自动生成
@@ -106,7 +104,7 @@ type TraceFilter struct {
 	PageSize       int       // 每页数量（默认 20，最大 100）
 }
 
-// TraceSummary 列表项聚合摘要（对应 TraceListView 的一行数据）
+// TraceSummary 列表项聚合摘要（对应 TraceListView 的响应参数）
 // 由 TraceRepository.ListTraces() 聚合计算，消除了 N+1 查询问题
 // 只为含 agent.run span 的 trace 生成列表项（过滤掉没有根的零碎 span）
 type TraceSummary struct {

@@ -288,7 +288,6 @@
                       v-for="tool in filteredTools"
                       :key="tool.name"
                       class="tool-card"
-                      :class="{ disabled: !tool.enabled }"
                     >
                       <div class="tool-header">
                         <div class="tool-info">
@@ -298,12 +297,6 @@
                           </a-tooltip>
                         </div>
                         <div class="tool-actions">
-                          <a-switch
-                            :checked="tool.enabled"
-                            @change="handleToggleTool(tool)"
-                            :loading="toggleToolLoading === tool.name"
-                            size="small"
-                          />
                           <a-tooltip title="复制工具名称">
                             <a-button
                               type="text"
@@ -394,7 +387,6 @@ const tools = ref([])
 const toolsLoading = ref(false)
 const toolsError = ref(null)
 const toolSearchText = ref('')
-const toggleToolLoading = ref(null)
 
 const isEditing = ref(false)
 const editLoading = ref(false)
@@ -578,25 +570,6 @@ const fetchTools = async () => {
     tools.value = []
   } finally {
     toolsLoading.value = false
-  }
-}
-
-const handleToggleTool = async (tool) => {
-  if (!server.value) return
-  try {
-    toggleToolLoading.value = tool.name
-    const result = await mcpApi.toggleMcpServerTool(server.value.name, tool.name)
-    if (result.success) {
-      message.success(result.message)
-      const targetTool = tools.value.find((t) => t.name === tool.name)
-      if (targetTool) targetTool.enabled = result.enabled
-    } else {
-      message.error(result.message || '操作失败')
-    }
-  } catch (err) {
-    message.error(err.message || '操作失败')
-  } finally {
-    toggleToolLoading.value = null
   }
 }
 
@@ -816,10 +789,6 @@ onMounted(() => {
 
       &:hover {
         border-color: var(--gray-200);
-      }
-
-      &.disabled {
-        opacity: 0.6;
       }
 
       .tool-header {

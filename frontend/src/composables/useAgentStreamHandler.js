@@ -101,13 +101,18 @@ export function useAgentStreamHandler({
       case 'init':
         {
           const resolvedRequestId = request_id || threadState.pendingRequestId
+          const originalClientId = threadState.originalClientId
+          console.log('[init] resolvedRequestId:', resolvedRequestId, 'originalClientId:', originalClientId)
           if (resolvedRequestId) {
             threadState.pendingRequestId = resolvedRequestId
           }
           if (resolvedRequestId && msg && msg.type !== 'system') {
-            const localHumanMessage = threadState.onGoingConv.msgChunks[resolvedRequestId]?.find(
+            // 获取当前消息槽中的消息（可能是用户发送的乐观消息）
+            const currentMessages = threadState.onGoingConv.msgChunks[resolvedRequestId] || []
+            const localHumanMessage = currentMessages.find(
               (item) => item?.type === 'human' || item?.role === 'user'
             )
+
             const initMessage = {
               ...msg,
               id: msg?.id || resolvedRequestId,
@@ -116,11 +121,52 @@ export function useAgentStreamHandler({
                 request_id: resolvedRequestId
               }
             }
+
+            // 保留本地用户消息的图片内容
             if (localHumanMessage?.image_content && !initMessage.image_content) {
               initMessage.message_type = localHumanMessage.message_type || initMessage.message_type
               initMessage.image_content = localHumanMessage.image_content
             }
-            threadState.onGoingConv.msgChunks[resolvedRequestId] = [initMessage]
+
+            // 如果存在原始的 clientRequestId，需要处理消息合并
+            if (originalClientId && originalClientId !== resolvedRequestId) {
+              const originalMessages = threadState.onGoingConv.msgChunks[originalClientId] || []
+              const originalHumanMessage = originalMessages.find(
+                (item) => item?.type === 'human' || item?.role === 'user'
+              )
+
+              // 检查是否是重复的用户消息（内容相同）
+              const isDuplicateUserMessage =
+                originalHumanMessage &&
+                initMessage.type === 'human' &&
+                originalHumanMessage.content === initMessage.content
+
+              console.log('[init] message merge:', {
+                originalClientId,
+                resolvedRequestId,
+                hasOriginalHumanMessage: !!originalHumanMessage,
+                initMessageType: initMessage.type,
+                isDuplicateUserMessage
+              })
+
+              if (isDuplicateUserMessage) {
+                // 如果是重复的用户消息，直接使用服务器返回的消息（更新 ID）
+                threadState.onGoingConv.msgChunks[resolvedRequestId] = [initMessage]
+              } else if (originalHumanMessage && initMessage.type !== 'human') {
+                // 如果原始消息槽中有用户消息，但 initMessage 是 AI 消息，则保留用户消息
+                threadState.onGoingConv.msgChunks[resolvedRequestId] = [originalHumanMessage, initMessage]
+              } else {
+                // 其他情况，直接使用 initMessage
+                threadState.onGoingConv.msgChunks[resolvedRequestId] = [initMessage]
+              }
+              // 清理原始消息槽
+              delete threadState.onGoingConv.msgChunks[originalClientId]
+            } else {
+              threadState.onGoingConv.msgChunks[resolvedRequestId] = [initMessage]
+            }
+
+            // 清理 originalClientId
+            threadState.originalClientId = null
           }
           threadState.replyLoadingVisible = true
           threadState.contextCompressing = false
@@ -139,6 +185,25 @@ export function useAgentStreamHandler({
               ...(chunk.request_id ? { request_id: chunk.request_id } : {}),
               ...(threadId ? { thread_id: threadId } : {})
             }
+
+            // 检查是否是用户发送的消息（通过 content 匹配）
+            const originalClientId = threadState.originalClientId
+            const isUserMessage = messageChunk.type === 'human' || messageChunk.role === 'user'
+
+            if (isUserMessage && originalClientId) {
+              // 查找原始消息槽中的用户消息
+              const originalMessages = threadState.onGoingConv.msgChunks[originalClientId] || []
+              const originalHumanMessage = originalMessages.find(
+                (item) => item?.type === 'human' || item?.role === 'user'
+              )
+
+              // 如果是重复的用户消息（内容相同），直接跳过，避免重复显示
+              if (originalHumanMessage && originalHumanMessage.content === messageChunk.content) {
+                console.log('[loading] skip duplicate user message:', messageChunk.content)
+                return false
+              }
+            }
+
             if (streamSmoother) {
               streamSmoother.pushChunk(messageChunk, threadId)
             } else {

@@ -19,12 +19,18 @@ import (
 // 当前策略（P0 阶段，单用户/规模小）：全量拉取活跃记忆，按重要性排序，截断到 maxTokens
 // P2 升级：pgvector 语义检索 top-K + 偏好类全量保底
 type Manager struct {
-	logger        *zap.Logger
-	repo          repository.LongTermMemoryRepository
-	extractor     *Extractor
-	maxItems      int  // 召回最大条目
-	maxTokens     int  // 注入 Prompt 最大 Token 数
-	defaultUserID uint // JWT 尚未带 UserID 时使用的默认 user（0 表示全局匿名）
+	logger         *zap.Logger
+	repo           repository.LongTermMemoryRepository
+	extractor      *Extractor
+	maxItems       int    // 召回最大条目
+	maxTokens      int    // 注入 Prompt 最大 Token 数
+	defaultUserID  uint   // JWT 尚未带 UserID 时使用的默认 user（0 表示全局匿名）
+	onMemoryChange func() // 记忆变更回调（如清空 Agent 指令缓存，使全局记忆及时生效）
+}
+
+// SetMemoryChangeCallback 设置记忆变更回调（记忆写入/更新后触发）
+func (m *Manager) SetMemoryChangeCallback(callback func()) {
+	m.onMemoryChange = callback
 }
 
 // Config Manager 配置
@@ -103,8 +109,8 @@ func (m *Manager) ExtractAfterTurn(
 		}
 		storeCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
-		if err := m.repo.StoreBatch(storeCtx, entities); err != nil {
-			m.logger.Warn("长期记忆批量入库失败", zap.Uint("user_id", uid), zap.Error(err))
+		if err := m.storeWithUpdate(storeCtx, entities); err != nil {
+			m.logger.Warn("长期记忆入库失败", zap.Uint("user_id", uid), zap.Error(err))
 			return
 		}
 		m.logger.Debug("长期记忆入库成功",
@@ -113,6 +119,125 @@ func (m *Manager) ExtractAfterTurn(
 			zap.Uint("conv", conversationID),
 		)
 	})
+}
+
+// storeWithUpdate 智能存储：检查是否存在相似记忆，决定更新/合并/新建
+func (m *Manager) storeWithUpdate(ctx context.Context, items []*entity.LongTermMemory) error {
+	for _, newItem := range items {
+		// 1. 精确匹配：完全相同的内容
+		existing, err := m.repo.FindByContent(ctx, newItem.UserID, newItem.Category, newItem.Content)
+		if err != nil {
+			m.logger.Warn("查询精确匹配失败", zap.Error(err))
+			// 降级：直接创建
+			if err := m.repo.Store(ctx, newItem); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if existing != nil {
+			// 精确匹配存在：更新（取更高的 importance/confidence）
+			if newItem.Importance > existing.Importance {
+				existing.Importance = newItem.Importance
+			}
+			if newItem.Confidence > existing.Confidence {
+				existing.Confidence = newItem.Confidence
+			}
+			existing.SourceConversationID = newItem.SourceConversationID
+			existing.SourceRunID = newItem.SourceRunID
+			existing.IsSuppressed = false // 取消压制（如果之前被压制）
+			if err := m.repo.Update(ctx, existing); err != nil {
+				return err
+			}
+			m.logger.Debug("长期记忆精确匹配更新",
+				zap.Uint("id", existing.ID),
+				zap.String("content", existing.Content),
+			)
+			continue
+		}
+
+		// 2. 相似匹配：检查是否存在相似记忆（同类别 + 内容包含关系）
+		similar, err := m.repo.FindSimilar(ctx, newItem.UserID, newItem.Category, newItem.Content)
+		if err != nil {
+			m.logger.Warn("查询相似记忆失败", zap.Error(err))
+			// 降级：直接创建
+			if err := m.repo.Store(ctx, newItem); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if len(similar) > 0 {
+			// 找到最相似的记忆
+			bestMatch := &similar[0]
+
+			// 判断是否需要 Supersede（新记忆取代旧记忆）
+			if m.shouldSupersede(bestMatch, newItem) {
+				// 旧记忆被新记忆取代
+				if err := m.repo.Supersede(ctx, bestMatch.ID, newItem); err != nil {
+					return err
+				}
+				m.logger.Debug("长期记忆 Supersede",
+					zap.Uint("old_id", bestMatch.ID),
+					zap.String("old_content", bestMatch.Content),
+					zap.String("new_content", newItem.Content),
+				)
+				continue
+			}
+
+			// 否则：合并（更新旧记忆的属性）
+			if newItem.Importance > bestMatch.Importance {
+				bestMatch.Importance = newItem.Importance
+			}
+			if newItem.Confidence > bestMatch.Confidence {
+				bestMatch.Confidence = newItem.Confidence
+			}
+			bestMatch.SourceConversationID = newItem.SourceConversationID
+			bestMatch.SourceRunID = newItem.SourceRunID
+			bestMatch.IsSuppressed = false
+			if err := m.repo.Update(ctx, bestMatch); err != nil {
+				return err
+			}
+			m.logger.Debug("长期记忆合并更新",
+				zap.Uint("id", bestMatch.ID),
+				zap.String("content", bestMatch.Content),
+			)
+			continue
+		}
+
+		// 3. 无匹配：创建新记忆
+		if err := m.repo.Store(ctx, newItem); err != nil {
+			return err
+		}
+		m.logger.Debug("长期记忆新建",
+			zap.String("category", newItem.Category),
+			zap.String("content", newItem.Content),
+		)
+	}
+
+	// 记忆发生实际变更，触发回调（如清空 Agent 指令缓存，使全局长期记忆及时生效）
+	if m.onMemoryChange != nil {
+		m.onMemoryChange()
+	}
+
+	return nil
+}
+
+// shouldSupersede 判断是否应该用新记忆取代旧记忆
+// 规则非常保守：只有当新旧内容完全相同时才 Supersede
+// 避免误合并不同语义的记忆
+func (m *Manager) shouldSupersede(old *entity.LongTermMemory, new *entity.LongTermMemory) bool {
+	// 必须完全相同的内容才考虑 Supersede
+	if old.Content != new.Content {
+		return false
+	}
+
+	// 新记忆重要性必须 >= 旧记忆
+	if new.Importance < old.Importance {
+		return false
+	}
+
+	return true
 }
 
 // ---------- 召回 + 渲染为 Prompt 文本 ----------

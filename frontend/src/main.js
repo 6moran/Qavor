@@ -17,9 +17,4 @@ app.use(pinia)
 app.use(router)
 app.use(Antd)
 
-// 预加载信息配置
-import { useInfoStore } from '@/stores/info'
-const infoStore = useInfoStore()
-infoStore.loadInfoConfig()
-
 app.mount('#app')

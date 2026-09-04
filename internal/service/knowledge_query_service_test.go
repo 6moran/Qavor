@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"Qavor/internal/embedding"
 	"Qavor/internal/llm"
 	"Qavor/internal/model/dto/request"
 	dto "Qavor/internal/model/dto/response"
@@ -138,6 +139,9 @@ func (m *querySvcModelService) GetModelWithDecryptedKey(uint) (*entity.Model, er
 func (m *querySvcModelService) CreateLLMClient(context.Context, uint) (llm.Client, error) {
 	return nil, errors.New("not used")
 }
+func (m *querySvcModelService) CreateEmbeddingClient(context.Context, uint) (embedding.Client, error) {
+	return nil, errors.New("not used")
+}
 func (m *querySvcModelService) ResolveEmbedding(context.Context, uint) (einoEmbedding.Embedder, error) {
 	return nil, errors.New("not used")
 }
@@ -161,6 +165,7 @@ func (m *querySvcModelService) SetModelConfigChangeCallback(func(modelID string)
 func (m *querySvcModelService) GetModelInfo(uint) (string, string, int, bool) {
 	return "", "", 0, false
 }
+func (m *querySvcModelService) GetMaxOutputTokens(uint) int { return 0 }
 
 // ---------- mock: Eino ChatModel ----------
 

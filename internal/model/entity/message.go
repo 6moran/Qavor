@@ -17,9 +17,8 @@ type Message struct {
 	IsFinished       bool   `gorm:"not null;default:true;comment:是否完整输出（false=用户取消/中断的半截内容）" json:"is_finished"`
 
 	// 关联关系
-	Conversation *Conversation     `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`
-	ToolCalls    []ToolCall        `gorm:"foreignKey:MessageID;constraint:OnDelete:CASCADE" json:"tool_calls,omitempty"`
-	Feedbacks    []MessageFeedback `gorm:"foreignKey:MessageID;constraint:OnDelete:CASCADE" json:"feedbacks,omitempty"`
+	Conversation *Conversation `gorm:"foreignKey:ConversationID" json:"conversation,omitempty"`
+	ToolCalls    []ToolCall    `gorm:"foreignKey:MessageID;constraint:OnDelete:CASCADE" json:"tool_calls,omitempty"`
 }
 
 // TableName 指定表名

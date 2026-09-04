@@ -25,47 +25,54 @@ func NewParser(python DocumentParser, images ...ImageUploader) *Parser {
 
 func (p *Parser) Parse(ctx context.Context, input ParseInput) (ParseResult, error) {
 	ext := strings.ToLower(filepath.Ext(input.Filename))
+	var result ParseResult
 	switch ext {
 	case ".txt", ".md":
-		markdown := normalizeText(string(input.Content))
+		markdown := string(input.Content)
 		if ext == ".md" {
 			markdown = ReplaceDataURILinks(markdown, DeriveImageFolder(input.Path), p.images)
 		}
-		return ParseResult{Markdown: markdown}, nil
+		result = ParseResult{Markdown: markdown}
 	case ".docx", ".pptx", ".xlsx", ".pdf", ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif":
 		if p.python == nil {
 			return ParseResult{}, fmt.Errorf("未配置文档解析器")
 		}
 		// 图片回填与临时目录清理由 Python 解析器内部完成。
-		return p.python.Parse(ctx, input)
+		var err error
+		result, err = p.python.Parse(ctx, input)
+		if err != nil {
+			return ParseResult{}, err
+		}
 	default:
 		return ParseResult{}, fmt.Errorf("不支持的文件格式: %s", filepath.Ext(input.Filename))
 	}
+	return finalizeParseResult(result)
 }
 
-func normalizeText(input string) string {
-	input = strings.ReplaceAll(input, "\r\n", "\n")
-	input = strings.ReplaceAll(input, "\r", "\n")
-	lines := strings.Split(input, "\n")
-	output := make([]string, 0, len(lines))
-	empty := false
-	for _, line := range lines {
-		line = strings.Map(func(r rune) rune {
-			if unicode.IsControl(r) && r != '\t' {
-				return -1
-			}
-			return r
-		}, line)
-		line = strings.TrimSpace(line)
-		if line == "" {
-			if !empty && len(output) > 0 {
-				output = append(output, "")
-			}
-			empty = true
-			continue
-		}
-		output = append(output, line)
-		empty = false
+func finalizeParseResult(result ParseResult) (ParseResult, error) {
+	if !hasVisibleContent(result.Markdown) {
+		return ParseResult{}, &ParserError{Code: "PARSER_EMPTY_CONTENT", Message: "文档解析结果为空"}
 	}
-	return strings.TrimSpace(strings.Join(output, "\n"))
+	cleaned := (DocumentCleaner{}).Clean(result.Markdown)
+	result.Markdown = cleaned.Markdown
+	if result.Metadata == nil {
+		result.Metadata = make(map[string]any)
+	}
+	if cleaned.Degraded {
+		result.Metadata["cleaner_degraded"] = true
+	}
+	return result, nil
+}
+
+func hasVisibleContent(markdown string) bool {
+	withoutArtifacts, err := removeEmptyArtifacts(markdown)
+	if err != nil {
+		withoutArtifacts = markdown
+	}
+	for _, r := range withoutArtifacts {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
 }

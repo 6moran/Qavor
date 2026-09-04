@@ -442,10 +442,11 @@ export const threadApi = {
    * @param {Object} metadata - 元数据
    * @returns {Promise} - 创建结果
    */
-  createThread: (agentId, title) => {
+  createThread: (agentId, title, metadata = {}) => {
     return apiPost('/api/v1/conversations', {
       agent_id: agentId,
-      title: title || '新的对话'
+      title: title || '新的对话',
+      tool_approval_mode: metadata?.tool_approval_mode ?? null
     }).then((res) => res?.data)
   },
 

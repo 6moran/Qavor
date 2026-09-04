@@ -36,19 +36,27 @@ type AgentCacheInvalidator interface {
 	InvalidateBySubagent(slug string)
 }
 
+// MCPConnector 用于更新 Agent 配置后异步启动 MCP 建连。
+// 由 app.go 装配 MCPManager 实现，避免 controller 直接依赖 mcp 包造成耦合。
+type MCPConnector interface {
+	EnsureConnected(names []string)
+}
+
 // Controller 智能体控制器
 type Controller struct {
 	agentSvc         service.AgentService
 	opts             OptionsProvider
 	cacheInvalidator AgentCacheInvalidator
+	mcpConnector     MCPConnector
 }
 
 // NewController 创建智能体控制器
-func NewController(agentSvc service.AgentService, opts OptionsProvider, cacheInvalidator AgentCacheInvalidator) *Controller {
+func NewController(agentSvc service.AgentService, opts OptionsProvider, cacheInvalidator AgentCacheInvalidator, mcpConnector MCPConnector) *Controller {
 	return &Controller{
 		agentSvc:         agentSvc,
 		opts:             opts,
 		cacheInvalidator: cacheInvalidator,
+		mcpConnector:     mcpConnector,
 	}
 }
 
@@ -153,6 +161,24 @@ func (ctrl *Controller) Update(c *gin.Context) {
 		ctrl.cacheInvalidator.InvalidateBySubagent(slug)
 	}
 
+	// 异步建连引用的 MCP 服务器（后台预热，下次 GetOrCreate 时连接就绪）。
+	// 不作为响应返回的依赖——建连失败不影响配置保存成功，运行时 EnsureConnected 兜底。
+	if ctrl.mcpConnector != nil && len(req.ConfigJSON) > 0 {
+		var mcpServers []string
+		if raw, ok := req.ConfigJSON["mcp_servers"]; ok {
+			if arr, ok := raw.([]interface{}); ok {
+				for _, v := range arr {
+					if s, ok := v.(string); ok {
+						mcpServers = append(mcpServers, s)
+					}
+				}
+			}
+		}
+		if len(mcpServers) > 0 {
+			go ctrl.mcpConnector.EnsureConnected(mcpServers)
+		}
+	}
+
 	response.Success(c, resp)
 }
 
@@ -199,16 +225,8 @@ func (ctrl *Controller) List(c *gin.Context) {
 		return
 	}
 
-	// 分页响应的 List 是 []dto.AgentResponse，逐个填充 options
-	if resp != nil {
-		if items, ok := resp.List.([]dto.AgentResponse); ok {
-			for i := range items {
-				ctrl.enrichOptions(&items[i])
-			}
-			resp.List = items
-		}
-	}
-
+	// 列表仅返回智能体名单；configurable_items 的动态 options 由 Get/Update 详情接口按需注入，
+	// 避免 N 个 agent 各自重复查询工具/MCP/技能/知识库（远程 DB 下放大成秒级延迟）。
 	response.Success(c, resp)
 }
 

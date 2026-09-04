@@ -221,6 +221,7 @@ defineExpose({
     :width="editingAgentId ? 820 : 740"
     :footer="null"
     :closable="false"
+    destroy-on-close
     @cancel="closeAgentModal"
     @after-open-change="handleAgentModalAfterOpenChange"
   >

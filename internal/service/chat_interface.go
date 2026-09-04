@@ -8,10 +8,6 @@ import (
 type ChatService interface {
 	// Chat 发送消息并获取回复（同步）
 	Chat(ctx context.Context, conversationID uint, agentSlug string, message string) (*ChatResult, error)
-
-	// ChatStream 流式发送消息，通过 SSE 推送事件
-	// 前端通过 POST /api/v1/chat/stream 触发，结果通过已建立的 SSE 连接推送
-	ChatStream(ctx context.Context, conversationID uint, agentSlug string, message string) error
 }
 
 // ChatResult 聊天结果

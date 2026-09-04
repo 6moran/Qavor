@@ -19,7 +19,6 @@ type MCPServerResponse struct {
 	Timeout        *int             `json:"timeout,omitempty"`
 	SSEReadTimeout *int             `json:"sse_read_timeout,omitempty"`
 	Enabled        int              `json:"enabled"`
-	DisabledTools  entity.JSONArray `json:"disabled_tools,omitempty"`
 	Status         string           `json:"status"`
 	CreatedAt      time.Time        `json:"created_at"`
 	UpdatedAt      time.Time        `json:"updated_at"`
@@ -35,7 +34,6 @@ type MCPServerListResponse struct {
 type MCPToolResponse struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	Enabled     bool   `json:"enabled"`
 }
 
 // MCPTestResponse MCP连接测试响应

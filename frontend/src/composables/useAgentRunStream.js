@@ -250,22 +250,30 @@ export function useAgentRunStream({
     ts.lastRetryableJobTry = null
     ts.replyLoadingVisible = false
     ts.pendingRequestId = null
-    fetchThreadMessages({ agentId: unref(currentAgentId), threadId, delay }).finally(() => {
-      const shouldPreserveMessages = status === 'failed' || status === 'cancelled'
-      if (shouldPreserveMessages) {
-        // 失败/取消时保留已流式显示的消息，避免 resetOnGoingConv 清空它们
-        // 后续新的 Run 开始时 resetOnGoingConv 会自然清理
-      } else {
-        resetOnGoingConv(threadId, { preserveRequestStreams: true })
-      }
-      fetchAgentState(unref(currentAgentId), threadId)
-      if (scroll) onScrollToBottom()
-      if (isInterrupted) {
-        notifyInterruptDetected(threadId, runId)
-      } else {
-        notifyTerminalDetected(threadId, runId, touchedThreadIds)
-      }
-    })
+    ts.originalClientId = null
+    // 缺口 A 修复：兜底拉取历史消息失败时，保留已流式渲染的内容。
+    // 此前 fetchThreadMessages 失败也会走 finally 里的 resetOnGoingConv，
+    // 导致"后端已结束但前端内容被清空"（用户感知为任务完成却看不到结果）。
+    let messagesRefreshFailed = false
+    fetchThreadMessages({ agentId: unref(currentAgentId), threadId, delay })
+      .catch(() => {
+        messagesRefreshFailed = true
+        console.warn('[SSE] finalizeRunStream 拉取历史消息失败，保留已渲染内容', threadId)
+      })
+      .finally(() => {
+        const shouldPreserveMessages =
+          status === 'failed' || status === 'cancelled' || messagesRefreshFailed
+        if (!shouldPreserveMessages) {
+          resetOnGoingConv(threadId, { preserveRequestStreams: true })
+        }
+        fetchAgentState(unref(currentAgentId), threadId)
+        if (scroll) onScrollToBottom()
+        if (isInterrupted) {
+          notifyInterruptDetected(threadId, runId)
+        } else {
+          notifyTerminalDetected(threadId, runId, touchedThreadIds)
+        }
+      })
   }
 
   const preserveInterruptedRun = async (threadId, run, snapshot = null) => {
@@ -361,7 +369,11 @@ export function useAgentRunStream({
             return
           }
         }
-        if (!data || (runId && ts.activeRunId !== runId)) return
+        // 缺口 B 修复：仅丢弃"明确属于其他 Run"的事件（activeRunId 非空且与当前不同）。
+        // 此前 activeRunId 为 null（收尾后/创建模式 runId 尚未落地）时事件会被静默丢弃，
+        // 造成后端已推送但前端不渲染。同 run 的后续事件仍应继续处理。
+        if (!data) return
+        if (runId && ts.activeRunId !== null && ts.activeRunId !== runId) return
 
         if (eventId) {
           const incomingSeq = normalizeRunSeq(eventId)
@@ -380,6 +392,11 @@ export function useAgentRunStream({
           // 显示加载指示器（旧 chatStream 的 init 事件已废弃，这里由 metadata 驱动）
           ts.replyLoadingVisible = true
           if (data.request_id) {
+            console.log('[metadata] request_id:', data.request_id, 'pendingRequestId:', ts.pendingRequestId)
+            // 保存原始的 clientRequestId，用于后续检测 request_id 变化
+            if (!ts.originalClientId) {
+              ts.originalClientId = ts.pendingRequestId
+            }
             ts.pendingRequestId = data.request_id
           }
         }

@@ -22,6 +22,5 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 		mcpGroup.POST("/:name/test", ctrl.Test)
 		mcpGroup.GET("/:name/tools", ctrl.GetTools)
 		mcpGroup.POST("/:name/tools/refresh", ctrl.RefreshTools)
-		mcpGroup.PUT("/:name/tools/:toolName/toggle", ctrl.ToggleTool)
 	}
 }

@@ -34,7 +34,8 @@ func InitPostgres(cfg *config.PostgresConfig) (*gorm.DB, error) {
 
 	// 根据应用模式设置日志级别
 	if config.Get().App.Mode == "debug" {
-		gormConfig.Logger = gormlogger.Default.LogMode(gormlogger.Info)
+		// debug 模式仅打印慢查询(>200ms)与错误，避免每次请求刷屏全部 SQL
+		gormConfig.Logger = gormlogger.Default.LogMode(gormlogger.Warn)
 	} else {
 		gormConfig.Logger = gormlogger.Default.LogMode(gormlogger.Silent)
 	}

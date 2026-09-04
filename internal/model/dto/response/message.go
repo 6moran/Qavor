@@ -31,13 +31,6 @@ type MessageListResponse struct {
 	Items []MessageResponse `json:"items"`
 }
 
-// MessageDetailResponse 消息详情响应
-type MessageDetailResponse struct {
-	MessageResponse
-	ToolCalls []ToolCallResponse        `json:"tool_calls,omitempty"`
-	Feedbacks []MessageFeedbackResponse `json:"feedbacks,omitempty"`
-}
-
 // ToolCallResponse 工具调用响应
 type ToolCallResponse struct {
 	ID                  uint        `json:"id"`
@@ -49,13 +42,4 @@ type ToolCallResponse struct {
 	Status              string      `json:"status"`
 	ErrorMessage        string      `json:"error_message,omitempty"`
 	CreatedAt           time.Time   `json:"created_at"`
-}
-
-// MessageFeedbackResponse 消息反馈响应
-type MessageFeedbackResponse struct {
-	ID        uint      `json:"id"`
-	MessageID uint      `json:"message_id"`
-	Rating    string    `json:"rating"`
-	Reason    string    `json:"reason,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
 }

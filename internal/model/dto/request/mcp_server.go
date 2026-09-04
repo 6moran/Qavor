@@ -14,7 +14,6 @@ type CreateMCPServerRequest struct {
 	Headers        entity.JSON      `json:"headers" binding:"omitempty"`
 	Timeout        *int             `json:"timeout" binding:"omitempty,min=1"`
 	SSEReadTimeout *int             `json:"sse_read_timeout" binding:"omitempty,min=1"`
-	DisabledTools  entity.JSONArray `json:"disabled_tools" binding:"omitempty"`
 }
 
 // UpdateMCPServerRequest 更新MCP服务器请求
@@ -29,7 +28,6 @@ type UpdateMCPServerRequest struct {
 	Timeout        *int             `json:"timeout" binding:"omitempty,min=1"`
 	SSEReadTimeout *int             `json:"sse_read_timeout" binding:"omitempty,min=1"`
 	Enabled        *int             `json:"enabled" binding:"omitempty,oneof=0 1"`
-	DisabledTools  entity.JSONArray `json:"disabled_tools" binding:"omitempty"`
 }
 
 // MCPServerListRequest MCP服务器列表请求

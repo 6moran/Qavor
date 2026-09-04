@@ -3,9 +3,11 @@
     trigger="click"
     :open="dropdownOpen"
     :disabled="disabled"
+    destroy-popup-on-hide
     @open-change="handleOpenChange"
   >
     <button
+      ref="triggerRef"
       type="button"
       class="ocr-selector-trigger"
       :class="{ disabled }"
@@ -19,7 +21,7 @@
     </button>
 
     <template #overlay>
-      <div class="ocr-selector-dropdown" @click.stop>
+      <div class="ocr-selector-dropdown" :style="overlayStyle" @click.stop>
         <div class="ocr-selector-header">
           <span>OCR 方法</span>
           <button type="button" class="config-link" @click="goToConfig">
@@ -84,9 +86,13 @@
 </template>
 
 <script setup>
-import { computed, inject, onMounted, ref } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-vue-next'
 import { ocrApi } from '@/apis/system_api'
+import { useDropdownWidth } from '@/composables/useDropdownWidth'
+
+const dropdownOpen = ref(false)
+const { triggerRef, overlayStyle } = useDropdownWidth(dropdownOpen, 280)
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
@@ -101,7 +107,6 @@ const emit = defineEmits(['update:modelValue', 'change', 'options-loaded'])
 const { openSettingsModal } = inject('settingsModal', {})
 const engines = ref([])
 const health = ref({})
-const dropdownOpen = ref(false)
 const optionsLoading = ref(false)
 const healthLoading = ref(false)
 const unavailableExpanded = ref(false)
@@ -207,6 +212,10 @@ const healthLabel = (engineId) => {
 onMounted(() => {
   void loadOptions()
 })
+
+onBeforeUnmount(() => {
+  dropdownOpen.value = false
+})
 </script>
 
 <style lang="less" scoped>
@@ -247,7 +256,7 @@ onMounted(() => {
 }
 
 .ocr-selector-dropdown {
-  width: min(360px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   overflow: hidden;
   border: 1px solid var(--gray-100);
   border-radius: 8px;

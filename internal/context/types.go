@@ -20,8 +20,8 @@ type ContextWindow struct {
 	TotalTokens      int               // 消息总 Token 数
 	TrimmedCount     int               // 被裁剪的消息数量
 	HasSystem        bool              // 是否包含系统消息
-	ShortTermSummary string            // 短期记忆摘要（由短期记忆模块压缩生成）
-	ShortTermState   string            // 短期记忆状态（主题/意图/实体，由短期记忆模块抽取）
+	ShortTermSummary string            // 任务可恢复摘要（Agent 中断后继续工作所需信息）
+	ShortTermState   string            // 任务状态（目标/进度/技术上下文，由短期记忆模块抽取）
 	MemoryContext    string            // 长期记忆上下文（可选）
 	RAGContext       string            // RAG 检索结果（可选）
 	ToolDefinitions  []interface{}     // 工具定义（可选）

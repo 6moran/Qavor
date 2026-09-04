@@ -18,6 +18,8 @@ const (
 	SettingKeyContentGuardLLMModel = "content_guard_llm_model"
 	// SettingKeyDefaultOCREngine 默认 OCR 引擎（rapid_ocr / api_ocr 等）。
 	SettingKeyDefaultOCREngine = "default_ocr_engine"
+	// SettingKeyMCPRetrievalEmbedModel MCP 工具向量检索使用的 embedding 模型（仅用于向量检索）。
+	SettingKeyMCPRetrievalEmbedModel = "mcp_retrieval_embed_model"
 )
 
 // SystemConfigItem 描述一个配置项（前端设置页用于渲染表单说明）。
@@ -27,14 +29,15 @@ type SystemConfigItem struct {
 
 // SystemConfig 表示可公开的系统级配置，结构即 /api/v1/system/config 响应体。
 type SystemConfig struct {
-	DefaultModel          string                      `json:"default_model"`
-	FastModel             string                      `json:"fast_model"`
-	EmbedModel            string                      `json:"embed_model"`
-	EnableContentGuard    bool                        `json:"enable_content_guard"`
-	EnableContentGuardLLM bool                        `json:"enable_content_guard_llm"`
-	ContentGuardLLMModel  string                      `json:"content_guard_llm_model"`
-	DefaultOCREngine      string                      `json:"default_ocr_engine"`
-	ConfigItems           map[string]SystemConfigItem `json:"_config_items,omitempty"`
+	DefaultModel           string                      `json:"default_model"`
+	FastModel              string                      `json:"fast_model"`
+	EmbedModel             string                      `json:"embed_model"`
+	MCPRetrievalEmbedModel string                      `json:"mcp_retrieval_embed_model"`
+	EnableContentGuard     bool                        `json:"enable_content_guard"`
+	EnableContentGuardLLM  bool                        `json:"enable_content_guard_llm"`
+	ContentGuardLLMModel   string                      `json:"content_guard_llm_model"`
+	DefaultOCREngine       string                      `json:"default_ocr_engine"`
+	ConfigItems            map[string]SystemConfigItem `json:"_config_items,omitempty"`
 }
 
 // SystemConfigService 管理系统级配置（默认模型、内容审查等）。
@@ -51,6 +54,9 @@ type SystemConfigService interface {
 	UpdateConfigOption(ctx context.Context, key string, value map[string]string) (*ConfigOption, error)
 	// GetOCRAPIConfig 读取通用 OCR API 的有效配置（数据库优先，环境变量回退）。
 	GetOCRAPIConfig(ctx context.Context) (OCRAPIConfig, error)
+	// SetMCPRetrievalModelChangeCallback 设置 MCP 工具向量检索模型变更回调。
+	// 更新 mcp_retrieval_embed_model 配置后调用（用于触发向量索引清空/重建）。
+	SetMCPRetrievalModelChangeCallback(cb func())
 }
 
 // SensitiveState 描述敏感字段的值来源与脱敏预览。

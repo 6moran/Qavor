@@ -23,7 +23,6 @@ type SkillService interface {
 	Import(slug string, data []byte) error
 	Export(slug string) ([]byte, error)
 	ListBuiltinSkills() ([]*entity.Skill, error)
-	SyncBuiltinSkills() error
 }
 
 // SkillOption 前端选项
@@ -116,46 +115,6 @@ func (s *skillService) GetOptions() ([]*SkillOption, error) {
 // ListBuiltinSkills 列出内置 Skills
 func (s *skillService) ListBuiltinSkills() ([]*entity.Skill, error) {
 	return s.repo.ListAll()
-}
-
-// SyncBuiltinSkills 同步内置 Skills
-// 扫描磁盘 skills 目录，将数据库中缺失的 skill 补录为内置来源记录。
-func (s *skillService) SyncBuiltinSkills() error {
-	metas, err := s.loader.ScanAll()
-	if err != nil {
-		return fmt.Errorf("扫描内置 Skills 失败: %w", err)
-	}
-
-	for _, meta := range metas {
-		if meta == nil || meta.Slug == "" {
-			continue
-		}
-
-		existing, err := s.repo.FindBySlug(meta.Slug)
-		if err != nil {
-			return err
-		}
-		if existing != nil {
-			continue
-		}
-
-		name := meta.Name
-		if name == "" {
-			name = meta.Slug
-		}
-		skillEntity := &entity.Skill{
-			Slug:        meta.Slug,
-			Name:        name,
-			Description: meta.Description,
-			SourceType:  "builtin",
-			DirPath:     meta.Slug,
-			Enabled:     true,
-		}
-		if err := s.repo.Create(skillEntity); err != nil {
-			return fmt.Errorf("创建内置 Skill '%s' 失败: %w", meta.Slug, err)
-		}
-	}
-	return nil
 }
 
 // Import 导入 skill（从 zip 文件）

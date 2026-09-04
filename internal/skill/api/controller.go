@@ -309,22 +309,6 @@ func (ctrl *Controller) ListBuiltinSkills(c *gin.Context) {
 	response.Success(c, gin.H{"skills": skills})
 }
 
-// SyncBuiltinSkills 同步内置 Skills
-func (ctrl *Controller) SyncBuiltinSkills(c *gin.Context) {
-	if err := ctrl.svc.SyncBuiltinSkills(); err != nil {
-		if errors.IsBizError(err) {
-			logger.Warn("业务错误，同步内置Skills失败", zap.Error(err))
-			response.BizError(c, err)
-		} else {
-			logger.Error("同步内置Skills失败", zap.Error(err))
-			response.InternalServerError(c)
-		}
-		return
-	}
-
-	response.Success(c, nil)
-}
-
 // CreateSkillFile 创建 Skill 文件
 func (ctrl *Controller) CreateSkillFile(c *gin.Context) {
 	slug := c.Param("slug")

@@ -1,0 +1,55 @@
+# Docker 构建上下文排除清单
+# 减少 build context 体积，加速构建
+
+# === 构建产物 ===
+bin/
+dist/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# === 测试覆盖率 ===
+coverage.out
+coverage_new.out
+coverage.html
+coverage.txt
+
+# === 前端（后端镜像不需要，前端有自己的构建上下文） ===
+frontend/
+
+# === 运行时数据 ===
+logs/
+data/workspaces/
+tmp/
+
+# === Git ===
+.git/
+.gitignore
+
+# === IDE ===
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === Docker 自身 ===
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# === 文档（不影响构建） ===
+docs/
+screenshot/
+*.md
+!README.md
+
+# === WorkBuddy ===
+.workbuddy/
+
+# === 环境配置 ===
+.env
+.env.local
+configs/config.yaml

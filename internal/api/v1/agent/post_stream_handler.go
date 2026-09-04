@@ -22,6 +22,14 @@ import (
 	"go.uber.org/zap"
 )
 
+// sseWriteDeadline 滚动写超时。
+// http.Server 全局 WriteTimeout=60s 是 HTTP/1.x 下的绝对期限（从读请求头起算，
+// 心跳/流式写入都不会续期），长任务流式输出期间连接会被服务端强制断开，
+// 导致"后端任务已完成但前端内容被掐断"。SSE 每次写入前用
+// http.NewResponseController.SetWriteDeadline 滚动续期，长连接不再受 60s 限制，
+// 同时保留写超时兜底（真正死掉的连接在 write 阶段会立刻报错退出）。
+const sseWriteDeadline = 90 * time.Second
+
 // PostStreamHandler POST /api/v1/agent/runs 处理器
 // 承担「新建 Run + 流式推送」与「resume 重连续传」两种语义
 type PostStreamHandler struct {
@@ -192,7 +200,19 @@ func (h *PostStreamHandler) CreateRunAndStream(c *gin.Context) {
 // createAndEnqueue 创建 AgentRun 记录并入队
 func (h *PostStreamHandler) createAndEnqueue(ctx context.Context, req *CreateRunRequest) (*entity.AgentRun, error) {
 	runID := uuid.New().String()
-	requestID := uuid.New().String()
+	// 使用前端传来的 request_id，如果没有则生成新的
+	requestID := ""
+	if req.Meta != nil {
+		var metaMap map[string]any
+		if err := json.Unmarshal(req.Meta, &metaMap); err == nil {
+			if rid, ok := metaMap["request_id"].(string); ok && rid != "" {
+				requestID = rid
+			}
+		}
+	}
+	if requestID == "" {
+		requestID = uuid.New().String()
+	}
 
 	inputPayload := entity.JSON{}
 	if req.Meta != nil {
@@ -405,15 +425,30 @@ func (h *PostStreamHandler) setSSEHeaders(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
+	h.extendWriteDeadline(c)
 	c.Writer.Flush()
 }
 
-// writeHeartbeat 发送 SSE 注释行保活（前端自动忽略）
-func (h *PostStreamHandler) writeHeartbeat(c *gin.Context) {
-	_, _ = fmt.Fprint(c.Writer, ": heartbeat\n\n")
+// extendWriteDeadline 滚动续期当前 SSE 连接的写超时，规避 http.Server.WriteTimeout
+// 的 60s 绝对期限（心跳与流式写入默认不续期，长任务会在输出中途被掐断）。
+func (h *PostStreamHandler) extendWriteDeadline(c *gin.Context) {
+	rc := http.NewResponseController(c.Writer)
+	if err := rc.SetWriteDeadline(time.Now().Add(sseWriteDeadline)); err != nil {
+		h.logger.Debug("SSE 设置滚动写超时失败", zap.Error(err))
+	}
+}
+
+// writeHeartbeat 发送 SSE 注释行保活（前端自动忽略），每次写入前续期写超时
+func (h *PostStreamHandler) writeHeartbeat(c *gin.Context) bool {
+	h.extendWriteDeadline(c)
+	if _, err := fmt.Fprint(c.Writer, ": heartbeat\n\n"); err != nil {
+		h.logger.Warn("SSE 心跳写入失败", zap.Error(err))
+		return false
+	}
 	if f, ok := c.Writer.(http.Flusher); ok {
 		f.Flush()
 	}
+	return true
 }
 
 // subscribeLoop 主 goroutine 阻塞 XREAD；心跳 goroutine 周期写注释行
@@ -438,9 +473,9 @@ func (h *PostStreamHandler) subscribeLoop(ctx context.Context, c *gin.Context, r
 				return
 			case <-ticker.C:
 				writeMu.Lock()
-				_, _ = fmt.Fprint(c.Writer, ": heartbeat\n\n")
-				if flusher != nil {
-					flusher.Flush()
+				// 心跳同样滚动续期写超时；写入失败说明连接已死，停止心跳
+				if !h.writeHeartbeat(c) {
+					cancelHeartbeat()
 				}
 				writeMu.Unlock()
 			}
@@ -466,8 +501,16 @@ func (h *PostStreamHandler) subscribeLoop(ctx context.Context, c *gin.Context, r
 
 		writeMu.Lock()
 		for _, entry := range entries {
-			terminal := h.writeSSEEvent(c, flusher, entry)
+			terminal, writeErr := h.writeSSEEvent(c, flusher, entry)
 			lastSeq = entry.ID
+			if writeErr != nil {
+				writeMu.Unlock()
+				h.logger.Warn("SSE 写入失败，关闭连接",
+					zap.String("run_id", run.ID),
+					zap.Error(writeErr),
+				)
+				return // 客户端断开，立即退出订阅循环
+			}
 			if terminal {
 				writeMu.Unlock()
 				return // 收到终态事件，关闭连接
@@ -507,17 +550,25 @@ func (h *PostStreamHandler) releaseSessionLockOnDisconnect(run *entity.AgentRun)
 	)
 }
 
-// writeSSEEvent 写入一个 SSE 事件，返回 true 表示终态事件（end/error）
-func (h *PostStreamHandler) writeSSEEvent(c *gin.Context, flusher http.Flusher, entry eventbus.StreamEntry) bool {
+// writeSSEEvent 写入一个 SSE 事件，返回 (是否为终态事件, 写错误)。
+// 写入失败返回 error，调用方应据此退出订阅循环，而不是继续吞掉错误。
+func (h *PostStreamHandler) writeSSEEvent(c *gin.Context, flusher http.Flusher, entry eventbus.StreamEntry) (bool, error) {
 	if entry.Event.EventType == "" {
-		return false // 损坏的条目，跳过
+		return false, nil // 损坏的条目，跳过
 	}
+	h.extendWriteDeadline(c)
 	envelope := eventbus.NewEnvelope(entry.Event)
-	data, _ := json.Marshal(envelope)
-	_, _ = fmt.Fprintf(c.Writer, "id: %s\nevent: %s\ndata: %s\n\n",
-		entry.ID, entry.Event.EventType, string(data))
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		h.logger.Warn("SSE 事件序列化失败", zap.String("event_type", entry.Event.EventType), zap.Error(err))
+		return false, err
+	}
+	if _, err := fmt.Fprintf(c.Writer, "id: %s\nevent: %s\ndata: %s\n\n",
+		entry.ID, entry.Event.EventType, string(data)); err != nil {
+		return false, err
+	}
 	if flusher != nil {
 		flusher.Flush()
 	}
-	return entry.Event.EventType == eventbus.EventEnd || entry.Event.EventType == eventbus.EventError
+	return entry.Event.EventType == eventbus.EventEnd || entry.Event.EventType == eventbus.EventError, nil
 }

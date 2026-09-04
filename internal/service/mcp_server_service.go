@@ -67,16 +67,6 @@ func (s *mcpServerService) CreateMCPServer(req *request.CreateMCPServerRequest) 
 		}
 	}
 
-	// 转换 disabledTools 类型
-	var disabledTools []string
-	if req.DisabledTools != nil {
-		for _, tool := range req.DisabledTools {
-			if str, ok := tool.(string); ok {
-				disabledTools = append(disabledTools, str)
-			}
-		}
-	}
-
 	config := &entity.MCPServerConfig{
 		Name:           req.Name,
 		Description:    req.Description,
@@ -89,7 +79,6 @@ func (s *mcpServerService) CreateMCPServer(req *request.CreateMCPServerRequest) 
 		Timeout:        req.Timeout,
 		SSEReadTimeout: req.SSEReadTimeout,
 		Enabled:        true,
-		DisabledTools:  disabledTools,
 	}
 
 	if err := s.fileStore.Create(req.Name, config); err != nil {
@@ -175,15 +164,6 @@ func (s *mcpServerService) UpdateMCPServer(name string, req *request.UpdateMCPSe
 	}
 	if req.Enabled != nil {
 		updates.Enabled = *req.Enabled == 1
-	}
-	if req.DisabledTools != nil {
-		var disabledTools []string
-		for _, tool := range req.DisabledTools {
-			if str, ok := tool.(string); ok {
-				disabledTools = append(disabledTools, str)
-			}
-		}
-		updates.DisabledTools = disabledTools
 	}
 
 	if err := s.fileStore.Update(name, updates); err != nil {
@@ -380,11 +360,6 @@ func (s *mcpServerService) listTools(config *entity.MCPServerConfig) ([]*dto.MCP
 	// 确保服务器已连接，才能获取工具
 	s.mcpManager.EnsureConnected([]string{config.Name})
 
-	disabledSet := make(map[string]bool, len(config.DisabledTools))
-	for _, t := range config.DisabledTools {
-		disabledSet[t] = true
-	}
-
 	tools := s.mcpManager.GetToolsByServers([]string{config.Name})
 	result := make([]*dto.MCPToolResponse, 0, len(tools))
 	for _, t := range tools {
@@ -395,41 +370,9 @@ func (s *mcpServerService) listTools(config *entity.MCPServerConfig) ([]*dto.MCP
 		result = append(result, &dto.MCPToolResponse{
 			Name:        info.Name,
 			Description: info.Desc,
-			Enabled:     !disabledSet[info.Name],
 		})
 	}
 	return result, nil
-}
-
-// ToggleMCPServerTool 切换单个工具的启用状态
-func (s *mcpServerService) ToggleMCPServerTool(serverName, toolName string) error {
-	config, err := s.fileStore.GetByName(serverName)
-	if err != nil {
-		return err
-	}
-	if config == nil {
-		return bizerrors.New(bizerrors.CodeResourceNotFound, "MCP 服务器不存在")
-	}
-
-	// 切换 DisabledTools 中的工具名
-	disabled := config.DisabledTools
-	idx := -1
-	for i, t := range disabled {
-		if t == toolName {
-			idx = i
-			break
-		}
-	}
-	if idx >= 0 {
-		// 当前已禁用 → 启用（移除）
-		disabled = append(disabled[:idx], disabled[idx+1:]...)
-	} else {
-		// 当前已启用 → 禁用（加入）
-		disabled = append(disabled, toolName)
-	}
-
-	updates := &entity.MCPServerConfig{DisabledTools: disabled}
-	return s.fileStore.Update(serverName, updates)
 }
 
 // toResponse 转换为响应 DTO
@@ -465,16 +408,6 @@ func (s *mcpServerService) toResponse(name string, config *entity.MCPServerConfi
 		}
 	}
 
-	// 转换 tags 类型
-	// 转换 disabledTools 类型
-	var disabledTools entity.JSONArray
-	if config.DisabledTools != nil {
-		disabledTools = make(entity.JSONArray, len(config.DisabledTools))
-		for i, tool := range config.DisabledTools {
-			disabledTools[i] = tool
-		}
-	}
-
 	// 转换 enabled 类型
 	enabled := 0
 	if config.Enabled {
@@ -499,7 +432,6 @@ func (s *mcpServerService) toResponse(name string, config *entity.MCPServerConfi
 		Timeout:        config.Timeout,
 		SSEReadTimeout: config.SSEReadTimeout,
 		Enabled:        enabled,
-		DisabledTools:  disabledTools,
 		Status:         status,
 		CreatedAt:      config.CreatedAt,
 		UpdatedAt:      config.UpdatedAt,
