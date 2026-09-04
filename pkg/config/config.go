@@ -323,21 +323,13 @@ func (c *DocumentQueueConfig) ApplyDefaults() {
 type DocumentParserConfig struct {
 	// PythonPath Python 解释器路径，默认 "python"（走系统 PATH）。
 	// 优先使用环境变量 QAVOR_PYTHON 覆盖。
-	PythonPath        string `mapstructure:"python_path"`
-	PoolSize          int    `mapstructure:"pool_size"`
-	MaxTasksPerWorker int    `mapstructure:"max_tasks_per_worker"`
+	PythonPath string `mapstructure:"python_path"`
 }
 
 // ApplyDefaults 设置文档解析器默认值。
 func (c *DocumentParserConfig) ApplyDefaults() {
 	if c.PythonPath == "" {
 		c.PythonPath = "python"
-	}
-	if c.PoolSize <= 0 {
-		c.PoolSize = 2
-	}
-	if c.MaxTasksPerWorker <= 0 {
-		c.MaxTasksPerWorker = 100
 	}
 }
 

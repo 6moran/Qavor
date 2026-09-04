@@ -5,16 +5,16 @@ import "testing"
 func TestDocumentParserConfigApplyDefaults(t *testing.T) {
 	cfg := DocumentParserConfig{}
 	cfg.ApplyDefaults()
-	if cfg.PythonPath != "python" || cfg.PoolSize != 2 || cfg.MaxTasksPerWorker != 100 {
+	if cfg.PythonPath != "python" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 }
 
-func TestDocumentParserConfigPreservesExplicitPoolValues(t *testing.T) {
-	cfg := DocumentParserConfig{PythonPath: "py", PoolSize: 4, MaxTasksPerWorker: 20}
+func TestDocumentParserConfigPreservesExplicitPythonPath(t *testing.T) {
+	cfg := DocumentParserConfig{PythonPath: "py"}
 	cfg.ApplyDefaults()
-	if cfg.PoolSize != 4 || cfg.MaxTasksPerWorker != 20 {
-		t.Fatalf("explicit values changed: %+v", cfg)
+	if cfg.PythonPath != "py" {
+		t.Fatalf("explicit value changed: %+v", cfg)
 	}
 }
 

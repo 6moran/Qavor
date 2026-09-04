@@ -40,14 +40,12 @@ type OCRConfig struct {
 	APIModel string
 }
 
-// PythonWorkerOptions configures one long-lived local parser subprocess.
-type PythonWorkerOptions struct {
-	PythonPath string
-	ScriptPath string
-	MaxTasks   int
-	OCR        OCRConfig
-	ExtraEnv   []string
-	Images     ImageUploader
+// ParserHealth reports the live capacity and capabilities of the local parser
+// process without exposing its concrete implementation.
+type ParserHealth struct {
+	ConfiguredWorkers int
+	AvailableWorkers  int
+	Capabilities      map[string]bool
 }
 
 // DocumentParser 将源文档转换为 Markdown 格式。

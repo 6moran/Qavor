@@ -10,7 +10,7 @@ Qavor 是面向开发者的 **AI Agent 构建、扩展、运行与观测平台**
 - **后端**：Go + Gin（HTTP）+ CloudWeGo Eino（Agent 运行时 / LLM 调用 / Callback 追踪）
 - **前端**：Vue 3 + Vite + ant-design-vue
 - **数据层**：PostgreSQL（pgvector + pg_trgm）、Redis（Streams / Token 黑名单 / 记忆）、MinIO（对象存储）
-- **解析服务**：Go 管理本地 Python 进程池（`pkg/documentparser/python/parse_document.py`），Docling、RapidOCR 与通用 OCR API 按格式路由
+- **解析服务**：Go 按需启动本地 Python 解析子进程（`pkg/documentparser/python/parse_document.py`），Docling、RapidOCR 与通用 OCR API 按格式路由
 - **认证**：单实例管理员登录（单用户模式，无用户表），JWT Bearer Token + Redis 黑名单登出
 
 ## 2. 技术栈
@@ -24,7 +24,7 @@ Qavor 是面向开发者的 **AI Agent 构建、扩展、运行与观测平台**
 | 队列 | Redis Streams | 文档解析队列、Agent Run 请求队列 |
 | 事件总线 | Redis Pub/Sub（`internal/eventbus`） | Run 执行进度 → SSE 推送 |
 | 对象存储 | MinIO | 知识库文件、图片、工作区附件 |
-| 文档解析 | 本地 Python 进程池 + Docling / RapidOCR / OCR API | PDF/Office/图片解析为 Markdown；不暴露网络端口 |
+| 文档解析 | 本地 Python 解析子进程 + Docling / RapidOCR / OCR API | PDF/Office/图片解析为 Markdown；不暴露网络端口 |
 | 日志 | Zap + Lumberjack | 结构化日志、文件轮转 |
 | 配置 | Viper | `configs/config.yaml` + 环境变量覆盖 |
 | 认证 | 自研 JWT（`pkg/jwt`） | 登录签发、中间件校验、黑名单 |
@@ -235,7 +235,7 @@ query
   → MinIO 保存原文件，知识文件记录（knowledge_files）
   → Redis Stream 写入解析任务（queue.DocumentQueue）
   → DocumentWorker（internal/worker）消费
-      → ingestion.Parser：TXT/Markdown 直接解析；二进制文件借用本地 PythonWorkerPool
+      → ingestion.Parser：TXT/Markdown 直接解析；二进制文件按需启动本地 Python 子进程解析
           → Docling（数字 PDF / Office，数字 PDF 优先）
           → RapidOCR / 通用 OCR API（图片、扫描件，或整份 PDF Docling 失败/空正文时回退）
       → DocumentCleaner：仅格式归一化和可精确识别的残片清理
@@ -308,7 +308,7 @@ POST /agent/runs
 | `rag` | chunk_tokens / top_k / score_threshold / embedding... | RAG 算法默认值（模型按知识库绑定） |
 | `trace` | enabled / retention_days / timeout_minutes / janitor_interval | 链路追踪 |
 | `web_search` | provider / base_url / api_key | 联网搜索工具 |
-| `document_parser` | python_path / pool_size / max_tasks_per_worker | Python 解析器路径、进程池容量与进程轮换阈值 |
+| `document_parser` | python_path | Python 解析器路径 |
 | `document_queue` / `run` / `memory` / `agent` | 队列、Run、记忆、Agent 运行时参数 | 见 config.yaml 注释 |
 
 ## 9. 应用装配与启动
@@ -327,13 +327,11 @@ POST /agent/runs
 
 `Run()` 启动评估执行器与 HTTP 服务器，并进入优雅关闭流程（关闭 Worker、Janitor、Trace Writer、MCP、后台任务、数据库连接）。
 
-### 9.1 常驻文档解析进程池
+### 9.1 文档解析子进程
 
-`document_parser.pool_size` 默认 `2`，`document_parser.max_tasks_per_worker` 默认 `100`，`document_parser.python_path` 默认 `python`。DocumentWorker 的普通消费者数与池容量一致，Python Worker 一次只服务一份二进制文档；TXT/Markdown 不占用 Python Worker，但仍受 DocumentWorker 并发限制。
+`document_parser.python_path` 默认 `python`，可用环境变量 `QAVOR_DOCUMENT_PARSER_PYTHON_PATH` 覆盖。DocumentWorker 从 Redis 队列领取文档任务后，由 Go 将输入写入临时目录、按需启动一个本地 Python 子进程执行 `parse_document.py`，解析结束后进程退出；TXT/Markdown 由 Go 直接解析，不启动子进程。没有 HTTP/gRPC 服务或网络监听端口；脚本结果经 stdout 以 JSON 输出，诊断与 traceback 写到 stderr。PDF 采用 Docling-first：只有 Docling 异常或没有有效正文时，才整份 PDF 回退到 OCR，避免逐页混合。
 
-Go 通过隐藏的本地子进程和 stdin/stdout JSONL 协议调用 `parse_document.py --serve-stdio`，没有 HTTP/gRPC 服务或网络监听端口。stdout 只能输出协议消息；诊断和 traceback 写到 stderr。PDF 采用 Docling-first：只有 Docling 异常或没有有效正文时，才整份 PDF 回退到 OCR，避免逐页混合。
-
-清洗器保守地保留页眉、页脚、页码、页面标记、代码块、表格、图片 URL、脚注和免责声明。没有单文档超时或超时重试；如果底层库永久阻塞，Worker 会持续被占用，需重启应用恢复。应用关闭时先取消文档消费者、等待在途处理完成，再关闭池和其应用拥有的 Python 进程树。
+清洗器保守地保留页眉、页脚、页码、页面标记、代码块、表格、图片 URL、脚注和免责声明。没有单文档超时或超时重试；如果底层库永久阻塞，当前解析任务会被持续占用，需重启应用恢复。应用关闭时先停止领取文档任务并等待在途任务完成后再退出。
 
 ## 10. 认证与安全
 

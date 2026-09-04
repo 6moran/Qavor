@@ -107,58 +107,5 @@ class RealParserIntegrationTests(unittest.TestCase):
         self.assertEqual(raised.exception.code, "PARSER_FAILED")
         self.assertEqual(raised.exception.message, "文档解析失败")
 
-    def test_stdio_reuses_process_and_returns_worker_pid_metadata(self) -> None:
-        command = [sys.executable, str(Path(__file__).with_name("parse_document.py")), "--serve-stdio"]
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            # Docling writes model diagnostics to stderr. This test only reads
-            # protocol stdout, so a pipe here could fill and deadlock the child.
-            stderr=subprocess.DEVNULL,
-            text=True,
-            encoding="utf-8",
-            cwd=Path(__file__).parents[3],
-        )
-        self.addCleanup(self._stop_process, process)
-        assert process.stdin is not None
-        assert process.stdout is not None
-
-        ready = json.loads(process.stdout.readline())
-        self.assertEqual(ready["type"], "ready")
-        requests = [
-            {
-                "type": "parse",
-                "version": 1,
-                "request_id": f"fixture-{index}",
-                "input_path": str(TESTDATA / "digital.pdf"),
-                "filename": "digital.pdf",
-                "ocr_engine": "rapidocr",
-            }
-            for index in (1, 2)
-        ]
-        for request in requests:
-            process.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
-            process.stdin.flush()
-
-        results: list[dict[str, Any]] = [json.loads(process.stdout.readline()) for _ in requests]
-        self.assertTrue(all(result["ok"] for result in results))
-        first_pid = results[0]["result"]["metadata"]["worker_pid"]
-        self.assertIsInstance(first_pid, int)
-        self.assertEqual(first_pid, results[1]["result"]["metadata"]["worker_pid"])
-
-    @staticmethod
-    def _stop_process(process: subprocess.Popen[str]) -> None:
-        if process.stdin:
-            process.stdin.close()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
-        if process.stdout:
-            process.stdout.close()
-
-
 if __name__ == "__main__":
     unittest.main()

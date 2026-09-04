@@ -4,7 +4,7 @@
 
 将支持的文档转换为 Markdown 并输出 JSON:
 - .docx/.pptx/.xlsx 通过 Docling 转换,文档内图片导出为临时文件并以路径引用
-- .pdf 优先通过 Docling 转换，仅在无可见内容或失败时整份回退至 OCR
+- .pdf 优先提取数字版文字层，仅在无可见文字时整份回退至 OCR
 - .jpg/.jpeg/.png/.bmp/.tiff/.tif 使用 RapidOCR 直接识别
 
 输出格式:JSON 对象,与 Go 侧 ingestion.ParseResult 字段一一对应:
@@ -107,6 +107,24 @@ def ocr_pdf(path: Path) -> tuple[str, list[dict[str, Any]]]:
     except ImportError:
         from rapid_ocr import ocr_pdf as backend
     return backend(path)
+
+
+def _extract_pdf_text(path: Path) -> tuple[str, list[dict[str, Any]]]:
+    """Extract a PDF text layer without invoking Docling or OCR."""
+    import fitz
+
+    pdf = fitz.open(str(path))
+    pages: list[dict[str, Any]] = []
+    texts: list[str] = []
+    try:
+        for number, page in enumerate(pdf, start=1):
+            text = page.get_text("text").strip()
+            pages.append({"number": number, "text": text})
+            if text:
+                texts.append(f"<!-- page:{number} -->\n{text}")
+    finally:
+        pdf.close()
+    return "\n\n".join(texts).strip(), pages
 
 
 def ocr_image_api(path: Path, base_url: str, api_key: str, model: str) -> str:
@@ -212,17 +230,14 @@ def _parse_pdf(
     api_key: str,
     api_model: str,
 ) -> str:
-    """Prefer Docling, then OCR the complete PDF once only when needed."""
-    try:
-        markdown = _convert_with_docling(path, result, None)
-    except Exception as exc:  # noqa: BLE001
-        print(f"PDF Docling 转换失败，回退 OCR: {exc}", file=sys.stderr)
-        fallback_reason = "docling_failed"
-    else:
-        if has_visible_content(markdown):
-            result.metadata.update({"parser": "docling", "fallback": False})
-            return markdown
-        fallback_reason = "docling_empty"
+    """Use the PDF text layer first; OCR only when the PDF has no text."""
+    markdown, pages = _extract_pdf_text(path)
+    if has_visible_content(markdown):
+        result.pages = pages
+        print("PDF 解析路径：数字版文字层提取（PyMuPDF）", file=sys.stderr)
+        result.metadata.update({"parser": "pymupdf", "fallback": False})
+        return markdown
+    fallback_reason = "text_layer_empty"
 
     if ocr_engine == "api":
         markdown, result.pages = ocr_pdf_api(path, api_base_url, api_key, api_model)
@@ -230,6 +245,7 @@ def _parse_pdf(
     else:
         markdown, result.pages = ocr_pdf(path)
         parser = "rapidocr"
+    print(f"PDF 解析路径：扫描版 OCR（{parser}，原因：{fallback_reason}）", file=sys.stderr)
     result.metadata.update(
         {
             "parser": parser,
@@ -285,23 +301,10 @@ def parse_path(
     return result
 
 
-def _parse_request(request: dict[str, Any]) -> dict[str, Any]:
-    result = parse_path(
-        Path(request["input_path"]),
-        request["ocr_engine"],
-        request.get("ocr_api_url", ""),
-        request.get("ocr_api_key", ""),
-        request.get("ocr_api_model", ""),
-    )
-    return asdict(result)
-
-
 def main() -> None:
     """解析命令行参数并执行文档解析,输出 JSON 结果。"""
     parser = argparse.ArgumentParser()
-    input_mode = parser.add_mutually_exclusive_group(required=True)
-    input_mode.add_argument("--input")
-    input_mode.add_argument("--serve-stdio", action="store_true")
+    parser.add_argument("--input")
     parser.add_argument(
         "--ocr-engine",
         choices=("rapidocr", "api"),
@@ -312,13 +315,6 @@ def main() -> None:
     parser.add_argument("--ocr-api-key", default="", help="通用 OCR API 访问凭证")
     parser.add_argument("--ocr-api-model", default="", help="通用 OCR API 模型名称")
     args = parser.parse_args()
-    if args.serve_stdio:
-        try:
-            from .protocol import serve_stdio
-        except ImportError:
-            from protocol import serve_stdio
-        serve_stdio(_parse_request, sys.stdin, sys.stdout, sys.stderr)
-        return
     try:
         result = parse_path(
             Path(args.input),
