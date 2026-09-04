@@ -3,11 +3,8 @@ package worker
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,11 +34,8 @@ func (wFakeQueue) ClaimStale(_ context.Context, _ string, _ time.Duration, _ int
 
 type wFakeJobs struct {
 	repository.DocumentProcessingJobRepository
-	mu           sync.Mutex
-	status       string
-	jobType      string
-	errorCode    string
-	errorMessage string
+	status  string
+	jobType string
 }
 
 func (f *wFakeJobs) ClaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
@@ -54,59 +48,36 @@ func (f *wFakeJobs) ClaimByJobID(_ context.Context, jobID, workerID string) (*en
 	}, nil
 }
 
-func (f *wFakeJobs) MarkSucceeded(string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.status = entity.JobSucceeded
-	return nil
-}
-func (f *wFakeJobs) MarkFailed(_ string, code, message string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
+func (f *wFakeJobs) MarkSucceeded(string) error { f.status = entity.JobSucceeded; return nil }
+func (f *wFakeJobs) MarkFailed(string, string, string) error {
 	f.status = entity.JobFailed
-	f.errorCode = code
-	f.errorMessage = message
 	return nil
 }
 
 type wFakeFiles struct {
 	repository.KnowledgeFileRepository
-	mu            sync.Mutex
 	status        string
 	markdownPath  string
-	originalName  string
-	errorMessage  string
 	failOnStatus  string
 	transitionErr error
 }
 
 func (f *wFakeFiles) FindByKBIDAndFileID(string, string) (*entity.KnowledgeFile, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	originalName := f.originalName
-	if originalName == "" {
-		originalName = "test.txt"
-	}
 	return &entity.KnowledgeFile{
 		FileID:           "file-1",
 		KBID:             "kb-1",
 		Path:             "original.txt",
-		OriginalFilename: originalName,
+		OriginalFilename: "test.txt",
 		MarkdownFile:     f.markdownPath,
 		Status:           f.status,
 	}, nil
 }
 
 func (f *wFakeFiles) TransitionStatus(_ context.Context, _, _ string, _ []string, to string, updates map[string]any) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	if to == f.failOnStatus {
 		return false, f.transitionErr
 	}
 	f.status = to
-	if v, ok := updates["error_message"]; ok {
-		f.errorMessage = v.(string)
-	}
 	if v, ok := updates["markdown_file"]; ok {
 		f.markdownPath = v.(string)
 	}
@@ -115,35 +86,19 @@ func (f *wFakeFiles) TransitionStatus(_ context.Context, _, _ string, _ []string
 
 type wFakeStorage struct {
 	service.ObjectStorage
-	content        string
-	objectPath     string
-	uploadFilename string
-	deleted        []string
-	deleteErr      error
-	onDelete       func(string)
+	content string
 }
 
 func (f *wFakeStorage) Read(path string) (io.ReadCloser, error) {
 	return io.NopCloser(strings.NewReader(f.content)), nil
 }
 
-func (f *wFakeStorage) UploadReader(_, filename, _ string, reader io.Reader, _ int64) (*service.UploadedObject, error) {
+func (f *wFakeStorage) UploadReader(_, _, _ string, reader io.Reader, _ int64) (*service.UploadedObject, error) {
 	_, _ = io.ReadAll(reader)
-	f.uploadFilename = filename
-	path := f.objectPath
-	if path == "" {
-		path = "derived/normalized.md"
-	}
-	return &service.UploadedObject{Path: path}, nil
+	return &service.UploadedObject{Path: "derived/normalized.md"}, nil
 }
 
-func (f *wFakeStorage) Delete(path string) error {
-	f.deleted = append(f.deleted, path)
-	if f.onDelete != nil {
-		f.onDelete(path)
-	}
-	return f.deleteErr
-}
+func (f *wFakeStorage) Delete(string) error { return nil }
 
 type wFakeIndexer struct {
 	calls int
@@ -163,225 +118,6 @@ type failingIndexer struct{}
 
 func (f *failingIndexer) Index(_ context.Context, _ rag.IndexInput) (*rag.IndexOutput, error) {
 	return nil, io.ErrUnexpectedEOF
-}
-
-type concurrentQueue struct {
-	jobs            chan documentqueue.Message
-	consumerIDs     chan string
-	recoveryStarted chan struct{}
-	recoveryOnce    sync.Once
-	recoveryCalls   atomic.Int32
-}
-
-func newConcurrentQueue(messages ...documentqueue.Message) *concurrentQueue {
-	q := &concurrentQueue{
-		jobs:            make(chan documentqueue.Message, len(messages)),
-		consumerIDs:     make(chan string, 8),
-		recoveryStarted: make(chan struct{}),
-	}
-	for _, message := range messages {
-		q.jobs <- message
-	}
-	return q
-}
-
-func (q *concurrentQueue) EnsureGroup(context.Context) error                    { return nil }
-func (q *concurrentQueue) Publish(context.Context, documentqueue.Message) error { return nil }
-func (q *concurrentQueue) Consume(ctx context.Context, consumer string, _ time.Duration) (*documentqueue.Message, error) {
-	select {
-	case q.consumerIDs <- consumer:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	select {
-	case message := <-q.jobs:
-		return &message, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-func (q *concurrentQueue) Ack(context.Context, string) error { return nil }
-func (q *concurrentQueue) ClaimStale(ctx context.Context, _ string, _ time.Duration, _ int64) ([]documentqueue.Message, error) {
-	q.recoveryCalls.Add(1)
-	q.recoveryOnce.Do(func() { close(q.recoveryStarted) })
-	<-ctx.Done()
-	return nil, ctx.Err()
-}
-
-type blockingStorage struct {
-	service.ObjectStorage
-	started chan struct{}
-	release <-chan struct{}
-}
-
-func (s *blockingStorage) Read(string) (io.ReadCloser, error) {
-	s.started <- struct{}{}
-	<-s.release
-	return io.NopCloser(strings.NewReader("content")), nil
-}
-
-func (s *blockingStorage) UploadReader(_, _, _ string, reader io.Reader, _ int64) (*service.UploadedObject, error) {
-	_, _ = io.ReadAll(reader)
-	return &service.UploadedObject{Path: "derived/normalized.md"}, nil
-}
-
-type quotaQueue struct {
-	normal           chan documentqueue.Message
-	allowRecovery    chan struct{}
-	recoveryClaimed  chan struct{}
-	recoveryReturned atomic.Bool
-}
-
-func (q *quotaQueue) EnsureGroup(context.Context) error                    { return nil }
-func (q *quotaQueue) Publish(context.Context, documentqueue.Message) error { return nil }
-func (q *quotaQueue) Consume(ctx context.Context, _ string, _ time.Duration) (*documentqueue.Message, error) {
-	select {
-	case message := <-q.normal:
-		return &message, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-func (q *quotaQueue) Ack(context.Context, string) error { return nil }
-func (q *quotaQueue) ClaimStale(ctx context.Context, _ string, _ time.Duration, _ int64) ([]documentqueue.Message, error) {
-	select {
-	case <-q.allowRecovery:
-		if q.recoveryReturned.CompareAndSwap(false, true) {
-			close(q.recoveryClaimed)
-			return []documentqueue.Message{{ID: "recovery-message", JobID: "recovery-job"}}, nil
-		}
-		return nil, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-
-type quotaJobs struct {
-	repository.DocumentProcessingJobRepository
-}
-
-func (quotaJobs) ClaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
-	return quotaJob(jobID, workerID), nil
-}
-
-func (quotaJobs) ReclaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
-	return quotaJob(jobID, workerID), nil
-}
-
-func quotaJob(jobID, workerID string) *entity.DocumentProcessingJob {
-	return &entity.DocumentProcessingJob{
-		JobID:    jobID,
-		KBID:     "kb-1",
-		FileID:   jobID,
-		WorkerID: workerID,
-		Status:   entity.JobRunning,
-		JobType:  entity.JobTypeParse,
-		Attempt:  1,
-	}
-}
-
-func (quotaJobs) MarkSucceeded(string) error              { return nil }
-func (quotaJobs) MarkFailed(string, string, string) error { return nil }
-
-type quotaFiles struct {
-	repository.KnowledgeFileRepository
-	mu     sync.Mutex
-	status map[string]string
-}
-
-func (f *quotaFiles) FindByKBIDAndFileID(_ string, fileID string) (*entity.KnowledgeFile, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return &entity.KnowledgeFile{
-		KBID:             "kb-1",
-		FileID:           fileID,
-		Path:             fileID + ".txt",
-		OriginalFilename: fileID + ".txt",
-		Status:           f.status[fileID],
-	}, nil
-}
-
-func (f *quotaFiles) TransitionStatus(_ context.Context, _ string, fileID string, from []string, to string, _ map[string]any) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	for _, expected := range from {
-		if f.status[fileID] == expected {
-			f.status[fileID] = to
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-type quotaStorage struct {
-	service.ObjectStorage
-	started chan string
-	release <-chan struct{}
-	active  atomic.Int32
-	max     atomic.Int32
-}
-
-type duplicateRecoveryQueue struct {
-	claimCalls  atomic.Int32
-	claimedMany chan struct{}
-	claimOnce   sync.Once
-	acked       atomic.Int32
-}
-
-func (q *duplicateRecoveryQueue) EnsureGroup(context.Context) error                    { return nil }
-func (q *duplicateRecoveryQueue) Publish(context.Context, documentqueue.Message) error { return nil }
-func (q *duplicateRecoveryQueue) Consume(ctx context.Context, _ string, _ time.Duration) (*documentqueue.Message, error) {
-	select {
-	case <-time.After(time.Millisecond):
-		return nil, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-}
-func (q *duplicateRecoveryQueue) Ack(context.Context, string) error {
-	q.acked.Add(1)
-	return nil
-}
-func (q *duplicateRecoveryQueue) ClaimStale(context.Context, string, time.Duration, int64) ([]documentqueue.Message, error) {
-	calls := q.claimCalls.Add(1)
-	if calls >= 3 {
-		q.claimOnce.Do(func() { close(q.claimedMany) })
-	}
-	if calls > 3 {
-		return nil, nil
-	}
-	return []documentqueue.Message{{ID: "duplicate-recovery-message", JobID: "duplicate-recovery-job"}}, nil
-}
-
-type duplicateRecoveryJobs struct {
-	repository.DocumentProcessingJobRepository
-	reclaimed atomic.Int32
-}
-
-func (j *duplicateRecoveryJobs) ReclaimByJobID(_ context.Context, jobID, workerID string) (*entity.DocumentProcessingJob, error) {
-	j.reclaimed.Add(1)
-	return quotaJob(jobID, workerID), nil
-}
-func (*duplicateRecoveryJobs) MarkSucceeded(string) error              { return nil }
-func (*duplicateRecoveryJobs) MarkFailed(string, string, string) error { return nil }
-
-func (s *quotaStorage) Read(path string) (io.ReadCloser, error) {
-	active := s.active.Add(1)
-	for {
-		currentMax := s.max.Load()
-		if active <= currentMax || s.max.CompareAndSwap(currentMax, active) {
-			break
-		}
-	}
-	s.started <- path
-	<-s.release
-	s.active.Add(-1)
-	return io.NopCloser(strings.NewReader("content")), nil
-}
-
-func (s *quotaStorage) UploadReader(_, _, _ string, reader io.Reader, _ int64) (*service.UploadedObject, error) {
-	_, _ = io.ReadAll(reader)
-	return &service.UploadedObject{Path: "derived/normalized.md"}, nil
 }
 
 // --- helpers ---
@@ -424,157 +160,6 @@ func TestParseJobStopsAtParsedWithoutIndexing(t *testing.T) {
 	}
 	if w.files.(*wFakeFiles).status != entity.FileParsed {
 		t.Fatalf("file status=%q want %q", w.files.(*wFakeFiles).status, entity.FileParsed)
-	}
-}
-
-type workerParserError struct {
-	err error
-}
-
-func (p workerParserError) Parse(context.Context, ingestion.ParseInput) (ingestion.ParseResult, error) {
-	return ingestion.ParseResult{}, p.err
-}
-
-func TestParseJobPersistsSafeParserErrorOrGenericFailure(t *testing.T) {
-	tests := []struct {
-		name        string
-		filename    string
-		content     string
-		python      ingestion.DocumentParser
-		wantCode    string
-		wantMessage string
-	}{
-		{
-			name:        "preserves empty content parser error",
-			filename:    "test.txt",
-			content:     "# \n![]()\n",
-			wantCode:    "PARSER_EMPTY_CONTENT",
-			wantMessage: "文档解析结果为空",
-		},
-		{
-			name:        "preserves python parser error",
-			filename:    "test.pdf",
-			content:     "pdf",
-			python:      workerParserError{err: fmt.Errorf("python failed: %w", &ingestion.ParserError{Code: "PARSER_FILE_NOT_FOUND", Message: "输入文件不存在"})},
-			wantCode:    "PARSER_FILE_NOT_FOUND",
-			wantMessage: "输入文件不存在",
-		},
-		{
-			name:        "uses generic failure for unknown parser error",
-			filename:    "test.pdf",
-			content:     "pdf",
-			python:      workerParserError{err: errors.New("untrusted parser detail")},
-			wantCode:    "PARSER_FAILED",
-			wantMessage: "文档解析失败",
-		},
-		{
-			name:        "uses generic failure for forged parser error message",
-			filename:    "test.pdf",
-			content:     "pdf",
-			python:      workerParserError{err: &ingestion.ParserError{Code: "PARSER_FILE_NOT_FOUND", Message: "C:\\secret\\input.pdf: token=leaked"}},
-			wantCode:    "PARSER_FAILED",
-			wantMessage: "文档解析失败",
-		},
-		{
-			name:        "uses generic failure for forged parser error code",
-			filename:    "test.pdf",
-			content:     "pdf",
-			python:      workerParserError{err: &ingestion.ParserError{Code: "PARSER_INTERNAL_STACK", Message: "文档解析失败"}},
-			wantCode:    "PARSER_FAILED",
-			wantMessage: "文档解析失败",
-		},
-		{
-			name:        "uses generic failure for oversized parser error message",
-			filename:    "test.pdf",
-			content:     "pdf",
-			python:      workerParserError{err: &ingestion.ParserError{Code: "PARSER_FILE_NOT_FOUND", Message: strings.Repeat("x", 4097)}},
-			wantCode:    "PARSER_FAILED",
-			wantMessage: "文档解析失败",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			jobs := &wFakeJobs{jobType: entity.JobTypeParse}
-			files := &wFakeFiles{status: entity.FileParseQueued, originalName: tt.filename}
-			worker := &DocumentWorker{
-				queue:   wFakeQueue{},
-				jobs:    jobs,
-				files:   files,
-				storage: &wFakeStorage{content: tt.content},
-				parser:  ingestion.NewParser(tt.python),
-			}
-
-			ack, err := worker.processMessage(context.Background(), documentqueue.Message{JobID: "parse-error"}, "w-1", false)
-			if err != nil || !ack {
-				t.Fatalf("ack=%v err=%v", ack, err)
-			}
-			if jobs.status != entity.JobFailed || jobs.errorCode != tt.wantCode || jobs.errorMessage != tt.wantMessage {
-				t.Fatalf("job failure = status=%q code=%q message=%q, want failed/%q/%q", jobs.status, jobs.errorCode, jobs.errorMessage, tt.wantCode, tt.wantMessage)
-			}
-			if files.status != entity.FileParseFailed || files.errorMessage != tt.wantMessage {
-				t.Fatalf("file failure = status=%q message=%q, want parse_failed/%q", files.status, files.errorMessage, tt.wantMessage)
-			}
-		})
-	}
-}
-
-func TestParseJobSwitchesMarkdownObjectBeforeDeletingOldObject(t *testing.T) {
-	files := &wFakeFiles{status: entity.FileParseQueued, markdownPath: "derived/old.md"}
-	storage := &wFakeStorage{content: "parsed content", objectPath: "derived/normalized-job-123.md"}
-	worker := &DocumentWorker{
-		queue:   wFakeQueue{},
-		jobs:    &wFakeJobs{jobType: entity.JobTypeParse},
-		files:   files,
-		storage: storage,
-		parser:  ingestion.NewParser(nil),
-	}
-	storage.onDelete = func(path string) {
-		if path == "derived/old.md" && files.markdownPath != "derived/normalized-job-123.md" {
-			t.Fatalf("old object deleted before switch: markdown path = %q", files.markdownPath)
-		}
-	}
-
-	ack, err := worker.processMessage(context.Background(), documentqueue.Message{JobID: "job-123"}, "w-1", false)
-	if err != nil || !ack {
-		t.Fatalf("ack=%v err=%v", ack, err)
-	}
-	if storage.uploadFilename != "normalized-job-123.md" {
-		t.Fatalf("upload filename = %q", storage.uploadFilename)
-	}
-	if files.markdownPath != "derived/normalized-job-123.md" {
-		t.Fatalf("markdown path = %q", files.markdownPath)
-	}
-	if got := strings.Join(storage.deleted, ","); got != "derived/old.md" {
-		t.Fatalf("deleted = %q, want old object only", got)
-	}
-}
-
-func TestParseJobTransitionFailureDeletesNewObjectWithoutDeletingOldObject(t *testing.T) {
-	files := &wFakeFiles{
-		status:        entity.FileParseQueued,
-		markdownPath:  "derived/old.md",
-		failOnStatus:  entity.FileParsed,
-		transitionErr: errors.New("database unavailable"),
-	}
-	storage := &wFakeStorage{content: "parsed content", objectPath: "derived/normalized-job-123.md"}
-	worker := &DocumentWorker{
-		queue:   wFakeQueue{},
-		jobs:    &wFakeJobs{jobType: entity.JobTypeParse},
-		files:   files,
-		storage: storage,
-		parser:  ingestion.NewParser(nil),
-	}
-
-	ack, err := worker.processMessage(context.Background(), documentqueue.Message{JobID: "job-123"}, "w-1", false)
-	if err == nil || ack {
-		t.Fatalf("ack=%v err=%v", ack, err)
-	}
-	if files.markdownPath != "derived/old.md" {
-		t.Fatalf("markdown path = %q, want old path retained", files.markdownPath)
-	}
-	if got := strings.Join(storage.deleted, ","); got != "derived/normalized-job-123.md" {
-		t.Fatalf("deleted = %q, want newly uploaded object only", got)
 	}
 }
 
@@ -650,236 +235,5 @@ func TestIndexFailureDoesNotAckWhenFailureStateCannotPersist(t *testing.T) {
 	}
 	if w.jobs.(*wFakeJobs).status == entity.JobFailed {
 		t.Fatal("job must remain recoverable when file failure state cannot persist")
-	}
-}
-
-func TestRunStartsBoundedConsumersAndOneRecoveryCoordinator(t *testing.T) {
-	queue := newConcurrentQueue(
-		documentqueue.Message{ID: "message-1", JobID: "job-1"},
-		documentqueue.Message{ID: "message-2", JobID: "job-2"},
-	)
-	release := make(chan struct{})
-	storage := &blockingStorage{started: make(chan struct{}, 2), release: release}
-	worker := &DocumentWorker{
-		queue:   queue,
-		jobs:    &wFakeJobs{jobType: entity.JobTypeParse},
-		files:   &wFakeFiles{status: entity.FileParseQueued},
-		storage: storage,
-		parser:  ingestion.NewParser(nil),
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		worker.Run(ctx, "consumer", DocumentWorkerOptions{
-			ConsumerCount: 2,
-			PendingCheck:  time.Millisecond,
-		})
-	}()
-
-	for range 2 {
-		select {
-		case <-storage.started:
-		case <-time.After(time.Second):
-			t.Fatal("two parse jobs did not enter processing concurrently")
-		}
-	}
-
-	consumerIDs := map[string]bool{}
-	for range 2 {
-		select {
-		case consumerID := <-queue.consumerIDs:
-			consumerIDs[consumerID] = true
-		case <-time.After(time.Second):
-			t.Fatal("consumer did not start")
-		}
-	}
-	if !consumerIDs["consumer-0"] || !consumerIDs["consumer-1"] {
-		t.Fatalf("consumer IDs = %v, want consumer-0 and consumer-1", consumerIDs)
-	}
-	select {
-	case <-queue.recoveryStarted:
-	case <-time.After(time.Second):
-		t.Fatal("pending recovery coordinator did not start")
-	}
-	if calls := queue.recoveryCalls.Load(); calls != 1 {
-		t.Fatalf("pending recovery loops = %d, want 1", calls)
-	}
-
-	close(release)
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("worker did not stop after context cancellation")
-	}
-}
-
-func TestRunLimitsNormalAndRecoveredMessagesToConsumerCount(t *testing.T) {
-	queue := &quotaQueue{
-		normal:          make(chan documentqueue.Message, 1),
-		allowRecovery:   make(chan struct{}),
-		recoveryClaimed: make(chan struct{}),
-	}
-	queue.normal <- documentqueue.Message{ID: "normal-message", JobID: "normal-job"}
-	release := make(chan struct{})
-	storage := &quotaStorage{started: make(chan string, 2), release: release}
-	worker := &DocumentWorker{
-		queue:   queue,
-		jobs:    quotaJobs{},
-		files:   &quotaFiles{status: map[string]string{"normal-job": entity.FileParseQueued, "recovery-job": entity.FileParseQueued}},
-		storage: storage,
-		parser:  ingestion.NewParser(nil),
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	defer close(release)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		worker.Run(ctx, "consumer", DocumentWorkerOptions{
-			ConsumerCount: 1,
-			PendingCheck:  time.Millisecond,
-		})
-	}()
-
-	select {
-	case path := <-storage.started:
-		if path != "normal-job.txt" {
-			t.Fatalf("first parsed path = %q, want normal-job.txt", path)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("normal message did not enter processing")
-	}
-	close(queue.allowRecovery)
-	select {
-	case <-queue.recoveryClaimed:
-	case <-time.After(time.Second):
-		t.Fatal("recovery message was not claimed")
-	}
-
-	select {
-	case path := <-storage.started:
-		t.Fatalf("recovered message %q began while the sole consumer handled normal work", path)
-	case <-time.After(25 * time.Millisecond):
-	}
-	if got := storage.max.Load(); got != 1 {
-		t.Fatalf("maximum concurrent handlers = %d, want 1", got)
-	}
-
-	release <- struct{}{}
-	select {
-	case path := <-storage.started:
-		if path != "recovery-job.txt" {
-			t.Fatalf("second parsed path = %q, want recovery-job.txt", path)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("recovered message was not handled after the consumer became free")
-	}
-	if got := storage.max.Load(); got != 1 {
-		t.Fatalf("maximum concurrent handlers = %d, want 1", got)
-	}
-
-	release <- struct{}{}
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("worker did not stop after context cancellation")
-	}
-}
-
-func TestRunSkipsStaleClaimsForRecoveryMessageAlreadyInFlight(t *testing.T) {
-	queue := &duplicateRecoveryQueue{claimedMany: make(chan struct{})}
-	jobs := &duplicateRecoveryJobs{}
-	release := make(chan struct{})
-	storage := &blockingStorage{started: make(chan struct{}, 2), release: release}
-	worker := &DocumentWorker{
-		queue:   queue,
-		jobs:    jobs,
-		files:   &quotaFiles{status: map[string]string{"duplicate-recovery-job": entity.FileParseQueued}},
-		storage: storage,
-		parser:  ingestion.NewParser(nil),
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		worker.Run(ctx, "consumer", DocumentWorkerOptions{
-			ConsumerCount:  1,
-			PendingCheck:   time.Millisecond,
-			PendingMinIdle: time.Millisecond,
-		})
-	}()
-
-	select {
-	case <-storage.started:
-	case <-time.After(time.Second):
-		t.Fatal("recovered message did not enter processing")
-	}
-	select {
-	case <-queue.claimedMany:
-	case <-time.After(time.Second):
-		t.Fatal("recovery did not perform repeated stale claims while processing was blocked")
-	}
-	if got := jobs.reclaimed.Load(); got != 1 {
-		t.Fatalf("recovered handler entries while first attempt is in flight = %d, want 1", got)
-	}
-
-	release <- struct{}{}
-	select {
-	case <-storage.started:
-		t.Fatal("same recovered message was processed twice")
-	case <-time.After(25 * time.Millisecond):
-	}
-	if got := jobs.reclaimed.Load(); got != 1 {
-		t.Fatalf("recovered handler entries after completion = %d, want 1", got)
-	}
-	if got := queue.acked.Load(); got != 1 {
-		t.Fatalf("acks = %d, want 1", got)
-	}
-
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("worker did not stop after context cancellation")
-	}
-}
-
-func TestRunConsumerDoesNotStartQueuedRecoveryAfterCancellation(t *testing.T) {
-	message := documentqueue.Message{ID: "queued-recovery-message", JobID: "queued-recovery-job"}
-	recoveredMessages := make(chan documentqueue.Message, 1)
-	recoveredMessages <- message
-	inFlight := newInFlightMessages()
-	if !inFlight.reserve(message) {
-		t.Fatal("failed to reserve queued recovery message")
-	}
-	jobs := &duplicateRecoveryJobs{}
-	worker := &DocumentWorker{
-		queue:   wFakeQueue{},
-		jobs:    jobs,
-		files:   &quotaFiles{status: map[string]string{"queued-recovery-job": entity.FileParseQueued}},
-		storage: &wFakeStorage{content: "content"},
-		parser:  ingestion.NewParser(nil),
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	worker.runConsumer(ctx, "consumer", DocumentWorkerOptions{}, recoveredMessages, inFlight)
-
-	if got := jobs.reclaimed.Load(); got != 0 {
-		t.Fatalf("queued recovery handlers started after cancellation = %d, want 0", got)
-	}
-}
-
-func TestDocumentWorkerOptionsDefaultConsumerCount(t *testing.T) {
-	options := DocumentWorkerOptions{}
-	options.applyDefaults()
-	if options.ConsumerCount != 1 {
-		t.Fatalf("ConsumerCount = %d, want 1", options.ConsumerCount)
 	}
 }

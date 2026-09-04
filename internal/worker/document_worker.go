@@ -3,7 +3,6 @@ package worker
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -26,7 +25,6 @@ type DocumentWorkerOptions struct {
 	PendingCheck     time.Duration // 定期检查 Pending 状态任务的时间间隔
 	PendingMinIdle   time.Duration // Pending 任务被重新领取前的最小空闲时间
 	PendingClaimSize int64         // 每次领取 Pending 任务的数量上限
-	ConsumerCount    int           // 固定的 Redis Stream 消费者数量
 }
 
 // DocumentWorker 文档处理 Worker，负责从 Redis 队列消费文档处理任务。
@@ -38,47 +36,6 @@ type DocumentWorker struct {
 	storage service.ObjectStorage                      // 对象存储（MinIO）
 	parser  *ingestion.Parser                          // 文档解析器
 	indexer rag.DocumentIndexer                        // RAG 索引器（可选，Embedding 未配置时为 nil）
-}
-
-// inFlightMessages keeps this process from handling the same stream message
-// concurrently through the normal consumer and pending-recovery paths.
-type inFlightMessages struct {
-	mu       sync.Mutex
-	messages map[string]struct{}
-}
-
-func newInFlightMessages() *inFlightMessages {
-	return &inFlightMessages{messages: make(map[string]struct{})}
-}
-
-func (m *inFlightMessages) reserve(message documentqueue.Message) bool {
-	key := message.ID
-	if key == "" {
-		key = message.JobID
-	}
-	if key == "" {
-		return true
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, exists := m.messages[key]; exists {
-		return false
-	}
-	m.messages[key] = struct{}{}
-	return true
-}
-
-func (m *inFlightMessages) release(message documentqueue.Message) {
-	key := message.ID
-	if key == "" {
-		key = message.JobID
-	}
-	if key == "" {
-		return
-	}
-	m.mu.Lock()
-	delete(m.messages, key)
-	m.mu.Unlock()
 }
 
 // NewDocumentWorker 创建文档处理 Worker 实例。
@@ -144,7 +101,6 @@ func (w *DocumentWorker) processMessage(ctx context.Context, message documentque
 
 // processParseJob 处理解析任务：parse_queued -> parsing -> 读取原文件 -> 解析 -> 上传 Markdown -> parsed。
 func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.DocumentProcessingJob, file *entity.KnowledgeFile) (bool, error) {
-	oldMarkdown := file.MarkdownFile
 	ok, err := w.files.TransitionStatus(ctx, job.KBID, job.FileID, []string{entity.FileParseQueued}, entity.FileParsing, nil)
 	if err != nil {
 		return false, err
@@ -172,13 +128,12 @@ func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.Docume
 		Path:     file.Path,
 	})
 	if err != nil {
-		code, message := parserFailure(err)
-		return w.failParseJob(job, code, message)
+		return w.failParseJob(job, "PARSER_FAILED", "文档解析失败")
 	}
 
 	object, err := w.storage.UploadReader(
 		fmt.Sprintf("knowledge-internal/%s/%s/derived", job.KBID, job.FileID),
-		fmt.Sprintf("normalized-%s.md", job.JobID),
+		"normalized.md",
 		"text/markdown",
 		bytes.NewReader([]byte(parsed.Markdown)),
 		int64(len(parsed.Markdown)),
@@ -189,81 +144,16 @@ func (w *DocumentWorker) processParseJob(ctx context.Context, job *entity.Docume
 
 	ok, err = w.files.TransitionStatus(ctx, job.KBID, job.FileID, []string{entity.FileParsing}, entity.FileParsed, map[string]any{"markdown_file": object.Path, "error_message": ""})
 	if err != nil {
-		w.cleanupMarkdownObject(job, object.Path, "切换 Markdown 引用失败，清理新对象失败")
 		return false, err
 	}
 	if !ok {
-		w.cleanupMarkdownObject(job, object.Path, "切换 Markdown 引用失败，清理新对象失败")
 		return w.failParseJob(job, "STATE_CONFLICT", "文件状态冲突，无法完成解析")
 	}
 
 	if err := w.jobs.MarkSucceeded(job.JobID); err != nil {
 		return false, err
 	}
-	if oldMarkdown != "" && oldMarkdown != object.Path {
-		w.cleanupMarkdownObject(job, oldMarkdown, "Markdown 引用已切换，清理旧对象失败")
-	}
 	return true, nil
-}
-
-func parserFailure(err error) (code, message string) {
-	var parserErr *ingestion.ParserError
-	if errors.As(err, &parserErr) && isSafeParserFailure(parserErr) {
-		return parserErr.Code, parserErr.Message
-	}
-	return "PARSER_FAILED", "文档解析失败"
-}
-
-func isSafeParserFailure(parserErr *ingestion.ParserError) bool {
-	if parserErr == nil {
-		return false
-	}
-	allowedMessages, ok := safeParserFailureMessages[parserErr.Code]
-	if !ok {
-		return false
-	}
-	_, ok = allowedMessages[parserErr.Message]
-	return ok
-}
-
-var safeParserFailureMessages = map[string]map[string]struct{}{
-	"PARSER_EMPTY_CONTENT": {
-		"文档解析结果为空": {},
-	},
-	"PARSER_FILE_NOT_FOUND": {
-		"输入文件不存在":                 {},
-		"document parsing failed": {},
-	},
-	"PARSER_OCR_ENGINE_INVALID": {
-		"不支持的 OCR 引擎":             {},
-		"document parsing failed": {},
-	},
-	"PARSER_OCR_CONFIG_MISSING": {
-		"未配置 OCR API 服务地址":        {},
-		"document parsing failed": {},
-	},
-	"PARSER_UNSUPPORTED_TYPE": {
-		"document parsing failed": {},
-	},
-	"PARSER_PROTOCOL_ERROR": {
-		"invalid protocol request": {},
-	},
-	"PARSER_FAILED": {
-		"文档解析失败":                  {},
-		"document parsing failed": {},
-	},
-}
-
-func (w *DocumentWorker) cleanupMarkdownObject(job *entity.DocumentProcessingJob, path, message string) {
-	if err := w.storage.Delete(path); err != nil && logger.Initialized() {
-		logger.Warn(message,
-			zap.String("job_id", job.JobID),
-			zap.String("kb_id", job.KBID),
-			zap.String("file_id", job.FileID),
-			zap.String("object_path", path),
-			zap.Error(err),
-		)
-	}
 }
 
 // processIndexJob 处理索引任务：index_queued -> indexing -> 读取 Markdown -> RAG 索引 -> indexed。
@@ -446,43 +336,19 @@ func (w *DocumentWorker) Run(ctx context.Context, workerID string, options Docum
 	}
 
 	recoveryCtx, cancelRecovery := context.WithCancel(ctx)
-	recoveredMessages := make(chan documentqueue.Message, options.ConsumerCount)
-	inFlight := newInFlightMessages()
 	var recoveryWG sync.WaitGroup
 	recoveryWG.Add(1)
 	go func() {
 		defer recoveryWG.Done()
-		w.runPendingRecovery(recoveryCtx, workerID, options, recoveredMessages, inFlight)
+		w.runPendingRecovery(recoveryCtx, workerID, options)
 	}()
 
-	var consumersWG sync.WaitGroup
-	for i := 0; i < options.ConsumerCount; i++ {
-		consumerID := fmt.Sprintf("%s-%d", workerID, i)
-		consumersWG.Add(1)
-		go func() {
-			defer consumersWG.Done()
-			w.runConsumer(ctx, consumerID, options, recoveredMessages, inFlight)
-		}()
-	}
-	consumersWG.Wait()
-	cancelRecovery()
-	recoveryWG.Wait()
-}
+	defer func() {
+		cancelRecovery()
+		recoveryWG.Wait()
+	}()
 
-// runConsumer continuously receives new queue messages for one unique Redis
-// consumer ID. Pending recovery is intentionally coordinated separately.
-func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, options DocumentWorkerOptions, recoveredMessages <-chan documentqueue.Message, inFlight *inFlightMessages) {
 	for {
-		if ctx.Err() != nil {
-			return
-		}
-		select {
-		case message := <-recoveredMessages:
-			w.handleInFlightMessage(ctx, message, workerID, true, inFlight)
-			continue
-		default:
-		}
-
 		message, err := w.queue.Consume(ctx, workerID, options.ReadBlock)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -500,26 +366,14 @@ func (w *DocumentWorker) runConsumer(ctx context.Context, workerID string, optio
 			}
 			continue
 		}
-		if !inFlight.reserve(*message) {
-			continue
+		if err := w.handleMessage(ctx, *message, workerID, false); err != nil {
+			logger.Warn("文档处理消息执行失败", zap.String("job_id", message.JobID), zap.Error(err))
 		}
-		w.handleInFlightMessage(ctx, *message, workerID, false, inFlight)
-	}
-}
-
-func (w *DocumentWorker) handleInFlightMessage(ctx context.Context, message documentqueue.Message, workerID string, reclaimed bool, inFlight *inFlightMessages) {
-	defer inFlight.release(message)
-	if err := w.handleMessage(ctx, message, workerID, reclaimed); err != nil {
-		if reclaimed {
-			logger.Warn("补偿文档处理消息失败", zap.String("job_id", message.JobID), zap.Error(err))
-			return
-		}
-		logger.Warn("文档处理消息执行失败", zap.String("job_id", message.JobID), zap.Error(err))
 	}
 }
 
 // runPendingRecovery 定期检查并回收处于 Pending 状态超过指定时间的任务。
-func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string, options DocumentWorkerOptions, recoveredMessages chan<- documentqueue.Message, inFlight *inFlightMessages) {
+func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string, options DocumentWorkerOptions) {
 	ticker := time.NewTicker(options.PendingCheck)
 	defer ticker.Stop()
 	for {
@@ -535,14 +389,8 @@ func (w *DocumentWorker) runPendingRecovery(ctx context.Context, workerID string
 				continue
 			}
 			for _, message := range messages {
-				if !inFlight.reserve(message) {
-					continue
-				}
-				select {
-				case recoveredMessages <- message:
-				case <-ctx.Done():
-					inFlight.release(message)
-					return
+				if err := w.handleMessage(ctx, message, workerID, true); err != nil {
+					logger.Warn("补偿文档处理消息失败", zap.String("job_id", message.JobID), zap.Error(err))
 				}
 			}
 		}
@@ -562,9 +410,6 @@ func (o *DocumentWorkerOptions) applyDefaults() {
 	}
 	if o.PendingClaimSize <= 0 {
 		o.PendingClaimSize = 10
-	}
-	if o.ConsumerCount <= 0 {
-		o.ConsumerCount = 1
 	}
 }
 
