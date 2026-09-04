@@ -94,3 +94,7 @@ tmp_resume.txt
 docs/个人工作总结与面试准备.md
 docs/面试准备-记忆系统.md
 docs/面试常见问题-模块总结.md
+
+.gocache
+.gomodcache
+.gopath\pkg\sumdb\sum.golang.org
