@@ -280,6 +280,25 @@ GET /api/v1/system/ocr/health
 
 `options` 返回可用 OCR 引擎列表与默认引擎（`rapid_ocr` 本地 / `api_ocr` 通用 API）。
 
+`health` 还返回 `parser_pool`，用于描述应用内本地解析进程池，而不是远程解析服务：
+
+```json
+{
+  "parser_pool": {
+    "status": "healthy",
+    "configured_workers": 2,
+    "available_workers": 2,
+    "capabilities": {
+      "docling": true,
+      "rapidocr": true,
+      "api_ocr": false
+    }
+  }
+}
+```
+
+`status` 为 `healthy` 表示所有配置 Worker 可用；`degraded` 表示仍有可用 Worker 但数量不足，或 Docling 能力缺失；`unavailable` 表示没有可用 Worker。能力只反映本地进程握手结果，不泄露解释器路径、模型路径或凭证。应用关闭会先停止领取文档任务并等待在途处理，然后关闭它创建的本地 Python 进程；此流程没有单文档超时或超时终止机制。
+
 ### 工具列表（公开）
 
 ```http

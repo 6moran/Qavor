@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"Qavor/internal/ingestion"
 	"Qavor/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -31,11 +32,18 @@ type OCRConfigProvider interface {
 	GetOCRAPIConfig(ctx context.Context) (service.OCRAPIConfig, error)
 }
 
+// ParserHealthProvider exposes the running local parser pool without coupling
+// this HTTP controller to its concrete process-management implementation.
+type ParserHealthProvider interface {
+	Health() ingestion.ParserHealth
+}
+
 // Controller 提供 OCR 引擎列表与健康检查的 HTTP 接口。
 // 路由挂载在 /api/v1/system/ocr 下。
 type Controller struct {
-	engines  []Engine
-	ocrCfg   OCRConfigProvider
+	engines      []Engine
+	ocrCfg       OCRConfigProvider
+	parserHealth ParserHealthProvider
 }
 
 // NewController 创建 OCR 控制器并初始化引擎清单。
@@ -47,8 +55,8 @@ type Controller struct {
 //     对应系统设置中的 OCR 服务配置项，需要先在系统设置中完成后端配置才可用。
 //
 // ocrCfg 可选；为 nil 时 api_ocr 恒判定为不可用。
-func NewController(ocrCfg OCRConfigProvider) *Controller {
-	return &Controller{
+func NewController(ocrCfg OCRConfigProvider, parserHealth ...ParserHealthProvider) *Controller {
+	controller := &Controller{
 		engines: []Engine{
 			{
 				EngineID:    "rapid_ocr",
@@ -83,6 +91,10 @@ func NewController(ocrCfg OCRConfigProvider) *Controller {
 		},
 		ocrCfg: ocrCfg,
 	}
+	if len(parserHealth) > 0 {
+		controller.parserHealth = parserHealth[0]
+	}
+	return controller
 }
 
 // RegisterRoutes 在 /api/v1/system/ocr 下注册路由。
@@ -108,11 +120,12 @@ func (c *Controller) GetOptions(ctx *gin.Context) {
 // 其余远程引擎需要先完成系统设置中的服务配置，因此在未接入配置子系统前统一标记为不可用，
 // 前端会将其折叠进"不可用"分组，不会误导用户选择。
 func (c *Controller) GetHealth(ctx *gin.Context) {
+	pool := c.parserPoolHealth()
 	health := make(map[string]Health, len(c.engines))
 	for _, e := range c.engines {
 		switch e.EngineID {
 		case "rapid_ocr":
-			health[e.EngineID] = Health{Status: "configured", Message: "本地 RapidOCR 引擎可用"}
+			health[e.EngineID] = rapidOCRHealth(pool)
 		case "api_ocr":
 			health[e.EngineID] = c.apiOCRHealth(ctx)
 		default:
@@ -122,7 +135,49 @@ func (c *Controller) GetHealth(ctx *gin.Context) {
 			}
 		}
 	}
-	ctx.JSON(http.StatusOK, gin.H{"health": health})
+	ctx.JSON(http.StatusOK, gin.H{"health": health, "parser_pool": pool})
+}
+
+type parserPoolHealth struct {
+	Status            string          `json:"status"`
+	ConfiguredWorkers int             `json:"configured_workers"`
+	AvailableWorkers  int             `json:"available_workers"`
+	Capabilities      map[string]bool `json:"capabilities"`
+}
+
+func (c *Controller) parserPoolHealth() parserPoolHealth {
+	health := ingestion.ParserHealth{Capabilities: map[string]bool{}}
+	if c.parserHealth != nil {
+		health = c.parserHealth.Health()
+	}
+	capabilities := map[string]bool{
+		"docling":  health.Capabilities["docling"],
+		"rapidocr": health.Capabilities["rapidocr"],
+		"api_ocr":  health.Capabilities["api_ocr"],
+	}
+	status := "unavailable"
+	if health.AvailableWorkers > 0 {
+		status = "healthy"
+		if health.AvailableWorkers < health.ConfiguredWorkers || !capabilities["docling"] {
+			status = "degraded"
+		}
+	}
+	return parserPoolHealth{
+		Status:            status,
+		ConfiguredWorkers: health.ConfiguredWorkers,
+		AvailableWorkers:  health.AvailableWorkers,
+		Capabilities:      capabilities,
+	}
+}
+
+func rapidOCRHealth(pool parserPoolHealth) Health {
+	if pool.AvailableWorkers <= 0 {
+		return Health{Status: "unavailable", Message: "本地解析进程池不可用"}
+	}
+	if !pool.Capabilities["rapidocr"] {
+		return Health{Status: "unavailable", Message: "本地 RapidOCR 引擎不可用"}
+	}
+	return Health{Status: "configured", Message: "本地 RapidOCR 引擎可用"}
 }
 
 // apiOCRHealth 依据通用 OCR API 配置判断可用性。
