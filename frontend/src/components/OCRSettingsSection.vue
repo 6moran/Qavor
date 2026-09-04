@@ -229,7 +229,8 @@ onMounted(loadConfigOptions)
 
 // 配置项控件容器：与 label 对齐，内部控件统一宽度、右侧对齐
 .setting-control {
-  flex: 1;
+  flex: 0 1 480px;
+  width: 480px;
   max-width: 480px;
   min-width: 0;
   display: flex;
@@ -241,8 +242,9 @@ onMounted(loadConfigOptions)
     display: flex;
     flex-direction: column;
     gap: 4px;
+    flex: 1 1 0;
     min-width: 140px;
-    flex-shrink: 0;
+    overflow-wrap: anywhere;
 
     .label {
       font-weight: 500;
@@ -305,6 +307,18 @@ onMounted(loadConfigOptions)
 
   .option-field:only-child {
     grid-column: auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .ocr-option {
+    flex-direction: column;
+
+    .option-meta,
+    .setting-control {
+      width: 100%;
+      max-width: none;
+    }
   }
 }
 </style>

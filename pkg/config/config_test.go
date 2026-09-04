@@ -2,6 +2,22 @@ package config
 
 import "testing"
 
+func TestDocumentParserConfigApplyDefaults(t *testing.T) {
+	cfg := DocumentParserConfig{}
+	cfg.ApplyDefaults()
+	if cfg.PythonPath != "python" {
+		t.Fatalf("unexpected defaults: %+v", cfg)
+	}
+}
+
+func TestDocumentParserConfigPreservesExplicitPythonPath(t *testing.T) {
+	cfg := DocumentParserConfig{PythonPath: "py"}
+	cfg.ApplyDefaults()
+	if cfg.PythonPath != "py" {
+		t.Fatalf("explicit value changed: %+v", cfg)
+	}
+}
+
 func TestRAGApplyDefaultsTopKNormalization(t *testing.T) {
 	cfg := &RAGConfig{TopK: 5} // 模拟 yaml 仅配置 top_k: 5
 	cfg.ApplyDefaults()

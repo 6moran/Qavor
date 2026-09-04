@@ -280,6 +280,23 @@ GET /api/v1/system/ocr/health
 
 `options` 返回可用 OCR 引擎列表与默认引擎（`rapid_ocr` 本地 / `api_ocr` 通用 API）。
 
+`health` 返回本地 `rapid_ocr` 与远程 `api_ocr` 的可用状态：
+
+```json
+{
+  "rapid_ocr": {
+    "status": "configured",
+    "message": "本地 RapidOCR 引擎可用"
+  },
+  "api_ocr": {
+    "status": "unavailable",
+    "message": "通用 OCR API 未配置"
+  }
+}
+```
+
+本地文档解析由 Go 按需启动 Python 子进程执行；健康状态只反映 OCR 引擎配置，不泄露解释器路径、模型路径或凭证。应用关闭会先停止领取文档任务并等待在途处理；此流程没有单文档超时或超时终止机制。
+
 ### 工具列表（公开）
 
 ```http

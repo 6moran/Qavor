@@ -243,6 +243,27 @@ export function listProducts(params) {
 - **提交范围约定**：只提交代码文件；`docs/` 文件夹、测试文件（`frontend/test/`、`*_test.go`、测试数据）一律不提交。
 - 提交信息：中文 Conventional Commits，如 `feat(rag): 增加混合检索 RRF 融合`。
 
+### 文档解析测试层级
+
+轻量 Python 契约、协议、路由和文档一致性测试不加载 Docling 或 OCR 模型，默认运行：
+
+```powershell
+python -m venv .tmp/document-parser-venv
+& .\.tmp\document-parser-venv\Scripts\python.exe -m pip install -c pkg/documentparser/python/constraints.txt -r pkg/documentparser/python/requirements-test.txt
+& .\.tmp\document-parser-venv\Scripts\python.exe -m unittest discover -s pkg/documentparser/python -p "test_*.py" -v
+```
+
+真实解析测试额外安装运行时依赖，并明确启用环境变量；它可能在首次运行下载模型，不能替代默认轻量测试：
+
+```powershell
+& .\.tmp\document-parser-venv\Scripts\python.exe -m pip install -c pkg/documentparser/python/constraints.txt -r pkg/documentparser/python/requirements.txt -r pkg/documentparser/python/requirements-test.txt
+$env:QAVOR_REAL_PARSER_TESTS = '1'
+& .\.tmp\document-parser-venv\Scripts\python.exe -m unittest discover -s pkg/documentparser/python -p "test_*.py" -v
+Remove-Item Env:QAVOR_REAL_PARSER_TESTS
+```
+
+完整服务验收还需要 PostgreSQL、Redis 和 MinIO：通过真实 API 上传 `digital.pdf`、`scanned.pdf`、`with-image.docx` 和 `text-image.png`，核对 `parse_queued → parsing → parsed`、手动入库后的 `index_queued → indexing → indexed`，以及检索命中每个样本的唯一标记。除非记录了实际文件 ID、解析元数据、Markdown 对象路径、分块数和查询命中，否则不能把该层称为已运行。
+
 ## 6. 代码规范
 
 ### 命名
