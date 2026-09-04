@@ -11,6 +11,8 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
   const hasMoreThreads = ref(true)
   const isLoadingMoreThreads = ref(false)
   const unreadThreadIds = ref(new Set())
+  let allThreadsLoaded = false
+  let allThreadsLoading = null
 
   const currentThread = computed(() => {
     if (!currentThreadId.value) return null
@@ -47,23 +49,35 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
     threads.value = [thread, ...threads.value]
   }
 
-  const loadThreads = async (agentId = null) => {
-    try {
-      const fetchedThreads = await threadApi.getThreads(agentId, PAGE_SIZE, 0)
-      threads.value = fetchedThreads || []
-      hasMoreThreads.value = Boolean(fetchedThreads && fetchedThreads.length >= PAGE_SIZE)
-      if (
-        currentThreadId.value &&
-        !threads.value.find((thread) => String(thread.id) === String(currentThreadId.value))
-      ) {
-        currentThreadId.value = null
-      }
-      return threads.value
-    } catch (error) {
-      console.error('Failed to fetch threads:', error)
-      handleChatError(error, 'fetch')
-      throw error
+  const loadThreads = async (agentId = null, force = false) => {
+    if (!agentId && !force) {
+      if (allThreadsLoaded) return threads.value
+      if (allThreadsLoading) return allThreadsLoading
     }
+
+    const request = (async () => {
+      try {
+        const fetchedThreads = await threadApi.getThreads(agentId, PAGE_SIZE, 0)
+        threads.value = fetchedThreads || []
+        hasMoreThreads.value = Boolean(fetchedThreads && fetchedThreads.length >= PAGE_SIZE)
+        if (
+          currentThreadId.value &&
+          !threads.value.find((thread) => String(thread.id) === String(currentThreadId.value))
+        ) {
+          currentThreadId.value = null
+        }
+        return threads.value
+      } catch (error) {
+        console.error('Failed to fetch threads:', error)
+        handleChatError(error, 'fetch')
+        throw error
+      }
+    })()
+    if (!agentId && !force) {
+      allThreadsLoading = request
+      request.then(() => { allThreadsLoaded = true }).finally(() => { allThreadsLoading = null })
+    }
+    return request
   }
 
   const loadMoreThreads = async (agentId = null) => {
