@@ -46,14 +46,14 @@ class DocumentIngestionDocumentationContractTests(unittest.TestCase):
         combined = "\n".join((readme, architecture, development, api))
 
         for required in (
-            "pool_size",
-            "max_tasks_per_worker",
             "Docling",
+            "PyMuPDF",
             "整份 PDF",
             "不设置单文档超时",
             "constraints.txt",
             "QAVOR_REAL_PARSER_TESTS",
-            "parser_pool",
+            "按需启动",
+            "子进程",
         ):
             with self.subTest(required=required):
                 self.assertIn(required, combined)
@@ -63,9 +63,10 @@ class DocumentIngestionDocumentationContractTests(unittest.TestCase):
         self.assertIn("PostgreSQL", development)
         self.assertIn("Redis", development)
         self.assertIn("MinIO", development)
-        self.assertIn("隐藏", architecture)
+        self.assertIn("不暴露网络端口", architecture)
         self.assertIn("关闭", architecture)
-        self.assertIn("available_workers", api)
+        self.assertIn("rapid_ocr", api)
+        self.assertIn("api_ocr", api)
         self.assertIn(".tmp\\document-parser-venv\\Scripts\\python.exe -m pip", readme)
         self.assertIn(".tmp/document-parser-venv/bin/python -m pip", readme)
 
