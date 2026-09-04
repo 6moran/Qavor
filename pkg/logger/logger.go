@@ -111,7 +111,7 @@ func HTTPRequest(method, path, query string, status int, latency time.Duration, 
 		zap.Int("status", status),
 		zap.String("ip", ip),
 		zap.String("user_agent", userAgent),
-		zap.Duration("latency", latency),
+		zap.String("latency", formatLatency(latency)),
 	}
 	if requestErrors != "" {
 		fileFields = append(fileFields, zap.String("errors", requestErrors))
@@ -119,13 +119,17 @@ func HTTPRequest(method, path, query string, status int, latency time.Duration, 
 	fileLog.Info("HTTP Request", fileFields...)
 
 	consoleFields := []zap.Field{
-		zap.Duration("latency", latency),
+		zap.String("latency", formatLatency(latency)),
 		zap.String("ip", ip),
 	}
 	if requestErrors != "" {
 		consoleFields = append(consoleFields, zap.String("errors", requestErrors))
 	}
 	httpConsoleLog.Info(formatHTTPRequestConsoleMessage(details), consoleFields...)
+}
+
+func formatLatency(latency time.Duration) string {
+	return latency.Round(time.Microsecond).String()
 }
 
 func formatHTTPRequestConsoleMessage(details httpRequestDetails) string {
