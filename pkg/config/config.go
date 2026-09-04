@@ -406,8 +406,9 @@ type RedisConfig struct {
 
 // JWTConfig JWT 配置
 type JWTConfig struct {
-	Secret      string        `mapstructure:"secret"`       // JWT 密钥
-	ExpireHours time.Duration `mapstructure:"expire_hours"` // 访问令牌过期时间（小时）
+	Secret             string        `mapstructure:"secret"`               // JWT 密钥
+	ExpireHours        time.Duration `mapstructure:"expire_hours"`         // 访问令牌过期时间（小时）
+	RefreshExpireHours time.Duration `mapstructure:"refresh_expire_hours"` // 刷新令牌过期时间（小时）
 }
 
 // LogConfig 日志配置

@@ -2,6 +2,7 @@ package service
 
 import (
 	"crypto/subtle"
+	"errors"
 	"time"
 
 	"Qavor/internal/model/dto/request"
@@ -17,6 +18,7 @@ import (
 
 var (
 	parseToken                = jwt.ParseToken
+	parseRefreshToken         = jwt.ParseRefreshToken
 	blacklistToken            = cache.AddTokenToBlacklist
 	warnBlacklistWriteFailure = func(err error) {
 		logger.Warn("Token 黑名单写入失败，降级为自然过期", zap.Error(err))
@@ -47,16 +49,38 @@ func (s *authService) Login(req *request.LoginRequest) (*dto.LoginResponse, erro
 	if err != nil {
 		return nil, err
 	}
+	refreshToken, err := jwt.GenerateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
 
 	return &dto.LoginResponse{
-		Token: token,
+		Token: token, RefreshToken: refreshToken,
 	}, nil
+}
+
+func (s *authService) Refresh(refreshToken string) (*dto.LoginResponse, error) {
+	if _, err := parseRefreshToken(refreshToken); err != nil {
+		return nil, err
+	}
+	accessToken, err := jwt.GenerateToken()
+	if err != nil {
+		return nil, err
+	}
+	rotatedRefreshToken, err := jwt.GenerateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+	return &dto.LoginResponse{Token: accessToken, RefreshToken: rotatedRefreshToken}, nil
 }
 
 // Logout 使当前 JWT 进入黑名单直到其自然过期。
 func (s *authService) Logout(token string) error {
 	claims, err := parseToken(token)
 	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) || errors.Is(err, jwt.ErrTokenInvalid) {
+			return nil
+		}
 		return err
 	}
 
