@@ -1,5 +1,17 @@
 import { useUserStore } from '@/stores/user'
+import { refreshAccessToken } from './session_auth'
 import { message } from 'ant-design-vue'
+
+let refreshPromise = null
+
+function refreshTokenOnce() {
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken(fetch).finally(() => {
+      refreshPromise = null
+    })
+  }
+  return refreshPromise
+}
 
 /**
  * 将旧 FastAPI 风格路径 /api/xxx 规范化为 Go 后端 /api/v1/xxx。
@@ -37,7 +49,7 @@ export function normalizeApiUrl(url) {
  * @param {string} responseType - 响应类型: 'json' | 'text' | 'blob'
  * @returns {Promise} - 请求结果
  */
-export async function apiRequest(url, options = {}, requiresAuth = true, responseType = 'json') {
+export async function apiRequest(url, options = {}, requiresAuth = true, responseType = 'json', retryOnAuthFailure = true) {
   try {
     url = normalizeApiUrl(url)
     const isFormData = options?.body instanceof FormData
@@ -115,6 +127,15 @@ export async function apiRequest(url, options = {}, requiresAuth = true, respons
         // 如果是认证失败，可能需要重新登录
         const userStore = useUserStore()
 
+        if (requiresAuth && retryOnAuthFailure && userStore.isLoggedIn) {
+          try {
+            userStore.setToken(await refreshTokenOnce())
+            return await apiRequest(url, options, requiresAuth, responseType, false)
+          } catch (refreshError) {
+            console.warn('自动续期失败，需要重新登录:', refreshError)
+          }
+        }
+
         // 检查是否是token过期（errorMessage 已统一为字符串，避免对对象 detail 调用 includes 抛错）
         const isTokenExpired =
           errorMessage?.includes('令牌已过期') || errorMessage?.includes('token expired')
@@ -123,7 +144,7 @@ export async function apiRequest(url, options = {}, requiresAuth = true, respons
 
         // 如果用户当前认为自己已登录，则登出
         if (userStore.isLoggedIn) {
-          userStore.logout()
+          userStore.logout({ notifyServer: false })
         }
 
         // 使用setTimeout确保消息显示后再跳转

@@ -11,6 +11,8 @@ export const useDatabaseStore = defineStore('database', () => {
 
   // 状态
   const databases = ref([])
+  let databasesLoaded = false
+  let databasesLoading = null
   const database = ref({})
   const kbId = ref(null)
   const fileDetailFileId = ref(null)
@@ -89,29 +91,37 @@ export const useDatabaseStore = defineStore('database', () => {
 
   // 操作
   // 管理员获取所有知识库，普通用户获取有权限访问的知识库
-  async function loadDatabases() {
+  async function loadDatabases({ force = false } = {}) {
+    if (databasesLoaded && !force) return databases.value
+    if (databasesLoading) return databasesLoading
     state.listLoading = true
-    try {
-      // 当前知识库接口暂不做用户隔离，统一读取同一份知识库列表。
-      const data = await databaseApi.getDatabases()
-      const list = data?.databases || []
-      databases.value = list.sort((a, b) => {
-        const timeA = parseToShanghai(a.created_at)
-        const timeB = parseToShanghai(b.created_at)
-        if (!timeA && !timeB) return 0
-        if (!timeA) return 1
-        if (!timeB) return -1
-        return timeB.valueOf() - timeA.valueOf() // 降序排列，最新的在前面
-      })
-    } catch (error) {
-      console.error('加载数据库列表失败:', error)
-      if (error.message.includes('权限')) {
-        message.error('没有权限访问知识库')
+    databasesLoading = (async () => {
+      try {
+        // 当前知识库接口暂不做用户隔离，统一读取同一份知识库列表。
+        const data = await databaseApi.getDatabases()
+        const list = data?.databases || []
+        databases.value = list.sort((a, b) => {
+          const timeA = parseToShanghai(a.created_at)
+          const timeB = parseToShanghai(b.created_at)
+          if (!timeA && !timeB) return 0
+          if (!timeA) return 1
+          if (!timeB) return -1
+          return timeB.valueOf() - timeA.valueOf() // 降序排列，最新的在前面
+        })
+        databasesLoaded = true
+        return databases.value
+      } catch (error) {
+        console.error('加载数据库列表失败:', error)
+        if (error.message.includes('权限')) {
+          message.error('没有权限访问知识库')
+        }
+        throw error
+      } finally {
+        state.listLoading = false
+        databasesLoading = null
       }
-      throw error
-    } finally {
-      state.listLoading = false
-    }
+    })()
+    return databasesLoading
   }
 
   async function createDatabase(formData) {
@@ -125,7 +135,7 @@ export const useDatabaseStore = defineStore('database', () => {
     try {
       const data = await databaseApi.createDatabase(formData)
       message.success('创建成功')
-      await loadDatabases() // 刷新列表
+      await loadDatabases({ force: true }) // 刷新列表
       return data
     } catch (error) {
       console.error('创建数据库失败:', error)

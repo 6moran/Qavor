@@ -17,23 +17,29 @@ export const useUserStore = defineStore('user', () => {
 
   const isLoggedIn = computed(() => Boolean(token.value))
 
-  async function login(credentials) {
-    const nextToken = await loginWithPassword(fetch, credentials)
-    token.value = nextToken
+	async function login(credentials) {
+		const nextToken = await loginWithPassword(fetch, credentials)
+		setToken(nextToken)
     username.value = credentials.username
     localStorage.setItem('user_token', nextToken)
     localStorage.setItem('admin_username', credentials.username)
     return true
   }
 
-  function logout() {
+	function setToken(nextToken) {
+		token.value = nextToken || ''
+		if (nextToken) localStorage.setItem('user_token', nextToken)
+		else localStorage.removeItem('user_token')
+	}
+
+	function logout({ notifyServer = true } = {}) {
 		const currentToken = token.value
-		if (currentToken) {
+		if (notifyServer && currentToken) {
 			void logoutWithToken(fetch, currentToken).catch((error) => {
 				console.warn('后端登出失败，令牌将自然过期:', error)
 			})
 		}
-		token.value = ''
+		setToken('')
     username.value = ''
     localStorage.removeItem('user_token')
     localStorage.removeItem('admin_username')
@@ -57,7 +63,8 @@ export const useUserStore = defineStore('user', () => {
     avatar,
     userRole,
     isLoggedIn,
-    login,
+		login,
+		setToken,
     logout,
     getAuthHeaders,
     getCurrentUser

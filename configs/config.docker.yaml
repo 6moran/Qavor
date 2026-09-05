@@ -59,6 +59,7 @@ document_queue:
 jwt:
   secret: "change-me-via-env"  # JWT_SECRET 覆盖
   expire_hours: 24
+  refresh_expire_hours: 168
 
 log:
   level: "debug"

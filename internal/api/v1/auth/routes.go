@@ -9,6 +9,7 @@ func (ctrl *Controller) RegisterRoutes(r *gin.RouterGroup) {
 	authGroup := r.Group("/auth")
 	{
 		authGroup.POST("/login", ctrl.Login)
+		authGroup.POST("/refresh", ctrl.Refresh)
 		authGroup.POST("/logout", ctrl.Logout)
 	}
 }
