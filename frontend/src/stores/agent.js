@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { agentApi, databaseApi, mcpApi } from '@/apis'
+import { agentApi, mcpApi } from '@/apis'
 import { handleChatError } from '@/utils/errorHandler'
+import { useDatabaseStore } from './database'
 
 function normalizeAgent(agent) {
   const agentId = agent?.agent_id || agent?.slug || agent?.id
@@ -91,11 +92,15 @@ export const useAgentStore = defineStore(
 
     async function fetchMentionResources() {
       try {
-        const [dbsRes, mcpsRes] = await Promise.all([
-          databaseApi.getAccessibleDatabases().catch(() => ({ databases: [] })),
+        const databaseStore = useDatabaseStore()
+        const databases = databaseStore.databases.length
+          ? Promise.resolve(databaseStore.databases)
+          : databaseStore.loadDatabases().then(() => databaseStore.databases)
+        const [dbs, mcpsRes] = await Promise.all([
+          databases.catch(() => []),
           mcpApi.getMcpServers().catch(() => ({ data: [] }))
         ])
-        availableKnowledgeBases.value = dbsRes.databases || []
+        availableKnowledgeBases.value = dbs || []
         availableMcps.value = mcpsRes.data || []
       } catch (e) {
         console.warn('Failed to fetch mention resources:', e)

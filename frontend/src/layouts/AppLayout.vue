@@ -220,7 +220,7 @@ const handleTogglePinChat = async (threadId) => {
   if (!thread) return
   try {
     await chatThreadsStore.updateThread(threadId, null, !thread.is_pinned)
-    await chatThreadsStore.loadThreads()
+    await chatThreadsStore.loadThreads(null, true)
     if (currentThreadId.value) {
       chatThreadsStore.setCurrentThreadId(currentThreadId.value)
     }

@@ -74,7 +74,6 @@ frontend/node_modules/
 *.tmp
 *.temp
 
-AGENT.md
 
 .superpowers/
 
