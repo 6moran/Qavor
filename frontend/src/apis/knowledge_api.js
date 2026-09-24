@@ -728,7 +728,7 @@ export const evaluationApi = {
   },
 
   downloadDataset: async (datasetId) => {
-    return apiGet(`/api/v1/evaluation/datasets/${datasetId}/download`, {}, 'blob')
+    return apiGet(`/api/v1/evaluation/datasets/${datasetId}/download`, {}, true, 'blob')
   },
 
   generateDataset: async (kbId, params) => {
