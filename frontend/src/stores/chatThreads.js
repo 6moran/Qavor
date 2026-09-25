@@ -91,7 +91,8 @@ export const useChatThreadsStore = defineStore('chatThreads', () => {
         const existingIds = new Set(threads.value.map((thread) => thread.id))
         const newThreads = fetchedThreads.filter((thread) => !existingIds.has(thread.id))
         threads.value = [...threads.value, ...newThreads]
-        hasMoreThreads.value = newThreads.length >= PAGE_SIZE
+        // 后端分页会重复返回置顶项，newThreads 已去重，长度不能用于判断是否还有下一页
+        hasMoreThreads.value = fetchedThreads.length >= PAGE_SIZE
       } else {
         hasMoreThreads.value = false
       }
