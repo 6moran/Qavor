@@ -69,7 +69,7 @@ services:
   # MinIO (对象存储)
   # ============================
   minio:
-    image: minio/minio
+    image: docker.1panel.live/minio/minio:latest
     container_name: qavor-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -90,7 +90,7 @@ services:
 
   # MinIO 初始化：创建 bucket
   minio-init:
-    image: minio/mc
+    image: docker.1panel.live/minio/minio:latest
     container_name: qavor-minio-init
     depends_on:
       minio:
